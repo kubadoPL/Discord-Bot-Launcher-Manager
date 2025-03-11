@@ -31,10 +31,7 @@ BOTS = {
 
 running_processes = []
 
-import requests
-import zipfile
-import io
-import os
+
 
 def download_repo(bot_name, repo_name):
     """Download and extract a private GitHub repo ZIP using authentication."""
