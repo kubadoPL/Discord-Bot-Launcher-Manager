@@ -88,7 +88,9 @@ def run_bot(bot_name, bot_folder, bot_token):
     """Run bot.py with the bot token."""
     possible_paths = [
         os.path.join(BASE_DIR, bot_folder, "src", "bot.py"),
-        os.path.join(BASE_DIR, bot_folder, "bot.py")
+        os.path.join(BASE_DIR, bot_folder, "bot.py"),
+        os.path.join(BASE_DIR, bot_folder, "src", "Bot.py"),
+        os.path.join(BASE_DIR, bot_folder, "Bot.py"),
     ]
 
     bot_path = next((path for path in possible_paths if os.path.exists(path)), None)
