@@ -47,11 +47,17 @@ def clone_repo(bot_name, repo_name):
 
 def run_bot(bot_name, bot_folder, bot_token):
     """Run bot.py with the bot token."""
-    bot_path = os.path.join(BASE_DIR, bot_folder, "src", "bot.py")
+    possible_paths = [
+        os.path.join(BASE_DIR, bot_folder, "src", "bot.py"),
+        os.path.join(BASE_DIR, bot_folder, "bot.py")
+    ]
 
-    if not os.path.exists(bot_path):
+    bot_path = next((path for path in possible_paths if os.path.exists(path)), None)
+
+    if not bot_path:
         print(f"{bot_name}: Error: bot.py is missing or not a file.")
         return
+
 
     try:
         process = subprocess.Popen(
