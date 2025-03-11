@@ -132,7 +132,7 @@ atexit.register(stop_bots)
 
 for bot_name, config in BOTS.items():
     repo_name = config.get("repo")
-    bot_token = config.get("token")
+    bot_token = os.environ.get(config.get("token"))
 
     if not bot_token:
         print(f"{bot_name}: No token found, skipping.")
