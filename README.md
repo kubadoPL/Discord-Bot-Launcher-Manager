@@ -1,6 +1,6 @@
-# Discord Bot Launcher
+# Discord Bot Launcher Manager
 
-A Python script for managing multiple Discord bots by downloading their repositories from GitHub, extracting them, and running them.
+A Python script for managing multiple Discord.py bots by downloading their repositories from GitHub, extracting them, and running them.
 
 ## Features
 - Fetch bot configurations from an online JSON or a local `bots.json` file.
