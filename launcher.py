@@ -13,7 +13,7 @@ BASE_DIR = "bots"
 GITHUB_USER = os.environ.get("GitHub_User")
 GITHUB_TOKEN = os.environ.get("GitHub_TOKEN")
 LOCAL_JSON_PATH = "bots.json"
-ONLINE_JSON_URL = "https://k5studio.dev/bots.json"  # Replace with actual URL
+ONLINE_JSON_URL = os.environ.get("ONLINE_JSON_URL")
 
 running_processes = []
 
