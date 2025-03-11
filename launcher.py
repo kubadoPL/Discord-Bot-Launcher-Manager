@@ -5,6 +5,9 @@ import atexit
 import shutil
 import threading
 import sys
+import zipfile
+import io
+import requests
 
 BASE_DIR = "bots"
 GITHUB_USER = "kubadoPL"
@@ -27,6 +30,45 @@ BOTS = {
 
 
 running_processes = []
+
+import requests
+import zipfile
+import io
+import os
+
+def download_repo(bot_name, repo_name):
+    """Download and extract a private GitHub repo ZIP using authentication."""
+    bot_folder = os.path.join(BASE_DIR, bot_name.lower())
+
+    if os.path.exists(bot_folder):
+        print(f"{bot_name}: Repository already exists, skipping download.")
+        return
+
+    zip_url = f"https://api.github.com/repos/{GITHUB_USER}/{repo_name}/zipball/main"
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+
+    print(f"{bot_name}: Downloading repository ZIP...")
+
+    try:
+        response = requests.get(zip_url, headers=headers, stream=True)
+        response.raise_for_status()
+
+        with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+            extracted_folder_name = z.namelist()[0].split('/')[0]  # Extract folder name from ZIP
+            z.extractall(BASE_DIR)
+
+        os.rename(os.path.join(BASE_DIR, extracted_folder_name), bot_folder)
+
+        print(f"{bot_name}: Repository downloaded and extracted successfully.")
+
+    except requests.exceptions.RequestException as e:
+        print(f"{bot_name}: Failed to download repository - {e}")
+    except zipfile.BadZipFile:
+        print(f"{bot_name}: Error: Downloaded file is not a valid ZIP archive.")
+
 
 def clone_repo(bot_name, repo_name):
     """Clone the bot repository using GitHub token."""
@@ -116,7 +158,7 @@ for bot_name, config in BOTS.items():
         continue
 
     bot_folder = bot_name.lower()
-    clone_repo(bot_name, repo_name)
+    download_repo(bot_name, repo_name)
     run_bot(bot_name, bot_folder, bot_token)
 
 
