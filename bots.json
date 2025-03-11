@@ -5,7 +5,7 @@
     },
     "PszczelarzBOT": {
         "repo": "PszczelarzBOT",
-        "token": "PSZCZELARZBOT_TOKEN"
+        "token": "PszczelarzBOT_TOKEN"
     },
     "Social-Credit-Bot": {
         "repo": "Social-Credit-Bot",
