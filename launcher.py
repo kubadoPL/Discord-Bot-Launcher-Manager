@@ -13,7 +13,7 @@ BASE_DIR = "bots"
 GITHUB_USER = "kubadoPL"
 GITHUB_TOKEN = os.environ.get("GitHub_TOKEN")
 LOCAL_JSON_PATH = "bots.json"
-ONLINE_JSON_URL = "https://example.com/bots.json"  # Replace with actual URL
+ONLINE_JSON_URL = "https://raw.githubusercontent.com/kubadoPL/Bot-launcher/refs/heads/main/bots.json?token=GHSAT0AAAAAAC7UHBGTDDMCTIHH2RNDBZ4KZ6QPOXQ"  # Replace with actual URL
 
 running_processes = []
 
