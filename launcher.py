@@ -2,35 +2,40 @@ import os
 import subprocess
 import signal
 import atexit
-import shutil
 import threading
 import sys
 import zipfile
 import io
 import requests
+import json
 
 BASE_DIR = "bots"
 GITHUB_USER = "kubadoPL"
 GITHUB_TOKEN = os.environ.get("GitHub_TOKEN")
-
-BOTS = {
-    "EzeteriuszMaximusBOT": {
-        "repo": "EzeteriuszMaximusBOT",
-        "token": os.environ.get("EZETERIUSZ_TOKEN"),
-    },
-    "PszczelarzBOT": {
-        "repo": "PszczelarzBOT",
-        "token": os.environ.get("PszczelarzBOT_TOKEN"),
-    },
-     "Social-Credit-Bot": {
-        "repo": "Social-Credit-Bot",
-        "token": os.environ.get("SOCIALCREDITBOT_TOKEN"),
-    },
-}
-
+LOCAL_JSON_PATH = "bots.json"
+ONLINE_JSON_URL = "https://example.com/bots.json"  # Replace with actual URL
 
 running_processes = []
 
+
+def load_bots():
+    """Try to load bot data from an online URL; if it fails, use local JSON."""
+    try:
+        response = requests.get(ONLINE_JSON_URL, timeout=5)
+        response.raise_for_status()
+        print("Using online bot data.")
+        return response.json()
+    except requests.exceptions.RequestException:
+        print("Failed to fetch online bot data. Using local JSON.")
+        if os.path.exists(LOCAL_JSON_PATH):
+            with open(LOCAL_JSON_PATH, "r", encoding="utf-8") as file:
+                return json.load(file)
+        else:
+            print("Error: Local JSON file not found.")
+            return {}
+
+
+BOTS = load_bots()
 
 
 def download_repo(bot_name, repo_name):
@@ -67,23 +72,6 @@ def download_repo(bot_name, repo_name):
         print(f"{bot_name}: Error: Downloaded file is not a valid ZIP archive.")
 
 
-def clone_repo(bot_name, repo_name):
-    """Clone the bot repository using GitHub token."""
-    bot_folder = os.path.join(BASE_DIR, bot_name.lower())
-    repo_url = f"https://{GITHUB_TOKEN}@github.com/{GITHUB_USER}/{repo_name}.git"
-
-    if os.path.exists(bot_folder):
-        print(f"{bot_name}: Repository already exists, skipping clone.")
-        return
-
-    print(f"{bot_name}: Cloning repository...")
-    
-    try:
-        subprocess.run(["git", "clone", repo_url, bot_folder], check=True)
-        print(f"{bot_name}: Repository cloned successfully.")
-    except subprocess.CalledProcessError as e:
-        print(f"{bot_name}: Failed to clone repository - {e}")
-
 def run_bot(bot_name, bot_folder, bot_token):
     """Run bot.py with the bot token."""
     possible_paths = [
@@ -99,13 +87,12 @@ def run_bot(bot_name, bot_folder, bot_token):
         print(f"{bot_name}: Error: bot.py is missing or not a file.")
         return
 
-
     try:
         process = subprocess.Popen(
             [sys.executable, "-u", bot_path],  # Use -u to disable buffering
             env={**os.environ, "BOT_TOKEN": bot_token},
-            stdout=subprocess.PIPE,  
-            stderr=subprocess.PIPE,  
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             bufsize=1
         )
@@ -123,34 +110,29 @@ def run_bot(bot_name, bot_folder, bot_token):
         print(f"{bot_name}: Failed to start bot - {e}")
 
 
-
 def stop_bots():
     """Terminate all running bots."""
     print("Stopping all bots...")
     for process in running_processes:
-        if process.poll() is None:  
-            process.terminate()  
+        if process.poll() is None:
+            process.terminate()
             try:
-                process.wait(timeout=5)  
+                process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                process.kill()  
+                process.kill()
             print(f"Terminated bot with PID {process.pid}")
-
 
 
 os.makedirs(BASE_DIR, exist_ok=True)
 
-
 signal.signal(signal.SIGINT, lambda signum, frame: stop_bots())
 signal.signal(signal.SIGTERM, lambda signum, frame: stop_bots())
 
-
 atexit.register(stop_bots)
 
-
 for bot_name, config in BOTS.items():
-    repo_name = config["repo"]
-    bot_token = config["token"]
+    repo_name = config.get("repo")
+    bot_token = config.get("token")
 
     if not bot_token:
         print(f"{bot_name}: No token found, skipping.")
@@ -160,11 +142,10 @@ for bot_name, config in BOTS.items():
     download_repo(bot_name, repo_name)
     run_bot(bot_name, bot_folder, bot_token)
 
-
 try:
     while True:
-        pass  
+        pass
 except KeyboardInterrupt:
-    pass  
+    pass
 finally:
-    stop_bots()  
+    stop_bots()
