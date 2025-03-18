@@ -26,3 +26,4 @@ yt-dlp==2025.02.19
 colorlog
 mysql
 mysql.connector
+pymysql
