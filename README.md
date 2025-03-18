@@ -8,6 +8,7 @@ A Python script for managing multiple Discord.py bots by downloading their repos
 - Automatically extract and organize bot files.
 - Start multiple bots in parallel while handling logging and errors.
 - Gracefully stop all bots on exit.
+- Update Bot that recieved new pushed commit
 
 ## Requirements
 - Python 3.x
