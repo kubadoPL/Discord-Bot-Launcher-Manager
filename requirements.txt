@@ -24,3 +24,4 @@ tzlocal==2.1
 urllib3==1.26.3
 yt-dlp==2025.02.19
 colorlog
+mysql.connector
