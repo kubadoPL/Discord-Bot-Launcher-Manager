@@ -8,6 +8,8 @@ import zipfile
 import io
 import requests
 import json
+import time
+import shutil 
 
 BASE_DIR = "bots"
 GITHUB_USER = os.environ.get("GitHub_User")
@@ -15,7 +17,8 @@ GITHUB_TOKEN = os.environ.get("GitHub_TOKEN")
 LOCAL_JSON_PATH = "bots.json"
 ONLINE_JSON_URL = os.environ.get("ONLINE_JSON_URL")
 
-running_processes = []
+running_processes = {}
+latest_commits = {}
 
 
 def load_bots():
@@ -36,6 +39,23 @@ def load_bots():
 
 
 BOTS = load_bots()
+
+
+def get_latest_commit_hash(repo_name):
+    """Fetch the latest commit hash for the repository."""
+    url = f"https://api.github.com/repos/{GITHUB_USER}/{repo_name}/commits/main"
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return response.json().get("sha")
+    except requests.exceptions.RequestException:
+        print(f"{repo_name}: Failed to fetch latest commit hash.")
+        return None
 
 
 def download_repo(bot_name, repo_name):
@@ -59,7 +79,7 @@ def download_repo(bot_name, repo_name):
         response.raise_for_status()
 
         with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-            extracted_folder_name = z.namelist()[0].split('/')[0]  # Extract folder name from ZIP
+            extracted_folder_name = z.namelist()[0].split('/')[0] 
             z.extractall(BASE_DIR)
 
         os.rename(os.path.join(BASE_DIR, extracted_folder_name), bot_folder)
@@ -89,14 +109,14 @@ def run_bot(bot_name, bot_folder, bot_token):
 
     try:
         process = subprocess.Popen(
-            [sys.executable, "-u", bot_path],  # Use -u to disable buffering
+            [sys.executable, "-u", bot_path], 
             env={**os.environ, "BOT_TOKEN": bot_token},
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1
         )
-        running_processes.append(process)
+        running_processes[bot_name] = process
         print(f"{bot_name}: Bot started successfully with PID {process.pid}")
 
         def stream_output(stream, prefix):
@@ -110,25 +130,70 @@ def run_bot(bot_name, bot_folder, bot_token):
         print(f"{bot_name}: Failed to start bot - {e}")
 
 
-def stop_bots():
-    """Terminate all running bots."""
+def stop_bot(bot_name):
+    """Stop a specific bot process."""
+    process = running_processes.get(bot_name)
+    if process and process.poll() is None:
+        print(f"{bot_name}: Stopping bot...")
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+        print(f"{bot_name}: Bot stopped.")
+        del running_processes[bot_name]
+
+
+def stop_all_bots():
+    """Stop all running bots."""
     print("Stopping all bots...")
-    for process in running_processes:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-            print(f"Terminated bot with PID {process.pid}")
+    for bot_name in list(running_processes.keys()):
+        stop_bot(bot_name)
 
 
 os.makedirs(BASE_DIR, exist_ok=True)
 
-signal.signal(signal.SIGINT, lambda signum, frame: stop_bots())
-signal.signal(signal.SIGTERM, lambda signum, frame: stop_bots())
+signal.signal(signal.SIGINT, lambda signum, frame: stop_all_bots())
+signal.signal(signal.SIGTERM, lambda signum, frame: stop_all_bots())
 
-atexit.register(stop_bots)
+atexit.register(stop_all_bots)
+
+def delete_repo(repo_name):
+    """Delete the bot's folder to remove old code."""
+    bot_folder = repo_name.lower()
+    bot_path = os.path.join(BASE_DIR, bot_folder)
+    if os.path.exists(bot_path):
+        print(f"Deleting old repository: {bot_folder} ...")
+        shutil.rmtree(bot_path)
+        print(f"Deleted old repository: {bot_folder}.")
+
+def check_for_updates():
+    """Periodically check for updates in the repositories and restart bots if needed."""
+    global latest_commits
+    while True:
+        for bot_name, config in BOTS.items():
+            repo_name = config.get("repo")
+            bot_token = os.environ.get(config.get("token"))
+
+            if not bot_token:
+                print(f"{bot_name}: No token found, skipping.")
+                continue
+
+            bot_folder = bot_name.lower()
+
+            latest_commit = get_latest_commit_hash(repo_name)
+
+            if latest_commit and latest_commit != latest_commits.get(bot_name):
+                print(f"{bot_name}: New update detected! Restarting bot...")
+                stop_bot(bot_name)
+                delete_repo(repo_name)
+                download_repo(bot_name, repo_name)
+                run_bot(bot_name, bot_folder, bot_token)
+                latest_commits[bot_name] = latest_commit
+
+        time.sleep(60)  
+
+
 
 for bot_name, config in BOTS.items():
     repo_name = config.get("repo")
@@ -140,12 +205,17 @@ for bot_name, config in BOTS.items():
 
     bot_folder = bot_name.lower()
     download_repo(bot_name, repo_name)
+    latest_commits[bot_name] = get_latest_commit_hash(repo_name)
     run_bot(bot_name, bot_folder, bot_token)
+
+
+update_thread = threading.Thread(target=check_for_updates, daemon=True)
+update_thread.start()
 
 try:
     while True:
-        pass
+        time.sleep(1)
 except KeyboardInterrupt:
     pass
 finally:
-    stop_bots()
+    stop_all_bots()
