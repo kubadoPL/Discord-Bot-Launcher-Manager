@@ -5,11 +5,11 @@ cffi==1.14.5
 chardet==3.0.4
 click==7.1.2
 comtypes==1.1.8
-discord.py
+discord.py==2.2.2
 discord.py[voice]
 docopt==0.6.2
 ffmpeg
-gTTS
+gTTS==2.2.2
 imagehash
 ksoftapi==0.4.1
 pipwin==0.5.1
@@ -24,4 +24,3 @@ tzlocal==2.1
 urllib3==1.26.3
 yt-dlp==2025.02.19
 colorlog
-mysql.connector
