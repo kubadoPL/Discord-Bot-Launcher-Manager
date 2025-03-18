@@ -27,3 +27,4 @@ colorlog
 mysql
 mysql.connector
 pymysql
+mysql-connector-python==8.0.33
