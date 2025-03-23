@@ -29,3 +29,5 @@ mysql.connector
 pymysql
 mysql-connector-python==8.0.33
 discord.ui
+flask
+threading
