@@ -74,11 +74,61 @@ def update_balance():
     print("[SUCCESS] Balance updated successfully.")
     return jsonify({'message': 'Balance updated successfully'})
 
+
+# Roblox support
+@app.route('/roblox/get_balance', methods=['GET'])
+def get_roblox_balance():
+    roblox_id = request.args.get('roblox_id')
+    print(f"[REQUEST] GET /roblox/get_balance - roblox_id: {roblox_id}")
+
+    if not roblox_id:
+        print("[ERROR] Missing roblox_id in request.")
+        return jsonify({'error': 'Missing roblox_id'}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    print(f"[DB QUERY] Fetching balance for roblox_id: {roblox_id}")
+    cursor.execute("SELECT balance FROM roblox_users WHERE roblox_id = %s", (roblox_id,))
+    user = cursor.fetchone()
+    
+    conn.close()
+
+    if user:
+        print(f"[SUCCESS] Retrieved balance: {user['balance']} for roblox_id: {roblox_id}")
+        return jsonify({'balance': user['balance']})
+    else:
+        print("[ERROR] Roblox user not found.")
+        return jsonify({'error': 'Roblox user not found'}), 404
+
+@app.route('/roblox/update_balance', methods=['POST'])
+def update_roblox_balance():
+    data = request.json
+    roblox_id = data.get('roblox_id')
+    amount = data.get('amount')
+
+    print(f"[REQUEST] POST /roblox/update_balance - roblox_id: {roblox_id}, amount: {amount}")
+
+    if not roblox_id or amount is None:
+        print("[ERROR] Missing roblox_id or amount in request.")
+        return jsonify({'error': 'Missing roblox_id or amount'}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    print(f"[DB QUERY] Updating balance for roblox_id: {roblox_id} by {amount}")
+    cursor.execute("UPDATE roblox_users SET balance = balance + %s WHERE roblox_id = %s", (amount, roblox_id))
+    conn.commit()
+    conn.close()
+
+    print("[SUCCESS] Roblox balance updated successfully.")
+    return jsonify({'message': 'Roblox balance updated successfully'})
+
+
 def run_api():
-    print("[INFO] Starting API server on port 5000...")
     port = int(os.environ.get("PORT", 5000))  # Get the port from environment variable
+    print(f"[INFO] Starting API server on port {port}...")
     app.run(host='0.0.0.0', port=port)
 
     
 run_api()
-print("Api run!")
