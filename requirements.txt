@@ -30,3 +30,4 @@ pymysql
 mysql-connector-python==8.0.33
 discord.ui
 flask
+werkzeug==2.0.3
