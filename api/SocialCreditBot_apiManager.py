@@ -89,7 +89,7 @@ def get_roblox_balance():
     cursor = conn.cursor(dictionary=True)
 
     print(f"[DB QUERY] Fetching balance for roblox_id: {roblox_id}")
-    cursor.execute("SELECT balance FROM roblox_users WHERE roblox_id = %s", (roblox_id,))
+    cursor.execute("SELECT balance FROM users WHERE roblox_id = %s", (roblox_id,))
     user = cursor.fetchone()
     
     conn.close()
@@ -117,7 +117,7 @@ def update_roblox_balance():
     cursor = conn.cursor()
 
     print(f"[DB QUERY] Updating balance for roblox_id: {roblox_id} by {amount}")
-    cursor.execute("UPDATE roblox_users SET balance = balance + %s WHERE roblox_id = %s", (amount, roblox_id))
+    cursor.execute("UPDATE users SET balance = balance + %s WHERE roblox_id = %s", (amount, roblox_id))
     conn.commit()
     conn.close()
 
