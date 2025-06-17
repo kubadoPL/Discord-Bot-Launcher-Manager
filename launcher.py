@@ -12,7 +12,7 @@ import time
 import shutil 
 from bot_state import running_processes
 
-BASE_DIR = "bots"
+BASE_DIR = "/tmp/bots"
 GITHUB_USER = os.environ.get("GitHub_User")
 GITHUB_TOKEN = os.environ.get("GitHub_TOKEN")
 LOCAL_JSON_PATH = "bots.json"
