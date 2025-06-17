@@ -6,6 +6,8 @@ import hashlib
 import secrets
 from flask import render_template
 
+from bot_state import running_processes
+
 app = Flask(__name__)
 
 
@@ -54,6 +56,10 @@ def get_db_connection():
 @app.route('/')
 def main_page():
     return render_template('main.html')
+
+@app.route('/running_bots')
+def running_bots():
+    return jsonify(list(running_processes.keys()))
 
 @app.route('/get_balance', methods=['GET'])
 def get_balance():

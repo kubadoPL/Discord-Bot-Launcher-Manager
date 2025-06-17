@@ -17,7 +17,7 @@ GITHUB_TOKEN = os.environ.get("GitHub_TOKEN")
 LOCAL_JSON_PATH = "bots.json"
 ONLINE_JSON_URL = os.environ.get("ONLINE_JSON_URL")
 
-running_processes = {}
+from bot_state import running_processes
 latest_commits = {}
 
 

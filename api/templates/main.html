@@ -6,9 +6,51 @@
 <body>
     <h1>Welcome to the API Server</h1>
     <p>Use the documented endpoints to interact with the system.</p>
+
+    <h2>Check Balance by User ID</h2>
+    <form action="/get_balance" method="get">
+        <label for="user_id">User ID:</label>
+        <input type="text" id="user_id" name="user_id" required>
+        <button type="submit">Check Balance</button>
+    </form>
+
+    <h2>Check Balance by Roblox ID</h2>
+    <form action="/roblox/get_balance" method="get">
+        <label for="roblox_id">Roblox ID:</label>
+        <input type="text" id="roblox_id" name="roblox_id" required>
+        <button type="submit">Check Balance</button>
+    </form>
+
+    <hr>
+
+    <p>Example Endpoints:</p>
     <ul>
-        <li><a href="/get_balance?user_id=123">/get_balance</a></li>
-        <li><a href="/roblox/get_balance?roblox_id=456">/roblox/get_balance</a></li>
+        <li><a href="/get_balance?user_id=264079253757231104">/get_balance?user_id=264079253757231104</a></li>
+        <li><a href="/roblox/get_balance?roblox_id=257500145">/roblox/get_balance?roblox_id=257500145</a></li>
+    </ul>
+
+    <h2>Currently Running Bots</h2>
+    <ul id="bot-list">
+        <li>Loading...</li>
     </ul>
 </body>
+<script>
+        async function loadRunningBots() {
+            try {
+                const response = await fetch('/running_bots');
+                const bots = await response.json();
+                const list = document.getElementById('bot-list');
+                list.innerHTML = ''; // Clear previous list
+                bots.forEach(bot => {
+                    const li = document.createElement('li');
+                    li.textContent = bot;
+                    list.appendChild(li);
+                });
+            } catch (err) {
+                console.error('Failed to load running bots:', err);
+            }
+        }
+
+        window.onload = loadRunningBots;
+    </script>
 </html>
