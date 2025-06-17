@@ -5,12 +5,10 @@ import os
 import hashlib
 import secrets
 from flask import render_template
-import bot_state
-import importlib
+import json
+from bot_state import get_running_bots
 
 
-
-running_processes = bot_state.running_processes
 
 
 app = Flask(__name__)
@@ -64,9 +62,9 @@ def main_page():
 
 @app.route('/running_bots')
 def running_bots():
-    importlib.reload(bot_state)
-    print("running_processes content:", running_processes)
-    return jsonify(list(running_processes.keys()))
+    bots = get_running_bots()
+    return jsonify(bots)
+
 
 
 @app.route('/get_balance', methods=['GET'])

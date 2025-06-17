@@ -18,8 +18,17 @@ GITHUB_TOKEN = os.environ.get("GitHub_TOKEN")
 LOCAL_JSON_PATH = "bots.json"
 ONLINE_JSON_URL = os.environ.get("ONLINE_JSON_URL")
 
-running_processes = bot_state.running_processes
+running_processes = {}
 latest_commits = {}
+
+
+def update_state(bot_name, running=True):
+    with open("bot_state.json", "r+") as f:
+        state = json.load(f)
+        state[bot_name] = running
+        f.seek(0)
+        json.dump(state, f)
+        f.truncate()
 
 
 def load_bots():
@@ -118,6 +127,7 @@ def run_bot(bot_name, bot_folder, bot_token):
             bufsize=1
         )
         running_processes[bot_name] = process
+        bot_state.register_bot(bot_name)
         print(f"{bot_name}: Bot started successfully with PID {process.pid}")
 
         def stream_output(stream, prefix):
@@ -143,6 +153,7 @@ def stop_bot(bot_name):
             process.kill()
         print(f"{bot_name}: Bot stopped.")
         del running_processes[bot_name]
+        bot_state.unregister_bot(bot_name)
 
 
 def stop_all_bots():
