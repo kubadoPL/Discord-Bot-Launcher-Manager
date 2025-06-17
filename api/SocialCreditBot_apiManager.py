@@ -62,7 +62,9 @@ def main_page():
 
 @app.route('/running_bots')
 def running_bots():
+    print("running_processes content:", running_processes)
     return jsonify(list(running_processes.keys()))
+
 
 @app.route('/get_balance', methods=['GET'])
 def get_balance():
