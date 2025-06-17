@@ -10,6 +10,7 @@ import requests
 import json
 import time
 import shutil 
+from bot_state import running_processes
 
 BASE_DIR = "bots"
 GITHUB_USER = os.environ.get("GitHub_User")
@@ -17,7 +18,7 @@ GITHUB_TOKEN = os.environ.get("GitHub_TOKEN")
 LOCAL_JSON_PATH = "bots.json"
 ONLINE_JSON_URL = os.environ.get("ONLINE_JSON_URL")
 
-from bot_state import running_processes
+
 latest_commits = {}
 
 
