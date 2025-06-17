@@ -9,7 +9,7 @@ import json
 from bot_state import get_running_bots
 from bot_state import get_discord_user_profile
 from bot_state import get_roblox_username, get_roblox_avatar
-
+from functools import wraps
 
 app = Flask(__name__)
 
@@ -34,7 +34,7 @@ def validate_api_key(api_key):
     return result is not None  # Returns True if key exists
 
 def require_api_key(func):
-    """Decorator to enforce API key validation"""
+    @wraps(func)
     def wrapper(*args, **kwargs):
         api_key = request.headers.get('X-API-Key')
         if not api_key or not validate_api_key(api_key):
