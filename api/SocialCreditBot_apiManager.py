@@ -6,7 +6,10 @@ import hashlib
 import secrets
 from flask import render_template
 
-from bot_state import running_processes
+
+import bot_state
+running_processes = bot_state.running_processes
+
 
 app = Flask(__name__)
 
