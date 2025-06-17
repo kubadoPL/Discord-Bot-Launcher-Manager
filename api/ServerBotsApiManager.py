@@ -224,7 +224,7 @@ def update_roblox_balance():
 
 @app.route("/spotify/token", methods=["GET"])
 def get_spotify_token():
-    print("[REQUEST] GET /spotify/token")
+    #print("[REQUEST] GET /spotify/token")
 
     SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID")
     SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET")
@@ -243,7 +243,7 @@ def get_spotify_token():
     response = requests.post(token_url, headers=headers, data=data)
     if response.status_code == 200:
         token_data = response.json()
-        print("[SUCCESS] Spotify token retrieved")
+        #print("[SUCCESS] Spotify token retrieved")
         return jsonify(
             {
                 "access_token": token_data["access_token"],
@@ -251,7 +251,7 @@ def get_spotify_token():
             }
         )
     else:
-        print("[ERROR] Failed to retrieve Spotify token")
+       # print("[ERROR] Failed to retrieve Spotify token")
         return (
             jsonify(
                 {
