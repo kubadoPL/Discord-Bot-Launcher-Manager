@@ -11,7 +11,7 @@ os.chdir(parent_dir)  # Change working directory
 print("Working directory set to:", os.getcwd())
 
 LOCK = threading.Lock()
-REGISTRY_FILE = os.path.join(os.path.dirname(__file__), "bot_registry.json")
+REGISTRY_FILE = os.path.join(os.path.dirname(__file__), "/tmp/bot_registry.json")
 
 def load_registry():
     with LOCK:
