@@ -30,9 +30,8 @@ def get_running_bots():
     for bot_name, bot_info in BOTS.items():
         if bot_info.get("running", False):
             running_bots.append({
-                "name": bot_name,
-                "repo": bot_info.get("repo"),
-                "status": "running"
+                bot_name
+        
             })
     return running_bots
 
