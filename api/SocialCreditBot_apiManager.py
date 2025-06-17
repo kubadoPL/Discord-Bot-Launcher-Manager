@@ -97,6 +97,8 @@ def get_balance():
 @require_api_key
 def update_balance():
     data = request.json
+    if data is None:
+        return jsonify({"error": "Missing or invalid JSON body"}), 400
     user_id = data.get('user_id')
     amount = data.get('amount')
 
@@ -153,6 +155,8 @@ def get_roblox_balance():
 @require_api_key
 def update_roblox_balance():
     data = request.json
+    if data is None:
+        return jsonify({"error": "Missing or invalid JSON body"}), 400
     roblox_id = data.get('roblox_id')
     amount = data.get('amount')
 
