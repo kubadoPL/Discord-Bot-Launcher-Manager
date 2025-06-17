@@ -22,17 +22,13 @@ def load_bots():
             return {}
 
 
-
-
 def get_running_bots():
-    """Get a list of currently running bots."""
-    BOTS = load_bots()
-    running_bots = {}
-    for bot_name, bot_info in BOTS.items():
-        if bot_info.get("running", False):
-            running_bots.append({
-                bot_name
-        
-            })
+    """Get a list of currently running bot names."""
+    BOTS = load_bots() 
+    
+    running_bots = []
+    for bot_name in BOTS.keys():
+        running_bots.append(bot_name)
+    
     return running_bots
 
