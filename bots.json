@@ -17,6 +17,7 @@
     },
      "Groovy": {
         "repo": "Groovy",
-        "token": "GROOVY_TOKEN"
+        "token": "GROOVY_TOKEN",
+        "displayName": "Groovy"
     }
 }

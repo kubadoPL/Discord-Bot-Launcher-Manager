@@ -2,6 +2,23 @@
 <html>
 <head>
     <title>Main Page</title>
+    <style>
+        .bot-profile {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            gap: 12px;
+        }
+        .bot-profile img {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+        }
+        .bot-profile span {
+            font-size: 16px;
+            font-weight: bold;
+        }
+    </style>
 </head>
 <body>
     <h1>Welcome to the API Server</h1>
@@ -30,27 +47,40 @@
     </ul>
 
     <h2>Currently Running Bots</h2>
-    <ul id="bot-list">
-        <li>Loading...</li>
-    </ul>
-</body>
-<script>
+    <div id="bot-list">
+        <p>Loading...</p>
+    </div>
+
+     <script>
         async function loadRunningBots() {
             try {
                 const response = await fetch('/running_bots');
                 const bots = await response.json();
-                const list = document.getElementById('bot-list');
-                list.innerHTML = ''; // Clear previous list
+                const container = document.getElementById('bot-list');
+                container.innerHTML = ''; // Clear default content
+
                 bots.forEach(bot => {
-                    const li = document.createElement('li');
-                    li.textContent = bot;
-                    list.appendChild(li);
+                    const botDiv = document.createElement('div');
+                    botDiv.className = 'bot-profile';
+
+                    const img = document.createElement('img');
+                    img.src = bot.avatar_url || 'https://cdn.discordapp.com/embed/avatars/0.png';
+                    img.alt = bot.username;
+
+                    const name = document.createElement('span');
+                    name.textContent = `${bot.username}#${bot.discriminator}`;
+
+                    botDiv.appendChild(img);
+                    botDiv.appendChild(name);
+                    container.appendChild(botDiv);
                 });
             } catch (err) {
-                console.error('Failed to load running bots:', err);
+                console.error('Failed to load bots:', err);
+                document.getElementById('bot-list').innerHTML = '<p>Error loading bots.</p>';
             }
         }
 
         window.onload = loadRunningBots;
     </script>
+</body>
 </html>
