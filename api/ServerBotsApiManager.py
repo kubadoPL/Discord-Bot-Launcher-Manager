@@ -13,8 +13,10 @@ from functools import wraps
 import base64
 import requests
 
-app = Flask(__name__)
+from flask_cors import CORS
 
+app = Flask(__name__)
+CORS(app)  # enable CORS globally
 
 # Set working directory to one level up from where bot.py is
 script_dir = os.path.dirname(os.path.abspath(__file__))
