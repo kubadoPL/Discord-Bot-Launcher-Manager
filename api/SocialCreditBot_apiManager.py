@@ -23,7 +23,7 @@ print("Working directory set to:", os.getcwd())
 
 def validate_api_key(api_key):
     """Validates API key by checking against stored hashed values"""
-    hashed_key = hashlib.sha256(api_key.encode()).hexdigest()
+    hashed_key =  api_key #hashlib.sha256(api_key.encode()).hexdigest()
     
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -94,6 +94,7 @@ def get_balance():
         return jsonify({'error': 'User not found'}), 404
 
 @app.route('/update_balance', methods=['POST'])
+@require_api_key
 def update_balance():
     data = request.json
     user_id = data.get('user_id')
@@ -149,6 +150,7 @@ def get_roblox_balance():
         return jsonify({'error': 'Roblox user not found'}), 404
 
 @app.route('/roblox/update_balance', methods=['POST'])
+@require_api_key
 def update_roblox_balance():
     data = request.json
     roblox_id = data.get('roblox_id')
@@ -195,5 +197,6 @@ def createtable():
 
 
 
-#createtable()
+createtable()
+
 run_api()

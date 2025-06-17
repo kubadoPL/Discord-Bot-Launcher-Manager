@@ -78,10 +78,10 @@ def load_bots():
     try:
         response = requests.get(ONLINE_JSON_URL, timeout=5)
         response.raise_for_status()
-        print("Using online bot data.")
+       # print("Using online bot data.")
         return response.json()
     except requests.exceptions.RequestException:
-        print("Failed to fetch online bot data. Using local JSON.")
+       # print("Failed to fetch online bot data. Using local JSON.")
         if os.path.exists(LOCAL_JSON_PATH):
             with open(LOCAL_JSON_PATH, "r", encoding="utf-8") as file:
                 return json.load(file)
@@ -113,5 +113,5 @@ def get_running_bots():
 
         
         
-    print(f"Running bots: {running_bots}")
+    #print(f"Running bots: {running_bots}")
     return running_bots
