@@ -6,170 +6,207 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
 <style>
   :root {
-    --primary-color: #4F46E5;
-    --bg-color: #f9fafb;
-    --card-bg: #ffffff;
-    --text-color: #111827;
-    --muted-text: #6b7280;
-    --border-radius: 12px;
-  }
-  body {
-    margin: 0; padding: 0;
-    font-family: 'Inter', sans-serif;
-    background-color: var(--bg-color);
-    color: var(--text-color);
-    line-height: 1.6;
-  }
- header {
+  --primary-color: #6366F1;     
+  --bg-color: #1F2937;           
+  --card-bg: #374151;            
+  --text-color: #F3F4F6;         
+  --muted-text: #9CA3AF;         
+  --border-radius: 12px;
+  --border-color: #4B5563;       
+  --button-hover: #4F46E5;       
+  --input-border: #6B7280;       
+}
+
+body {
+  margin: 0; 
+  padding: 0;
+  font-family: 'Inter', sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  line-height: 1.6;
+}
+
+header {
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
-  z-index: 100; /* to stay above other content */
+  z-index: 100; 
   background-color: var(--primary-color);
-  color: white;
+  color: var(--text-color);
   padding: 20px 40px;
   box-sizing: border-box;
 }
 
-/* Add top padding to main to avoid being hidden under fixed header */
+
 main {
-  padding-top: 80px; /* roughly the height of your header (adjust if needed) */
+  padding-top: 80px;
   max-width: 800px;
-  margin: 40px auto 0 auto; /* top margin can be reduced if padding-top used */
+  margin: 40px auto 0 auto; 
   padding-left: 20px;
   padding-right: 20px;
 }
 
-  header h1 {
-    margin: 0;
-    font-size: 28px;
-  }
-  main {
-    max-width: 800px;
-    margin: 40px auto;
-    padding: 0 20px;
-  }
-  section {
-    margin-bottom: 40px;
-  }
-  h2 {
-    font-size: 22px;
-    margin-bottom: 12px;
-    color: var(--text-color);
-  }
-  form {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    background-color: var(--card-bg);
-    padding: 20px;
-    border-radius: var(--border-radius);
-    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
-  }
-  label {
-    font-weight: 600;
-  }
-  input[type="text"] {
-    padding: 10px;
-    font-size: 16px;
-    border: 1px solid #d1d5db;
-    border-radius: 6px;
-  }
-  button {
-    background-color: var(--primary-color);
-    color: white;
-    padding: 10px 16px;
-    font-size: 16px;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background-color 0.3s ease;
-  }
-  button:hover {
-    background-color: #4338ca;
-  }
-  ul {
-    padding-left: 20px;
-  }
-  li a {
-    color: var(--primary-color);
-    text-decoration: none;
-  }
-  li a:hover {
-    text-decoration: underline;
-  }
-  .bot-profile {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    background-color: var(--card-bg);
-    padding: 12px;
-    margin-bottom: 10px;
-    border-radius: var(--border-radius);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.03);
-  }
-  .bot-profile img {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-  }
-  .bot-profile span {
-    font-size: 16px;
-    font-weight: 600;
-  }
-  .muted {
-    color: var(--muted-text);
-  }
-  hr {
-    border: none;
-    border-top: 1px solid #e5e7eb;
-    margin: 40px 0;
-  }
-  
-  /* Modal styles */
-  #modalOverlay {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.5);
-    display: none;
-    justify-content: center;
-    align-items: center;
-    z-index: 1000;
-  }
-  #modal {
-    background: var(--card-bg);
-    border-radius: var(--border-radius);
-    padding: 24px;
-    max-width: 400px;
-    width: 90%;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.2);
-    text-align: center;
-    position: relative;
-  }
-  #modalClose {
-    position: absolute;
-    top: 12px; right: 12px;
-    background: transparent;
-    border: none;
-    font-size: 24px;
-    cursor: pointer;
-    color: var(--muted-text);
-  }
-  #modal img {
-    border-radius: 50%;
-    width: 96px;
-    height: 96px;
-    margin-bottom: 16px;
-  }
-  #modal h3 {
-    margin: 8px 0 4px;
-  }
-  #modal p {
-    margin: 4px 0;
-    font-size: 18px;
-    font-weight: 600;
-  }
+header h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+main {
+  max-width: 800px;
+  margin: 40px auto;
+  padding: 0 20px;
+}
+
+section {
+  margin-bottom: 40px;
+}
+
+h2 {
+  font-size: 22px;
+  margin-bottom: 12px;
+  color: var(--text-color);
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background-color: var(--card-bg);
+  padding: 20px;
+  border-radius: var(--border-radius);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.6);
+}
+
+label {
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+input[type="text"] {
+  padding: 10px;
+  font-size: 16px;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  background-color: #4B5563; 
+  color: var(--text-color);
+}
+
+input[type="text"]::placeholder {
+  color: var(--muted-text);
+}
+
+button {
+  background-color: var(--primary-color);
+  color: var(--text-color);
+  padding: 10px 16px;
+  font-size: 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+button:hover {
+  background-color: var(--button-hover);
+}
+
+ul {
+  padding-left: 20px;
+}
+
+li a {
+  color: var(--primary-color);
+  text-decoration: none;
+}
+
+li a:hover {
+  text-decoration: underline;
+}
+
+.bot-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background-color: var(--card-bg);
+  padding: 12px;
+  margin-bottom: 10px;
+  border-radius: var(--border-radius);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+}
+
+.bot-profile img {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+}
+
+.bot-profile span {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.muted {
+  color: var(--muted-text);
+}
+
+hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 40px 0;
+}
+
+
+#modalOverlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.75);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+#modal {
+  background: var(--card-bg);
+  border-radius: var(--border-radius);
+  padding: 24px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.8);
+  text-align: center;
+  position: relative;
+  color: var(--text-color);
+}
+
+#modalClose {
+  position: absolute;
+  top: 12px; right: 12px;
+  background: transparent;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--muted-text);
+}
+
+#modal img {
+  border-radius: 50%;
+  width: 96px;
+  height: 96px;
+  margin-bottom: 16px;
+}
+
+#modal h3 {
+  margin: 8px 0 4px;
+}
+
+#modal p {
+  margin: 4px 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
 </style>
 </head>
 <body>
@@ -218,7 +255,7 @@ main {
     </section>
   </main>
 
-  <!-- Modal -->
+
   <div id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalDesc">
     <div id="modal">
       <button id="modalClose" aria-label="Close modal">&times;</button>
@@ -260,7 +297,7 @@ main {
 
   window.onload = loadRunningBots;
 
-  // Modal Elements
+
   const modalOverlay = document.getElementById('modalOverlay');
   const modalClose = document.getElementById('modalClose');
   const modalAvatar = document.getElementById('modalAvatar');
@@ -268,7 +305,6 @@ main {
   const modalDesc = document.getElementById('modalDesc');
   const modalBalance = document.getElementById('modalBalance');
 
-  // Open modal with user info
   function openModal({ balance, discord_profile, error }) {
   if (error) {
     modalAvatar.src = 'https://cdn.discordapp.com/embed/avatars/0.png';
@@ -301,7 +337,7 @@ main {
 
   
 
-  // Close modal handler
+
   modalClose.addEventListener('click', () => {
     modalOverlay.style.display = 'none';
   });
@@ -311,7 +347,6 @@ main {
     }
   });
 
-  // Intercept Discord form submit
   document.getElementById('discordBalanceForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const userId = e.target.user_id.value.trim();
@@ -323,16 +358,14 @@ main {
 
       const data = await res.json();
 
-      // Assuming your API returns something like:
-      // { avatar_url, username, user_id, balance }
-      // or an error message: { error: "User not found" }
+ 
       openModal(data);
     } catch (error) {
       openModal({ error: error.message });
     }
   });
 
-  // Intercept Roblox form submit (similar logic)
+
   document.getElementById('robloxBalanceForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const robloxId = e.target.roblox_id.value.trim();
@@ -344,7 +377,6 @@ main {
 
       const data = await res.json();
 
-      // Adjust fields if API returns different property names
       openModal(data);
     } catch (error) {
       openModal({ error: error.message });
