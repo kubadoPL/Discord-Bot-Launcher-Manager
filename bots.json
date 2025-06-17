@@ -1,23 +1,23 @@
 {
-    "EzeteriuszMaximusBOT": {
-        "repo": "EzeteriuszMaximusBOT",
-        "token": "EZETERIUSZ_TOKEN"
+    "Social-Credit-Bot": {
+        "repo": "Social-Credit-Bot",
+        "token": "SOCIALCREDITBOT_TOKEN"
+    },
+    "Groovy": {
+        "repo": "Groovy",
+        "token": "GROOVY_TOKEN"
     },
     "PszczelarzBOT": {
         "repo": "PszczelarzBOT",
         "token": "PszczelarzBOT_TOKEN"
     },
+    "EzeteriuszMaximusBOT": {
+        "repo": "EzeteriuszMaximusBOT",
+        "token": "EZETERIUSZ_TOKEN"
+    },
     "mirmaxrepository": {
         "repo": "mirmaxrepository",
         "token": "Roast_TOKEN"
-    },
-    "Social-Credit-Bot": {
-        "repo": "Social-Credit-Bot",
-        "token": "SOCIALCREDITBOT_TOKEN"
-    },
-     "Groovy": {
-        "repo": "Groovy",
-        "token": "GROOVY_TOKEN",
-        "displayName": "Groovy"
     }
+    
 }
