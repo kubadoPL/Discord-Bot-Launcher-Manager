@@ -10,7 +10,8 @@ from bot_state import get_running_bots
 from bot_state import get_discord_user_profile
 from bot_state import get_roblox_username, get_roblox_avatar
 from functools import wraps
-
+import base64
+import requests
 app = Flask(__name__)
 
 
@@ -196,6 +197,38 @@ def update_roblox_balance():
 
     print("[SUCCESS] Roblox balance updated successfully.")
     return jsonify({'message': 'Roblox balance updated successfully'})
+
+
+@app.route('/spotify/token', methods=['GET'])
+@require_api_key  # Optional: add this if you want to protect it with an API key
+def get_spotify_token():
+    print("[REQUEST] GET /spotify/token")
+    
+    SPOTIFY_CLIENT_ID = os.environ.get('SPOTIFY_CLIENT_ID')
+    SPOTIFY_CLIENT_SECRET = os.environ.get('SPOTIFY_CLIENT_SECRET')
+    
+    token_url = 'https://accounts.spotify.com/api/token'
+    credentials = f"{SPOTIFY_CLIENT_ID}:{SPOTIFY_CLIENT_SECRET}"
+    encoded_credentials = base64.b64encode(credentials.encode()).decode()
+
+    headers = {
+        'Authorization': f'Basic {encoded_credentials}',
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
+
+    data = {
+        'grant_type': 'client_credentials'
+    }
+
+    response = requests.post(token_url, headers=headers, data=data)
+    if response.status_code == 200:
+        token_data = response.json()
+        print("[SUCCESS] Spotify token retrieved")
+        return jsonify({'access_token': token_data['access_token'], 'expires_in': token_data['expires_in']})
+    else:
+        print("[ERROR] Failed to retrieve Spotify token")
+        return jsonify({'error': 'Failed to retrieve Spotify token', 'details': response.json()}), response.status_code
+
 
 
 def run_api():
