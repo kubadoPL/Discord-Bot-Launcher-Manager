@@ -213,7 +213,7 @@
             font-weight: 600;
         }
 
-       
+
         ::-webkit-scrollbar {
             width: 8px;
             height: 8px;
@@ -221,15 +221,15 @@
 
         ::-webkit-scrollbar-track {
             background: #1F2937;
-           
+
         }
 
         ::-webkit-scrollbar-thumb {
             background-color: #6366F1;
-       
+
             border-radius: 10px;
             border: 2px solid #1F2937;
-      
+
         }
 
         /* For Firefox */
@@ -269,7 +269,7 @@
             <h2>Check Balance by Discord User ID</h2>
             <form id="discordBalanceForm" action="/get_balance" method="get">
                 <label for="user_id">User ID:</label>
-                <input type="text" id="user_id" name="user_id" required />
+                <input type="text" id="user_id" name="user_id" required placeholder="123456789012345678" />
                 <button type="submit">Check Balance</button>
             </form>
         </section>
@@ -278,10 +278,11 @@
             <h2>Check Balance by Roblox ID</h2>
             <form id="robloxBalanceForm" action="/roblox/get_balance" method="get">
                 <label for="roblox_id">Roblox ID:</label>
-                <input type="text" id="roblox_id" name="roblox_id" required />
+                <input type="text" id="roblox_id" name="roblox_id" required placeholder="123456789" />
                 <button type="submit">Check Balance</button>
             </form>
         </section>
+
 
         <hr />
 
