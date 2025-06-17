@@ -5,6 +5,27 @@ import requests
 LOCAL_JSON_PATH = "bots.json"
 ONLINE_JSON_URL = os.environ.get("ONLINE_JSON_URL")
 
+def get_roblox_username(roblox_id):
+    url = f"https://users.roblox.com/v1/users/{roblox_id}"
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        # The 'name' field contains the username
+        return data.get("name")
+    else:
+        return None  # User not found or request failed
+
+def get_roblox_avatar(roblox_id):
+    url = f"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={roblox_id}&size=100x100&format=Png&isCircular=true"
+    headers = {"accept": "application/json"}
+
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        data = response.json()
+        if "data" in data and len(data["data"]) > 0 and "imageUrl" in data["data"][0]:
+            return data["data"][0]["imageUrl"]
+    return None  # Default in case of failure
+
 def get_discord_user_profile(user_id):
     token = os.environ.get("SOCIALCREDITBOT_TOKEN")
     url = "https://discord.com/api/v10/users/" + user_id
@@ -94,5 +115,3 @@ def get_running_bots():
         
     print(f"Running bots: {running_bots}")
     return running_bots
-
-print(get_discord_user_profile("264079253757231104"))

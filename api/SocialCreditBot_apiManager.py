@@ -8,7 +8,7 @@ from flask import render_template
 import json
 from bot_state import get_running_bots
 from bot_state import get_discord_user_profile
-
+from bot_state import get_roblox_username, get_roblox_avatar
 
 
 app = Flask(__name__)
@@ -138,6 +138,11 @@ def get_roblox_balance():
 
     if user:
         print(f"[SUCCESS] Retrieved balance: {user['balance']} for roblox_id: {roblox_id}")
+        robloxprofile = {
+            'username': get_roblox_username(roblox_id),
+            'avatar_url': get_roblox_avatar(roblox_id),
+            'id': roblox_id
+        }
         return jsonify({'balance': user['balance']})
     else:
         print("[ERROR] Roblox user not found.")
