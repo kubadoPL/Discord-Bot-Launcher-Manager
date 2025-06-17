@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 import mysql.connector
-import config  # Import your config settings
+import config 
 import os
 import hashlib
 import secrets

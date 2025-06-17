@@ -8,7 +8,10 @@ A Python script for managing multiple Discord.py bots by downloading their repos
 - Automatically extract and organize bot files.
 - Start multiple bots in parallel while handling logging and errors.
 - Gracefully stop all bots on exit.
-- Update Bot that recieved new pushed commit
+- Update Bot that recieved new pushed commit.
+- API enabling interaction with the databases used by bots from anywhere.
+- Support for Discord and Roblox accounts API.
+- Web panel that works with API.
 
 ## Requirements
 - Python 3.x
