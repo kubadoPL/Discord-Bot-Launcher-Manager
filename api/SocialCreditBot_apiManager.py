@@ -4,6 +4,8 @@ import config  # Import your config settings
 import os
 import hashlib
 import secrets
+from flask import render_template
+
 app = Flask(__name__)
 
 
@@ -48,6 +50,10 @@ def get_db_connection():
     )
     print("[INFO] Database connection established.")
     return conn
+
+@app.route('/')
+def main_page():
+    return render_template('main.html')
 
 @app.route('/get_balance', methods=['GET'])
 def get_balance():
