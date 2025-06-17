@@ -2,7 +2,10 @@ from flask import Flask, request, jsonify
 import mysql.connector
 import config  # Import your config settings
 import os
+import hashlib
+import secrets
 app = Flask(__name__)
+
 
 # Set working directory to one level up from where bot.py is
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -11,6 +14,26 @@ os.chdir(parent_dir)  # Change working directory
 
 print("Working directory set to:", os.getcwd())
 
+def validate_api_key(api_key):
+    """Validates API key by checking against stored hashed values"""
+    hashed_key = hashlib.sha256(api_key.encode()).hexdigest()
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM api_keys WHERE key_value = %s", (hashed_key,))
+    result = cursor.fetchone()
+    conn.close()
+    
+    return result is not None  # Returns True if key exists
+
+def require_api_key(func):
+    """Decorator to enforce API key validation"""
+    def wrapper(*args, **kwargs):
+        api_key = request.headers.get('X-API-Key')
+        if not api_key or not validate_api_key(api_key):
+            return jsonify({'error': 'Invalid or missing API key'}), 403
+        return func(*args, **kwargs)
+    return wrapper
 
 # Database connection function
 def get_db_connection():
@@ -130,5 +153,23 @@ def run_api():
     print(f"[INFO] Starting API server on port {port}...")
     app.run(host='0.0.0.0', port=port)
 
-    
+
+def createtable():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+    """
+    CREATE TABLE IF NOT EXISTS api_keys (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        key_value VARCHAR(255) NOT NULL UNIQUE,
+        owner VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """
+    )
+    conn.commit()
+
+
+
+#createtable()
 run_api()
