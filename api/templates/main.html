@@ -1,213 +1,339 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>K5 Studio Discord Bots API</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary-color: #4F46E5;
-            --bg-color: #f9fafb;
-            --card-bg: #ffffff;
-            --text-color: #111827;
-            --muted-text: #6b7280;
-            --border-radius: 12px;
-        }
-
-        body {
-            margin: 0;
-            padding: 0;
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            line-height: 1.6;
-        }
-
-        header {
-            background-color: var(--primary-color);
-            color: white;
-            padding: 20px 40px;
-        }
-
-        header h1 {
-            margin: 0;
-            font-size: 28px;
-        }
-
-        main {
-            max-width: 800px;
-            margin: 40px auto;
-            padding: 0 20px;
-        }
-
-        section {
-            margin-bottom: 40px;
-        }
-
-        h2 {
-            font-size: 22px;
-            margin-bottom: 12px;
-            color: var(--text-color);
-        }
-
-        form {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            background-color: var(--card-bg);
-            padding: 20px;
-            border-radius: var(--border-radius);
-            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
-        }
-
-        label {
-            font-weight: 600;
-        }
-
-        input[type="text"] {
-            padding: 10px;
-            font-size: 16px;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-        }
-
-        button {
-            background-color: var(--primary-color);
-            color: white;
-            padding: 10px 16px;
-            font-size: 16px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: background-color 0.3s ease;
-        }
-
-        button:hover {
-            background-color: #4338ca;
-        }
-
-        ul {
-            padding-left: 20px;
-        }
-
-        li a {
-            color: var(--primary-color);
-            text-decoration: none;
-        }
-
-        li a:hover {
-            text-decoration: underline;
-        }
-
-        .bot-profile {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            background-color: var(--card-bg);
-            padding: 12px;
-            margin-bottom: 10px;
-            border-radius: var(--border-radius);
-            box-shadow: 0 2px 6px rgba(0,0,0,0.03);
-        }
-
-        .bot-profile img {
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
-        }
-
-        .bot-profile span {
-            font-size: 16px;
-            font-weight: 600;
-        }
-
-        .muted {
-            color: var(--muted-text);
-        }
-
-        hr {
-            border: none;
-            border-top: 1px solid #e5e7eb;
-            margin: 40px 0;
-        }
-    </style>
+<meta charset="UTF-8" />
+<title>K5 Studio Discord Bots Launcher API</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --primary-color: #4F46E5;
+    --bg-color: #f9fafb;
+    --card-bg: #ffffff;
+    --text-color: #111827;
+    --muted-text: #6b7280;
+    --border-radius: 12px;
+  }
+  body {
+    margin: 0; padding: 0;
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    line-height: 1.6;
+  }
+  header {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 20px 40px;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 28px;
+  }
+  main {
+    max-width: 800px;
+    margin: 40px auto;
+    padding: 0 20px;
+  }
+  section {
+    margin-bottom: 40px;
+  }
+  h2 {
+    font-size: 22px;
+    margin-bottom: 12px;
+    color: var(--text-color);
+  }
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background-color: var(--card-bg);
+    padding: 20px;
+    border-radius: var(--border-radius);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+  }
+  label {
+    font-weight: 600;
+  }
+  input[type="text"] {
+    padding: 10px;
+    font-size: 16px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+  }
+  button {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 10px 16px;
+    font-size: 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+  button:hover {
+    background-color: #4338ca;
+  }
+  ul {
+    padding-left: 20px;
+  }
+  li a {
+    color: var(--primary-color);
+    text-decoration: none;
+  }
+  li a:hover {
+    text-decoration: underline;
+  }
+  .bot-profile {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background-color: var(--card-bg);
+    padding: 12px;
+    margin-bottom: 10px;
+    border-radius: var(--border-radius);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+  }
+  .bot-profile img {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+  }
+  .bot-profile span {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .muted {
+    color: var(--muted-text);
+  }
+  hr {
+    border: none;
+    border-top: 1px solid #e5e7eb;
+    margin: 40px 0;
+  }
+  
+  /* Modal styles */
+  #modalOverlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+  }
+  #modal {
+    background: var(--card-bg);
+    border-radius: var(--border-radius);
+    padding: 24px;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+    text-align: center;
+    position: relative;
+  }
+  #modalClose {
+    position: absolute;
+    top: 12px; right: 12px;
+    background: transparent;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: var(--muted-text);
+  }
+  #modal img {
+    border-radius: 50%;
+    width: 96px;
+    height: 96px;
+    margin-bottom: 16px;
+  }
+  #modal h3 {
+    margin: 8px 0 4px;
+  }
+  #modal p {
+    margin: 4px 0;
+    font-size: 18px;
+    font-weight: 600;
+  }
+</style>
 </head>
 <body>
-    <header>
-        <h1>K5 Studio Discord Bots API</h1>
-    </header>
+  <header>
+    <h1>K5 Studio Discord Bots Launcher API</h1>
+  </header>
 
-    <main>
-        <section>
-            <p class="muted">Use the documented endpoints to interact with the system below.</p>
-        </section>
+  <main>
+    <section>
+      <p class="muted">Use the documented endpoints to interact with the system below.</p>
+    </section>
 
-        <section>
-            <h2>Check Balance by Discord User ID</h2>
-            <form action="/get_balance" method="get">
-                <label for="user_id">User ID:</label>
-                <input type="text" id="user_id" name="user_id" required>
-                <button type="submit">Check Balance</button>
-            </form>
-        </section>
+    <section>
+      <h2>Check Balance by Discord User ID</h2>
+      <form id="discordBalanceForm" action="/get_balance" method="get">
+        <label for="user_id">User ID:</label>
+        <input type="text" id="user_id" name="user_id" required />
+        <button type="submit">Check Balance</button>
+      </form>
+    </section>
 
-        <section>
-            <h2>Check Balance by Roblox ID</h2>
-            <form action="/roblox/get_balance" method="get">
-                <label for="roblox_id">Roblox ID:</label>
-                <input type="text" id="roblox_id" name="roblox_id" required>
-                <button type="submit">Check Balance</button>
-            </form>
-        </section>
+    <section>
+      <h2>Check Balance by Roblox ID</h2>
+      <form id="robloxBalanceForm" action="/roblox/get_balance" method="get">
+        <label for="roblox_id">Roblox ID:</label>
+        <input type="text" id="roblox_id" name="roblox_id" required />
+        <button type="submit">Check Balance</button>
+      </form>
+    </section>
 
-        <hr>
+    <hr />
 
-        <section>
-            <h2>Example Endpoints</h2>
-            <ul>
-                <li><a href="/get_balance?user_id=264079253757231104">Get Example Discord User Balance</a></li>
-                <li><a href="/roblox/get_balance?roblox_id=257500145">Get Example Roblox User Balance</a></li>
-            </ul>
-        </section>
+    <section>
+      <h2>Example Endpoints</h2>
+      <ul>
+        <li><a href="/get_balance?user_id=264079253757231104">Get Example Discord User Balance</a></li>
+        <li><a href="/roblox/get_balance?roblox_id=257500145">Get Example Roblox User Balance</a></li>
+      </ul>
+    </section>
 
-        <section>
-            <h2>Currently Running Bots</h2>
-            <div id="bot-list">
-                <p class="muted">Loading...</p>
-            </div>
-        </section>
-    </main>
+    <section>
+      <h2>Currently Running Bots</h2>
+      <div id="bot-list">
+        <p class="muted">Loading...</p>
+      </div>
+    </section>
+  </main>
 
-    <script>
-        async function loadRunningBots() {
-            try {
-                const response = await fetch('https://bot-launcher-discord-017f7d5f49d9.herokuapp.com/running_bots');
-                const bots = await response.json();
-                const container = document.getElementById('bot-list');
-                container.innerHTML = '';
+  <!-- Modal -->
+  <div id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalDesc">
+    <div id="modal">
+      <button id="modalClose" aria-label="Close modal">&times;</button>
+      <img id="modalAvatar" src="" alt="User avatar" />
+      <h3 id="modalTitle"></h3>
+      <p id="modalDesc"></p>
+      <p id="modalBalance"></p>
+    </div>
+  </div>
 
-                bots.forEach(bot => {
-                    const botDiv = document.createElement('div');
-                    botDiv.className = 'bot-profile';
+<script>
+  async function loadRunningBots() {
+    try {
+      const response = await fetch('https://bot-launcher-discord-017f7d5f49d9.herokuapp.com/running_bots');
+      const bots = await response.json();
+      const container = document.getElementById('bot-list');
+      container.innerHTML = '';
 
-                    const img = document.createElement('img');
-                    img.src = bot.avatar_url || 'https://cdn.discordapp.com/embed/avatars/0.png';
-                    img.alt = bot.username;
+      bots.forEach(bot => {
+        const botDiv = document.createElement('div');
+        botDiv.className = 'bot-profile';
 
-                    const name = document.createElement('span');
-                    name.textContent = `${bot.username}`; //#${bot.discriminator}
+        const img = document.createElement('img');
+        img.src = bot.avatar_url || 'https://cdn.discordapp.com/embed/avatars/0.png';
+        img.alt = bot.username;
 
-                    botDiv.appendChild(img);
-                    botDiv.appendChild(name);
-                    container.appendChild(botDiv);
-                });
-            } catch (err) {
-                console.error('Failed to load bots:', err);
-                document.getElementById('bot-list').innerHTML = '<p class="muted">Error loading bots.</p>';
-            }
-        }
+        const name = document.createElement('span');
+        name.textContent = `${bot.username}`;
 
-        window.onload = loadRunningBots;
-    </script>
+        botDiv.appendChild(img);
+        botDiv.appendChild(name);
+        container.appendChild(botDiv);
+      });
+    } catch (err) {
+      console.error('Failed to load bots:', err);
+      document.getElementById('bot-list').innerHTML = '<p class="muted">Error loading bots.</p>';
+    }
+  }
+
+  window.onload = loadRunningBots;
+
+  // Modal Elements
+  const modalOverlay = document.getElementById('modalOverlay');
+  const modalClose = document.getElementById('modalClose');
+  const modalAvatar = document.getElementById('modalAvatar');
+  const modalTitle = document.getElementById('modalTitle');
+  const modalDesc = document.getElementById('modalDesc');
+  const modalBalance = document.getElementById('modalBalance');
+
+  // Open modal with user info
+  function openModal({ balance, discord_profile, error }) {
+  if (error) {
+    modalAvatar.src = 'https://cdn.discordapp.com/embed/avatars/0.png';
+    modalAvatar.alt = 'Error';
+    modalTitle.textContent = 'Error';
+    modalDesc.textContent = error;
+    modalBalance.textContent = '';
+  } else if (discord_profile) {
+    modalAvatar.src = discord_profile.avatar_url || 'https://cdn.discordapp.com/embed/avatars/0.png';
+    modalAvatar.alt = `${discord_profile.username || 'User'} avatar`;
+    modalTitle.textContent = discord_profile.username || 'Unknown User';
+    modalDesc.textContent = `User ID: ${discord_profile.user_id || 'N/A'}`;
+    modalBalance.textContent = `Balance: ${balance != null ? balance : 'N/A'}`;
+  } else if (balance != null) {
+    modalAvatar.src = 'https://cdn.discordapp.com/embed/avatars/0.png';
+    modalAvatar.alt = 'Unknown User';
+    modalTitle.textContent = 'Unknown User';
+    modalDesc.textContent = 'No user profile found.';
+    modalBalance.textContent = `Balance: ${balance != null ? balance : 'N/A'}`;
+    } else {
+    modalAvatar.src = 'https://cdn.discordapp.com/embed/avatars/0.png';
+    modalAvatar.alt = 'Error';
+    modalTitle.textContent = 'Error';
+    modalDesc.textContent = error;
+    modalBalance.textContent = '';
+  }
+
+  modalOverlay.style.display = 'flex';
+}
+
+  
+
+  // Close modal handler
+  modalClose.addEventListener('click', () => {
+    modalOverlay.style.display = 'none';
+  });
+  modalOverlay.addEventListener('click', e => {
+    if(e.target === modalOverlay) {
+      modalOverlay.style.display = 'none';
+    }
+  });
+
+  // Intercept Discord form submit
+  document.getElementById('discordBalanceForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const userId = e.target.user_id.value.trim();
+    if(!userId) return;
+
+    try {
+      const res = await fetch(`https://bot-launcher-discord-017f7d5f49d9.herokuapp.com/get_balance?user_id=${encodeURIComponent(userId)}`);
+      if(!res.ok) throw new Error('Network response was not ok');
+
+      const data = await res.json();
+
+      // Assuming your API returns something like:
+      // { avatar_url, username, user_id, balance }
+      // or an error message: { error: "User not found" }
+      openModal(data);
+    } catch (error) {
+      openModal({ error: error.message });
+    }
+  });
+
+  // Intercept Roblox form submit (similar logic)
+  document.getElementById('robloxBalanceForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const robloxId = e.target.roblox_id.value.trim();
+    if(!robloxId) return;
+
+    try {
+      const res = await fetch(`/roblox/get_balance?roblox_id=${encodeURIComponent(robloxId)}`);
+      if(!res.ok) throw new Error('Network response was not ok');
+
+      const data = await res.json();
+
+      // Adjust fields if API returns different property names
+      openModal(data);
+    } catch (error) {
+      openModal({ error: error.message });
+    }
+  });
+</script>
 </body>
 </html>

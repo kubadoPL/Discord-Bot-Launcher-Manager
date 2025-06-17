@@ -5,6 +5,30 @@ import requests
 LOCAL_JSON_PATH = "bots.json"
 ONLINE_JSON_URL = os.environ.get("ONLINE_JSON_URL")
 
+def get_discord_user_profile(user_id):
+    token = os.environ.get("SOCIALCREDITBOT_TOKEN")
+    url = "https://discord.com/api/v10/users/" + user_id
+    headers = {
+        "Authorization": f"Bot {token}"
+    }
+
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+
+        return {
+            "id": data["id"],
+            "username": data["username"],
+            "discriminator": data["discriminator"],
+            "avatar_url": f'https://cdn.discordapp.com/avatars/{data["id"]}/{data["avatar"]}.png' if data.get("avatar") else None,
+   
+        }
+
+    except requests.exceptions.RequestException as e:
+        print(f"[ERROR] Failed to fetch bot profile: {e}")
+        return None
+
 def get_discord_bot_profile(token):
     url = "https://discord.com/api/v10/users/@me"
     headers = {
@@ -71,4 +95,4 @@ def get_running_bots():
     print(f"Running bots: {running_bots}")
     return running_bots
 
-get_running_bots()  # Call the function to ensure it runs when this module is imported
+print(get_discord_user_profile("264079253757231104"))

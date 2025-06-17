@@ -7,7 +7,7 @@ import secrets
 from flask import render_template
 import json
 from bot_state import get_running_bots
-
+from bot_state import get_discord_user_profile
 
 
 
@@ -87,7 +87,8 @@ def get_balance():
 
     if user:
         print(f"[SUCCESS] Retrieved balance: {user['balance']} for user_id: {user_id}")
-        return jsonify({'balance': user['balance']})
+        discord_profile = get_discord_user_profile(user_id)
+        return jsonify({'balance': user['balance'],'discord_profile': discord_profile })
     else:
         print("[ERROR] User not found.")
         return jsonify({'error': 'User not found'}), 404
