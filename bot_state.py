@@ -16,9 +16,11 @@ REGISTRY_FILE = os.path.join(os.path.dirname(__file__), "/tmp/bot_registry.json"
 def load_registry():
     with LOCK:
         if not os.path.exists(REGISTRY_FILE):
-            return {}
+            with open(REGISTRY_FILE, "w") as f:
+                json.dump({}, f)
         with open(REGISTRY_FILE, "r") as f:
             return json.load(f)
+
 
 def save_registry(data):
     with LOCK:
