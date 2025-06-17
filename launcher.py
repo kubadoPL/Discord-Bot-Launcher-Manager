@@ -10,7 +10,6 @@ import requests
 import json
 import time
 import shutil 
-import bot_state
 
 BASE_DIR = "/tmp/bots"
 GITHUB_USER = os.environ.get("GitHub_User")
@@ -117,7 +116,7 @@ def run_bot(bot_name, bot_folder, bot_token):
             bufsize=1
         )
         running_processes[bot_name] = process
-        bot_state.register_bot(bot_name)
+     
         print(f"{bot_name}: Bot started successfully with PID {process.pid}")
 
         def stream_output(stream, prefix):
@@ -143,7 +142,7 @@ def stop_bot(bot_name):
             process.kill()
         print(f"{bot_name}: Bot stopped.")
         del running_processes[bot_name]
-        bot_state.unregister_bot(bot_name)
+    
 
 
 def stop_all_bots():

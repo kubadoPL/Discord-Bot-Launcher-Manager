@@ -1,44 +1,38 @@
 import os
 import json
-import threading
-import os
-import datetime
-# Set working directory to one level up from where bot.py is
-script_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.join(script_dir, "..")
-os.chdir(parent_dir)  # Change working directory
+import requests
 
-print("Working directory set to:", os.getcwd())
+LOCAL_JSON_PATH = "bots.json"
+ONLINE_JSON_URL = os.environ.get("ONLINE_JSON_URL")
 
-LOCK = threading.Lock()
-REGISTRY_FILE = os.path.join(os.path.dirname(__file__), "/tmp/bot_registry.json")
-
-def load_registry():
-    if not os.path.exists(REGISTRY_FILE):
-        with open(REGISTRY_FILE, "w") as f:
-            json.dump({}, f)
-    with open(REGISTRY_FILE, "r") as f:
-        return json.load(f)
-
-def save_registry(data):
-    with open(REGISTRY_FILE, "w") as f:
-        json.dump(data, f)
-    print(f"[DEBUG] Writing registry file to: {REGISTRY_FILE}")
+def load_bots():
+    """Try to load bot data from an online URL; if it fails, use local JSON."""
+    try:
+        response = requests.get(ONLINE_JSON_URL, timeout=5)
+        response.raise_for_status()
+        print("Using online bot data.")
+        return response.json()
+    except requests.exceptions.RequestException:
+        print("Failed to fetch online bot data. Using local JSON.")
+        if os.path.exists(LOCAL_JSON_PATH):
+            with open(LOCAL_JSON_PATH, "r", encoding="utf-8") as file:
+                return json.load(file)
+        else:
+            print("Error: Local JSON file not found.")
+            return {}
 
 
-def register_bot(name):
-    data = load_registry()
-    data[name] = {"started": str(datetime.datetime.utcnow())}
-    save_registry(data)
-
-
-def unregister_bot(bot_name):
-    registry = load_registry()
-    if bot_name in registry:
-        del registry[bot_name]
-        save_registry(registry)
+BOTS = load_bots()
 
 def get_running_bots():
-    print(list(load_registry().keys()))
-    return list(load_registry().keys())
+    """Get a list of currently running bots."""
+    running_bots = {}
+    for bot_name, bot_info in BOTS.items():
+        if bot_info.get("running", False):
+            running_bots.append({
+                "name": bot_name,
+                "repo": bot_info.get("repo"),
+                "status": "running"
+            })
+    return running_bots
 
