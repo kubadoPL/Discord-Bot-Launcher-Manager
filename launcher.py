@@ -21,16 +21,6 @@ ONLINE_JSON_URL = os.environ.get("ONLINE_JSON_URL")
 running_processes = {}
 latest_commits = {}
 
-
-def update_state(bot_name, running=True):
-    with open("bot_state.json", "r+") as f:
-        state = json.load(f)
-        state[bot_name] = running
-        f.seek(0)
-        json.dump(state, f)
-        f.truncate()
-
-
 def load_bots():
     """Try to load bot data from an online URL; if it fails, use local JSON."""
     try:
