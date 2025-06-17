@@ -65,6 +65,26 @@ def running_bots():
     bots = get_running_bots()
     return jsonify(bots)
 
+@app.route('/api_key_info', methods=['GET'])
+@require_api_key
+def api_key_info():
+    api_key = request.headers.get('X-API-Key')
+    hashed_key = api_key 
+
+    print(f"[REQUEST] GET /api_key_info - api_key: {api_key}")
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT id, owner, created_at FROM api_keys WHERE key_value = %s", (hashed_key,))
+    key_info = cursor.fetchone()
+    conn.close()
+
+    if key_info:
+        print(f"[SUCCESS] Found API key info for: {api_key}")
+        return jsonify({'api_key_info': key_info})
+    else:
+        print("[ERROR] API key not found.")
+        return jsonify({'error': 'API key not found'}), 404
 
 
 @app.route('/get_balance', methods=['GET'])
