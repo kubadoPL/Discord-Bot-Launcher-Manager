@@ -143,7 +143,7 @@ def get_roblox_balance():
             'avatar_url': get_roblox_avatar(roblox_id),
             'id': roblox_id
         }
-        return jsonify({'balance': user['balance']})
+        return jsonify({'balance': user['balance'], 'discord_profile': robloxprofile})
     else:
         print("[ERROR] Roblox user not found.")
         return jsonify({'error': 'Roblox user not found'}), 404
