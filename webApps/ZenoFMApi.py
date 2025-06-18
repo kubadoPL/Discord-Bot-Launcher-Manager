@@ -40,14 +40,13 @@ def get_sum():
     
     # Optional: headless mode for production use
     options = Options()
-    options.binary_location = os.environ.get("GOOGLE_CHROME_BIN", "/app/.apt/usr/bin/google-chrome")
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--headless")  # Required
+    options.add_argument("--no-sandbox")  # Required
+    options.add_argument("--disable-gpu")  # Optional but common
+    options.add_argument("--disable-dev-shm-usage")  # Optional
 
-    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/app/.chromedriver/bin/chromedriver")
-    service = Service(executable_path=chromedriver_path)
+    # Don't specify path — chromedriver is in PATH
+    service = Service()  # Auto-resolves chromedriver from PATH
 
     driver = webdriver.Chrome(service=service, options=options)
     
