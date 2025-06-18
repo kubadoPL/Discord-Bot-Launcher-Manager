@@ -4,9 +4,22 @@ import requests
 from functools import wraps
 import requests
 import mysql.connector
-import api.config as config
-from flask import Flask, request, jsonify
 
+from flask import Flask, request, jsonify
+import sys
+
+# Set the script and parent directory
+script_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(script_dir, ".."))
+
+# Add parent directory to sys.path so 'api' becomes importable
+sys.path.append(parent_dir)
+
+# Optional: change working directory
+os.chdir(parent_dir)
+print("Working directory set to:", os.getcwd())
+
+import api.config as config
 LOCAL_JSON_PATH = "bots.json"
 ONLINE_JSON_URL = os.environ.get("ONLINE_JSON_URL")
 
@@ -83,10 +96,10 @@ def load_bots():
     try:
         response = requests.get(ONLINE_JSON_URL, timeout=5)
         response.raise_for_status()
-       # print("Using online bot data.")
+        print("Using online bot data.")
         return response.json()
     except requests.exceptions.RequestException:
-       # print("Failed to fetch online bot data. Using local JSON.")
+        print("Failed to fetch online bot data. Using local JSON.")
         if os.path.exists(LOCAL_JSON_PATH):
             with open(LOCAL_JSON_PATH, "r", encoding="utf-8") as file:
                 return json.load(file)
