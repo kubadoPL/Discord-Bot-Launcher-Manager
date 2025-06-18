@@ -36,24 +36,21 @@ Our project includes a modular Flask web app launcher, letting you run multiple 
 
 ## 📁 Example Structure
 <details>
-```
 project/
-│── webAppsLauncher.py     # Main WebApp launcher script
-├── launcher.py            # Main Bot launcher script
+├── webAppsLauncher.py       # Main WebApp launcher script
+├── launcher.py              # Main Bot launcher script
 ├── api/
-│   └── templates/
-│   │    └── main.html     # Main dashboard UI
-│   │── config.py          # Config for Custom API
-│   └── FunctionsModule.py # Funcionality script for API
+│   ├── templates/
+│   │   └── main.html        # Main dashboard UI
+│   ├── config.py            # Config for Custom API
+│   └── FunctionsModule.py   # Functionality script for API
 │
 ├── webApps/
-│   ├── something.py       # Flask app 
-│   └── something.py       # Flask app 
-│── bots/                  # Folder where bots are downloaded
-│
-│
-└── bots.json              # Configuration file
-```
+│   ├── something.py         # Flask app
+│   └── something.py         # Flask app
+├── bots/                    # Folder where bots are downloaded
+└── bots.json                # Configuration file
+
 </details>
 ## 🟢 Live Demo on Heroku
 https://bot-launcher-discord-017f7d5f49d9.herokuapp.com/
