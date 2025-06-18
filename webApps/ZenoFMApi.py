@@ -9,6 +9,7 @@ print("Working directory set to:", os.getcwd())
 from flask import Flask, jsonify
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -39,12 +40,17 @@ def get_sum():
     
     # Optional: headless mode for production use
     options = Options()
+    options.binary_location = os.environ.get("GOOGLE_CHROME_BIN", "/app/.apt/usr/bin/google-chrome")
     options.add_argument("--headless")
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--window-size=1920,1080")
 
-    driver = webdriver.Chrome(options=options)
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/app/.chromedriver/bin/chromedriver")
+    service = Service(executable_path=chromedriver_path)
+
+    driver = webdriver.Chrome(service=service, options=options)
+    
     total_sum = 0
 
     try:
