@@ -36,7 +36,7 @@ Our project includes a modular Flask web app launcher, letting you run multiple 
 
 ## 📁 Example Structure
 <details>
-project/
+```project/
 ├── webAppsLauncher.py       # Main WebApp launcher script
 ├── launcher.py              # Main Bot launcher script
 ├── api/
@@ -49,7 +49,7 @@ project/
 │   ├── something.py         # Flask app
 │   └── something.py         # Flask app
 ├── bots/                    # Folder where bots are downloaded
-└── bots.json                # Configuration file
+└── bots.json                # Configuration file```
 
 </details>
 ## 🟢 Live Demo on Heroku
