@@ -6,7 +6,7 @@ os.chdir(parent_dir)  # Change working directory
 
 print("Working directory set to:", os.getcwd())
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -35,9 +35,15 @@ def home():
 @app.route('/get-sum', methods=['GET'])
 def get_sum():
     # Login credentials
+    station = request.args.get('station')
+    if not station:
+        return jsonify({"error": "Missing station parameter"}), 400
+   # print(f"[INFO] Processing station: {station.upper()}")
+    EMAIL = os.environ.get("ZENOFM_EMAIL_" + station.upper())
+    PASSWORD = os.environ.get("ZENOFM_PASSWORD_" + station.upper())
     
-    EMAIL = os.environ.get("ZENOFM_EMAIL")
-    PASSWORD = os.environ.get("ZENOFM_PASSWORD")
+    if not EMAIL or not PASSWORD:
+        return jsonify({"error": "Missing credentials for station: " + station}), 400
     
     # Optional: headless mode for production use
     options = Options()
