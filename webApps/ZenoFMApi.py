@@ -15,10 +15,11 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import time
+from flask_cors import CORS
 
 from flask import Flask, jsonify, render_template_string
 app = Flask(__name__)
-
+CORS(app)  # enable CORS globally
 @app.route('/')
 def home():
     return render_template_string("""
