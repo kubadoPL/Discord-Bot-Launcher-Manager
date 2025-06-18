@@ -25,7 +25,7 @@ def home():
     <html>
       <head><title>Simple Page</title></head>
       <body>
-        <h1>It works!</h1>
+        <h1>It works! paste to link /get-sum to see how many users stream radio gaming!</h1>
       </body>
     </html>
     """)
@@ -92,7 +92,7 @@ def get_sum():
     return jsonify({"total_sum": total_sum})
 
 def run_api():
-    port = int(os.environ.get("PORT", 5000))  # Get the port from environment variable
+    port = int(os.environ.get("PORT", 80))  # Get the port from environment variable
     print(f"[INFO] Starting API server on port {port}...")
     app.run(host="0.0.0.0", port=port)
 

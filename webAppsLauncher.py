@@ -1,47 +1,56 @@
 import os
-import sys
 import importlib.util
-import threading
+import sys
 
-# Set working directory to one level up from where bot.py is
+# Set the script and parent directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.join(script_dir, "..")
-os.chdir(script_dir)  # Change working directory
+parent_dir = os.path.abspath(os.path.join(script_dir, ".."))
 
+# Add parent directory to sys.path so 'api' becomes importable
+sys.path.append(script_dir)
+
+# Optional: change working directory
+os.chdir(script_dir)
 print("Working directory set to:", os.getcwd())
 
-WEBAPPS_DIR = "webApps"
-BASE_PORT = int(os.environ.get("PORT", 5000))
 
-def run_flask_app(module_name, filepath, port):
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
+from werkzeug.serving import run_simple
+from flask import Flask, request, jsonify
+from flask import render_template
+from flask_cors import CORS
+WEBAPPS_DIR = "webApps"
+
+main_app = Flask(__name__, template_folder= script_dir + "/api/templates")
+
+CORS(main_app)  # enable CORS globally
+
+@main_app.route("/")
+def index():
+    return render_template("/main.html")  #"Main app root"
+
+
+def load_flask_app(filepath):
+    module_name = os.path.basename(filepath)[:-3]
     spec = importlib.util.spec_from_file_location(module_name, filepath)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    
-    # Set environment variable PORT before running
-    os.environ["PORT"] = str(port)
-    print(f"[INFO] Running {module_name} on port {port}")
-    
-    # Run the app
-    module.run_api()
+    return getattr(module, "app", None)
 
-def main():
-    files = [f for f in os.listdir(WEBAPPS_DIR) if f.endswith(".py")]
-    threads = []
-    
-    for i, filename in enumerate(files):
-        port = BASE_PORT + i
-        filepath = os.path.join(WEBAPPS_DIR, filename)
-        module_name = filename[:-3]  # strip '.py'
-        
-        # Run each Flask app in its own thread (so they run concurrently)
-        t = threading.Thread(target=run_flask_app, args=(module_name, filepath, port))
-        t.start()
-        threads.append(t)
-    
-    # Join threads (optional - to keep main alive)
-    for t in threads:
-        t.join()
 
-if __name__ == "__main__":
-    main()
+apps = {}
+for filename in os.listdir(WEBAPPS_DIR):
+    if filename.endswith(".py"):
+        name = filename[:-3]
+        path = os.path.join(WEBAPPS_DIR, filename)
+        app = load_flask_app(path)
+        if app:
+            apps[f"/{name}"] = app
+        else:
+            print(f"[ERROR] No Flask app found in {filename}")
+
+
+application = DispatcherMiddleware(main_app, apps)
+
+
+run_simple("0.0.0.0", int(os.environ.get("PORT", 5000)), application, use_reloader=True)

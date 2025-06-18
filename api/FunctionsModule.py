@@ -1,6 +1,11 @@
 import os
 import json
 import requests
+from functools import wraps
+import requests
+import mysql.connector
+import api.config as config
+from flask import Flask, request, jsonify
 
 LOCAL_JSON_PATH = "bots.json"
 ONLINE_JSON_URL = os.environ.get("ONLINE_JSON_URL")
@@ -89,6 +94,56 @@ def load_bots():
             print("Error: Local JSON file not found.")
             return {}
 
+def validate_api_key(api_key):
+    """Validates API key by checking against stored hashed values"""
+    hashed_key = api_key  # hashlib.sha256(api_key.encode()).hexdigest()
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM api_keys WHERE key_value = %s", (hashed_key,))
+    result = cursor.fetchone()
+    conn.close()
+
+    return result is not None  # Returns True if key exists
+
+def require_api_key(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        api_key = request.headers.get("X-API-Key")
+        if not api_key or not validate_api_key(api_key):
+            return jsonify({"error": "Invalid or missing API key"}), 403
+        return func(*args, **kwargs)
+
+    return wrapper
+
+# Database connection function
+def get_db_connection():
+    print("[INFO] Connecting to the database...")
+    conn = mysql.connector.connect(
+        host=config.HOST,
+        user=config.USER,
+        password=config.PASSWORD,
+        database=config.DATABASE,
+        port=config.PORT,
+        autocommit=True,
+    )
+    print("[INFO] Database connection established.")
+    return conn
+
+def createtable():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS api_keys (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        key_value VARCHAR(255) NOT NULL UNIQUE,
+        owner VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """
+    )
+    conn.commit()
 
 def get_running_bots():
     """Get a list of currently running bot names."""

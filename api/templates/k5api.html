@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8" />
-    <title>K5 Studio Discord Bots Launcher Panel</title>
+    <title>K5 Studio Discord Bots Launcher API</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
     <link rel="icon" href="Images/favicon.ico" type="image/x-icon">
     <style>
@@ -245,7 +245,7 @@
 <body>
     <header>
         <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h1>K5 Studio Discord Bots Launcher Panel</h1>
+            <h1>K5 Studio Discord Bots Launcher API</h1>
             <div style="display: flex; gap: 16px;">
                 <a href="https://k5studio.dev/" target="_blank" style="color: white; font-size: 24px;"
                     aria-label="Website">
@@ -261,9 +261,29 @@
 
 
     <main>
-         <section>
+        <section>
             <p class="muted">Use the documented endpoints to interact with the system below.</p>
         </section>
+
+        <section>
+            <h2>Check Balance by Discord User ID</h2>
+            <form id="discordBalanceForm" action="/get_balance" method="get">
+                <label for="user_id">User ID:</label>
+                <input type="text" id="user_id" name="user_id" required placeholder="123456789012345678" />
+                <button type="submit">Check Balance</button>
+            </form>
+        </section>
+
+        <section>
+            <h2>Check Balance by Roblox ID</h2>
+            <form id="robloxBalanceForm" action="/roblox/get_balance" method="get">
+                <label for="roblox_id">Roblox ID:</label>
+                <input type="text" id="roblox_id" name="roblox_id" required placeholder="123456789" />
+                <button type="submit">Check Balance</button>
+            </form>
+        </section>
+
+
         <hr />
 
         <section>
@@ -275,7 +295,15 @@
     </main>
 
 
-   
+    <div id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalDesc">
+        <div id="modal">
+            <button id="modalClose" aria-label="Close modal">&times;</button>
+            <img id="modalAvatar" src="" alt="User avatar" />
+            <h3 id="modalTitle"></h3>
+            <p id="modalDesc"></p>
+            <p id="modalBalance"></p>
+        </div>
+    </div>
 
     <script>
         async function loadRunningBots() {
@@ -309,7 +337,90 @@
         window.onload = loadRunningBots;
 
 
-       
+        const modalOverlay = document.getElementById('modalOverlay');
+        const modalClose = document.getElementById('modalClose');
+        const modalAvatar = document.getElementById('modalAvatar');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalDesc = document.getElementById('modalDesc');
+        const modalBalance = document.getElementById('modalBalance');
+
+        function openModal({ balance, discord_profile, error }) {
+            if (error) {
+                modalAvatar.src = 'https://cdn.discordapp.com/embed/avatars/0.png';
+                modalAvatar.alt = 'Error';
+                modalTitle.textContent = 'Error';
+                modalDesc.textContent = error;
+                modalBalance.textContent = '';
+            } else if (discord_profile) {
+                modalAvatar.src = discord_profile.avatar_url || 'https://cdn.discordapp.com/embed/avatars/0.png';
+                modalAvatar.alt = `${discord_profile.username || 'User'} avatar`;
+                modalTitle.textContent = discord_profile.username || 'Unknown User';
+                modalDesc.textContent = `User ID: ${discord_profile.id || 'N/A'}`;
+                modalBalance.textContent = `Social Credit Balance: ${balance != null ? balance : 'N/A'}`;
+            } else if (balance != null) {
+                modalAvatar.src = 'https://cdn.discordapp.com/embed/avatars/0.png';
+                modalAvatar.alt = 'Unknown User';
+                modalTitle.textContent = 'Unknown User';
+                modalDesc.textContent = 'No user profile found.';
+                modalBalance.textContent = `Balance: ${balance != null ? balance : 'N/A'}`;
+            } else {
+                modalAvatar.src = 'https://cdn.discordapp.com/embed/avatars/0.png';
+                modalAvatar.alt = 'Error';
+                modalTitle.textContent = 'Error';
+                modalDesc.textContent = error;
+                modalBalance.textContent = '';
+            }
+
+            modalOverlay.style.display = 'flex';
+        }
+
+
+
+
+        modalClose.addEventListener('click', () => {
+            modalOverlay.style.display = 'none';
+        });
+        modalOverlay.addEventListener('click', e => {
+            if (e.target === modalOverlay) {
+                modalOverlay.style.display = 'none';
+            }
+        });
+
+        document.getElementById('discordBalanceForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const userId = e.target.user_id.value.trim();
+            if (!userId) return;
+
+            try {
+                const res = await fetch(`/get_balance?user_id=${encodeURIComponent(userId)}`);
+                if (!res.ok) throw new Error('Network response was not ok');
+
+                const data = await res.json();
+
+
+                openModal(data);
+            } catch (error) {
+                openModal({ error: error.message });
+            }
+        });
+
+
+        document.getElementById('robloxBalanceForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const robloxId = e.target.roblox_id.value.trim();
+            if (!robloxId) return;
+
+            try {
+                const res = await fetch(`/roblox/get_balance?roblox_id=${encodeURIComponent(robloxId)}`);
+                if (!res.ok) throw new Error('Network response was not ok');
+
+                const data = await res.json();
+
+                openModal(data);
+            } catch (error) {
+                openModal({ error: error.message });
+            }
+        });
     </script>
 </body>
 
