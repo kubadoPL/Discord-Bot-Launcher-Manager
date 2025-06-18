@@ -1,29 +1,43 @@
+import os
+import sys
+
+# Set the script and parent directory
+script_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(script_dir, ".."))
+
+# Add parent directory to sys.path so 'api' becomes importable
+sys.path.append(parent_dir)
+
+# Optional: change working directory
+os.chdir(parent_dir)
+print("Working directory set to:", os.getcwd())
+
+# Now safely import
 from flask import Flask, request, jsonify
 import mysql.connector
-import config 
-import os
-import hashlib
-import secrets
+
+import api.config as config
+from api.bot_state import (
+    get_running_bots,
+    get_discord_user_profile,
+    get_roblox_username,
+    get_roblox_avatar
+)
+
 from flask import render_template
 import json
-from bot_state import get_running_bots
-from bot_state import get_discord_user_profile
-from bot_state import get_roblox_username, get_roblox_avatar
+
+
 from functools import wraps
 import base64
 import requests
 
 from flask_cors import CORS
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder=parent_dir + "/api/templates")
 CORS(app)  # enable CORS globally
 
-# Set working directory to one level up from where bot.py is
-script_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.join(script_dir, "..")
-os.chdir(parent_dir)  # Change working directory
 
-print("Working directory set to:", os.getcwd())
 
 
 def validate_api_key(api_key):
@@ -67,7 +81,7 @@ def get_db_connection():
 
 @app.route("/")
 def main_page():
-    return render_template("main.html")
+    return render_template("/main.html")
 
 
 @app.route("/running_bots")
@@ -287,4 +301,4 @@ def createtable():
 
 # createtable()
 
-run_api()
+#run_api()

@@ -32,3 +32,5 @@ discord.ui
 flask
 werkzeug==2.0.3
 flask_cors
+selenium
+beautifulsoup4
