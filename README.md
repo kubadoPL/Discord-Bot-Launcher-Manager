@@ -26,4 +26,4 @@ A Python program for managing multiple Discord.py bots by downloading their repo
 ## Check Launcher Webpage!
 https://bot-launcher-discord-017f7d5f49d9.herokuapp.com/
 
-<img src="https://raw.githubusercontent.com/kubadoPL/Discord-Bot-Launcher-Manager/refs/heads/main/api/templates/Images/bot%20launcher.png" width="auto" height="auto">
+<img src="https://raw.githubusercontent.com/kubadoPL/Discord-Bot-Launcher-Manager/refs/heads/main/api/templates/Images/launcher%20web%20panel.png" width="auto" height="auto">
