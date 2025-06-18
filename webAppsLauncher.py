@@ -11,7 +11,7 @@ os.chdir(script_dir)  # Change working directory
 print("Working directory set to:", os.getcwd())
 
 WEBAPPS_DIR = "webApps"
-BASE_PORT = 5000  # starting port
+BASE_PORT = int(os.environ.get("PORT", 5000))
 
 def run_flask_app(module_name, filepath, port):
     spec = importlib.util.spec_from_file_location(module_name, filepath)
