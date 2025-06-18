@@ -35,6 +35,8 @@ Our project includes a modular Flask web app launcher, letting you run multiple 
   - Additional environment variables for bot tokens as defined in `bots.json`
 
 ## 📁 Example Structure
+<details>
+```
 project/
 │── webAppsLauncher.py     # Main WebApp launcher script
 ├── launcher.py            # Main Bot launcher script
@@ -51,7 +53,8 @@ project/
 │
 │
 └── bots.json              # Configuration file
-
+```
+</details>
 ## 🟢 Live Demo on Heroku
 https://bot-launcher-discord-017f7d5f49d9.herokuapp.com/
 
