@@ -308,7 +308,7 @@
     <script>
         async function loadRunningBots() {
             try {
-                const response = await fetch('/running_bots');
+                const response = await fetch('/K5ApiManager/running_bots');
                 const bots = await response.json();
                 const container = document.getElementById('bot-list');
                 container.innerHTML = '';
