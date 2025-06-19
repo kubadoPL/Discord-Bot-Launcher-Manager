@@ -93,8 +93,12 @@ def get_sum():
         accounts_part = current_url[index:] if index != -1 else ""
 
         driver.get(f"https://tools.zeno.fm/{accounts_part}analytics/live")
-        WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, ".td.vs-table--td"))
+        #WebDriverWait(driver, 5).until(
+           # EC.presence_of_element_located((By.CSS_SELECTOR, ".td.vs-table--td"))
+       # )
+       # time.sleep(2)  # Wait for the page to load completely
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "content-area__content"))
         )
 
         soup = BeautifulSoup(driver.page_source, "html.parser")
