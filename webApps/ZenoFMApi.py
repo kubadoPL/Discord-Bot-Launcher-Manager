@@ -44,6 +44,7 @@ def home():
 
 
 @app.route("/get-sum", methods=["GET"])
+@cache.cached(timeout=30, query_string=True)
 def get_sum():
     # Login credentials
     station = request.args.get("station")
@@ -64,9 +65,6 @@ def get_sum():
     options.add_argument("--disable-dev-shm-usage")  # Optional
 
     options.add_argument("--blink-settings=imagesEnabled=false")  # No images
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-plugins-discovery")
-    options.add_argument("--disable-logging")
 
     # Don't specify path — chromedriver is in PATH
     service = Service()  # Auto-resolves chromedriver from PATH
