@@ -44,7 +44,7 @@ def home():
 
 
 @app.route("/get-sum", methods=["GET"])
-@cache.cached(timeout=120, query_string=True)
+@cache.cached(timeout=300, query_string=True)
 def get_sum():
     # Login credentials
     station = request.args.get("station")
