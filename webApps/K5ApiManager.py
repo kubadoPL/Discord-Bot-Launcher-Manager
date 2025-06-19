@@ -34,11 +34,12 @@ import base64
 import requests
 
 from flask_cors import CORS
+from flask_caching import Cache
 
 app = Flask(__name__, template_folder=parent_dir + "/api/templates")
 CORS(app)  # enable CORS globally
 
-
+cache = Cache(app, config={"CACHE_TYPE": "simple"})
 
 
 
@@ -203,6 +204,7 @@ def update_roblox_balance():
 
 
 @app.route("/spotify/token", methods=["GET"])
+@cache.cached(timeout=3000, query_string=True)
 def get_spotify_token():
     #print("[REQUEST] GET /spotify/token")
 
