@@ -59,12 +59,14 @@ def get_sum():
 
     # Optional: headless mode for production use
     options = Options()
-    options.add_argument("--headless")  # Required
-    options.add_argument("--no-sandbox")  # Required
-    options.add_argument("--disable-gpu")  # Optional but common
-    options.add_argument("--disable-dev-shm-usage")  # Optional
+    options.add_argument("--headless=new")  # Try "new" headless mode
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-logging")
+    options.add_argument("--blink-settings=imagesEnabled=false")
 
-    options.add_argument("--blink-settings=imagesEnabled=false")  # No images
 
     # Don't specify path — chromedriver is in PATH
     service = Service()  # Auto-resolves chromedriver from PATH
