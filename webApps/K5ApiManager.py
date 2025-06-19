@@ -204,7 +204,7 @@ def update_roblox_balance():
 
 
 @app.route("/spotify/token", methods=["GET"])
-@cache.cached(timeout=3000, query_string=True)
+@cache.cached(timeout=3000, query_string=False)
 def get_spotify_token():
     #print("[REQUEST] GET /spotify/token")
 

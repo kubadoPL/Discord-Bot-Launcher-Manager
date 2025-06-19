@@ -96,10 +96,10 @@ def get_sum():
         #WebDriverWait(driver, 5).until(
            # EC.presence_of_element_located((By.CSS_SELECTOR, ".td.vs-table--td"))
        # )
-       # time.sleep(2)  # Wait for the page to load completely
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CLASS_NAME, "content-area__content"))
-        )
+        time.sleep(2)  # Wait for the page to load completely
+       # WebDriverWait(driver, 10).until(
+         #   EC.presence_of_element_located((By.CLASS_NAME, "content-area__content"))
+        #)
 
         soup = BeautifulSoup(driver.page_source, "html.parser")
         tds = soup.find_all("td", class_="td vs-table--td")
