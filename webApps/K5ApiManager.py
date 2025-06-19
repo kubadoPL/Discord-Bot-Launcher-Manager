@@ -21,8 +21,6 @@ from api.FunctionsModule import (
     get_roblox_avatar,
     get_db_connection,
     require_api_key,
- 
-    
 )
 
 from flask import render_template
@@ -35,15 +33,12 @@ import requests
 
 from flask_cors import CORS
 from flask_caching import Cache
+from datetime import datetime
 
 app = Flask(__name__, template_folder=parent_dir + "/api/templates")
 CORS(app)  # enable CORS globally
 
 cache = Cache(app, config={"CACHE_TYPE": "simple"})
-
-
-
-
 
 
 @app.route("/")
@@ -206,8 +201,6 @@ def update_roblox_balance():
 @app.route("/spotify/token", methods=["GET"])
 @cache.cached(timeout=3000, query_string=False)
 def get_spotify_token():
-    #print("[REQUEST] GET /spotify/token")
-
     SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID")
     SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET")
 
@@ -225,15 +218,17 @@ def get_spotify_token():
     response = requests.post(token_url, headers=headers, data=data)
     if response.status_code == 200:
         token_data = response.json()
-        #print("[SUCCESS] Spotify token retrieved")
+        created_at = datetime.utcnow().strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )  # ISO 8601 UTC time
         return jsonify(
             {
                 "access_token": token_data["access_token"],
                 "expires_in": token_data["expires_in"],
+                "created_at": created_at,
             }
         )
     else:
-       # print("[ERROR] Failed to retrieve Spotify token")
         return (
             jsonify(
                 {
@@ -252,4 +247,4 @@ def run_api():
 
 
 if __name__ == "__main__":
-   run_api()
+    run_api()
