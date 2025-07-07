@@ -240,6 +240,28 @@ def get_spotify_token():
         )
 
 
+@app.route("/roblox/download_asset", methods=["GET"])
+def download_roblox_asset():
+    asset_id = request.args.get("id")
+    if not asset_id:
+        return jsonify({"error": "Missing asset ID"}), 400
+
+    asset_url = f"https://assetdelivery.roblox.com/v1/asset/?id={asset_id}"
+
+    try:
+        response = requests.get(asset_url, stream=True)
+        if response.status_code != 200:
+            return jsonify({"error": f"Asset not found (status {response.status_code})"}), 404
+
+        content_type = response.headers.get("Content-Type", "application/octet-stream")
+        return response.content, 200, {
+            "Content-Type": content_type,
+            "Content-Disposition": f'attachment; filename="{asset_id}.png"',
+        }
+    except Exception as e:
+        return jsonify({"error": "Failed to fetch asset", "details": str(e)}), 500
+
+
 def run_api():
     port = int(os.environ.get("PORT", 80))  # Get the port from environment variable
     print(f"[INFO] Starting API server on port {port}...")

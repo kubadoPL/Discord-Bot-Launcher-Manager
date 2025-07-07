@@ -30,7 +30,7 @@ pymysql
 mysql-connector-python==8.0.33
 discord.ui
 flask
-werkzeug==2.0.3
+werkzeug==2.2.3 
 flask_cors
 selenium
 beautifulsoup4
