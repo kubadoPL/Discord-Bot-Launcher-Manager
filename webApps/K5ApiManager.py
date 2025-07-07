@@ -241,7 +241,7 @@ def get_spotify_token():
 
 
 @app.route("/roblox/download_asset", methods=["GET"])
-def download_roblox_asset():
+def download_any_roblox_asset():
     asset_id = request.args.get("id")
     if not asset_id:
         return jsonify({"error": "Missing asset ID"}), 400
@@ -250,14 +250,31 @@ def download_roblox_asset():
 
     try:
         response = requests.get(asset_url, stream=True)
-        if response.status_code != 200:
-            return jsonify({"error": f"Asset not found (status {response.status_code})"}), 404
+        #if response.status_code != 200:
+            #return jsonify({"error": f"Asset not found (status {response.status_code})"}), 404
 
+        # Try to get content type and set basic file extensions
         content_type = response.headers.get("Content-Type", "application/octet-stream")
+
+        # Mapping of known types to extensions
+        extension_map = {
+            "image/png": "png",
+            "image/jpeg": "jpg",
+            "image/webp": "webp",
+            "audio/ogg": "ogg",
+            "text/plain": "txt",
+            "application/json": "json",
+            "application/octet-stream": "rbxasset"  # Safe fallback
+        }
+
+        extension = extension_map.get(content_type, "rbxasset")
+        filename = f"{asset_id}.{extension}"
+
         return response.content, 200, {
             "Content-Type": content_type,
-            "Content-Disposition": f'attachment; filename="{asset_id}.png"',
+            "Content-Disposition": f'attachment; filename="{filename}"',
         }
+
     except Exception as e:
         return jsonify({"error": "Failed to fetch asset", "details": str(e)}), 500
 

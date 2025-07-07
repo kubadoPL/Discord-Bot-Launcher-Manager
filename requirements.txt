@@ -22,7 +22,7 @@ spotipy==2.19.0
 typing-extensions==3.7.4.3
 tzlocal==2.1
 urllib3==1.26.3
-yt-dlp==2025.6.12.233004.dev0
+yt-dlp==2025.6.30
 colorlog
 mysql
 mysql.connector
