@@ -35,4 +35,3 @@ flask_cors
 selenium
 beautifulsoup4
 flask_caching
-ElevenLabs
