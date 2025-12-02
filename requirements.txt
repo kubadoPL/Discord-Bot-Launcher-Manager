@@ -35,4 +35,4 @@ flask_cors
 selenium
 beautifulsoup4
 flask_caching
-elevenlabs==0.1
+elevenlabs==2.17.0
