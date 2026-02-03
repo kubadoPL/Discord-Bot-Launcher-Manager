@@ -23,6 +23,7 @@ typing-extensions
 tzlocal==2.1
 urllib3==1.26.3
 yt-dlp==2026.1.31.233334.dev0
+yt-dlp-ejs
 colorlog
 mysql
 mysql.connector
