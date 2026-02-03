@@ -37,3 +37,4 @@ selenium
 beautifulsoup4
 flask_caching
 elevenlabs==2.17.0
+pipx
