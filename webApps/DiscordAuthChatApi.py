@@ -28,10 +28,16 @@ CORS(app, supports_credentials=True, origins=["*"])
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # Discord OAuth2 Configuration
+# IMPORTANT: The redirect URI must point to THIS API's /discord/callback endpoint!
+# Set these in your environment variables:
+#   DISCORD_CLIENT_ID - from Discord Developer Portal
+#   DISCORD_CLIENT_SECRET - from Discord Developer Portal
+#   DISCORD_REDIRECT_URI - must be: http://localhost:5000/discord/callback (for local dev)
+#   FRONTEND_URL - where to redirect after login: http://127.0.0.1:5500/WebAPP/index.html
 DISCORD_CLIENT_ID = os.environ.get("DISCORD_CLIENT_ID")
 DISCORD_CLIENT_SECRET = os.environ.get("DISCORD_CLIENT_SECRET")
 DISCORD_REDIRECT_URI = os.environ.get(
-    "DISCORD_REDIRECT_URI", "http://127.0.0.1:5500/WebAPP/index.html"
+    "DISCORD_REDIRECT_URI", "http://localhost:5000/discord/callback"
 )
 DISCORD_API_URL = "https://discord.com/api/v10"
 
@@ -106,7 +112,7 @@ def discord_callback():
     if error:
         print(f"[DISCORD AUTH ERROR] {error}")
         return redirect(
-            f"{os.environ.get('FRONTEND_URL', 'http://localhost:5500')}?auth_error={error}"
+            f"{os.environ.get('FRONTEND_URL', 'http://127.0.0.1:5500/WebAPP/index.html')}?auth_error={error}"
         )
 
     if not code:
@@ -131,7 +137,7 @@ def discord_callback():
         if "access_token" not in token_json:
             print(f"[DISCORD AUTH ERROR] Token exchange failed: {token_json}")
             return redirect(
-                f"{os.environ.get('FRONTEND_URL', 'http://localhost:5500')}?auth_error=token_exchange_failed"
+                f"{os.environ.get('FRONTEND_URL', 'http://127.0.0.1:5500/WebAPP/index.html')}?auth_error=token_exchange_failed"
             )
 
         access_token = token_json["access_token"]
@@ -146,7 +152,7 @@ def discord_callback():
         if "id" not in user_data:
             print(f"[DISCORD AUTH ERROR] User fetch failed: {user_data}")
             return redirect(
-                f"{os.environ.get('FRONTEND_URL', 'http://localhost:5500')}?auth_error=user_fetch_failed"
+                f"{os.environ.get('FRONTEND_URL', 'http://127.0.0.1:5500/WebAPP/index.html')}?auth_error=user_fetch_failed"
             )
 
         # Generate session token
@@ -179,13 +185,15 @@ def discord_callback():
         )
 
         # Redirect back to frontend with session token
-        frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5500")
+        frontend_url = os.environ.get(
+            "FRONTEND_URL", "http://127.0.0.1:5500/WebAPP/index.html"
+        )
         return redirect(f"{frontend_url}?auth_token={session_token}")
 
     except Exception as e:
         print(f"[DISCORD AUTH ERROR] Exception: {str(e)}")
         return redirect(
-            f"{os.environ.get('FRONTEND_URL', 'http://localhost:5500')}?auth_error=server_error"
+            f"{os.environ.get('FRONTEND_URL', 'http://127.0.0.1:5500/WebAPP/index.html')}?auth_error=server_error"
         )
 
 
