@@ -36,6 +36,7 @@ flask_cors
 selenium
 beautifulsoup4
 flask_caching
+flask_socketio
 elevenlabs==2.17.0
 pipx
 deno
