@@ -25,7 +25,8 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
 CORS(app, supports_credentials=True, origins=["*"])
 
 # Initialize SocketIO for real-time chat
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+# Use 'gevent' for Heroku, or None to auto-detect
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode=None)
 
 # Discord OAuth2 Configuration
 # IMPORTANT: The redirect URI must point to THIS API's /discord/callback endpoint!
