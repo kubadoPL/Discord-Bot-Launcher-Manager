@@ -6,11 +6,8 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.abspath(os.path.join(script_dir, ".."))
 
 # Add parent directory to sys.path so 'api' becomes importable
-sys.path.append(parent_dir)
-
-# Optional: change working directory
-os.chdir(parent_dir)
-print("Working directory set to:", os.getcwd())
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
 
 # Now safely import
 from flask import Flask, request, jsonify
@@ -250,8 +247,8 @@ def download_any_roblox_asset():
 
     try:
         response = requests.get(asset_url, stream=True)
-        #if response.status_code != 200:
-            #return jsonify({"error": f"Asset not found (status {response.status_code})"}), 404
+        # if response.status_code != 200:
+        # return jsonify({"error": f"Asset not found (status {response.status_code})"}), 404
 
         # Try to get content type and set basic file extensions
         content_type = response.headers.get("Content-Type", "application/octet-stream")
@@ -264,16 +261,20 @@ def download_any_roblox_asset():
             "audio/ogg": "ogg",
             "text/plain": "txt",
             "application/json": "json",
-            "application/octet-stream": "rbxasset"  # Safe fallback
+            "application/octet-stream": "rbxasset",  # Safe fallback
         }
 
         extension = extension_map.get(content_type, "rbxasset")
         filename = f"{asset_id}.{extension}"
 
-        return response.content, 200, {
-            "Content-Type": content_type,
-            "Content-Disposition": f'attachment; filename="{filename}"',
-        }
+        return (
+            response.content,
+            200,
+            {
+                "Content-Type": content_type,
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
 
     except Exception as e:
         return jsonify({"error": "Failed to fetch asset", "details": str(e)}), 500

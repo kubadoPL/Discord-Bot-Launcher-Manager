@@ -40,3 +40,5 @@ flask_socketio
 elevenlabs==2.17.0
 pipx
 deno
+gunicorn
+gevent

@@ -1,4 +1,11 @@
 import os
+
+# Apply gevent monkey patching before any other imports
+if os.environ.get("PORT"):  # Only patch if running on Heroku/Production
+    from gevent import monkey
+
+    monkey.patch_all()
+
 import importlib.util
 import sys
 
@@ -6,10 +13,11 @@ import sys
 script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.abspath(os.path.join(script_dir, ".."))
 
-# Add parent directory to sys.path so 'api' becomes importable
-sys.path.append(script_dir)
+# Add script directory to sys.path so 'api' is importable
+if script_dir not in sys.path:
+    sys.path.append(script_dir)
 
-# Optional: change working directory
+# Set working directory to project root
 os.chdir(script_dir)
 print("Working directory set to:", os.getcwd())
 
@@ -55,10 +63,11 @@ for filename in os.listdir(WEBAPPS_DIR):
 application = DispatcherMiddleware(main_app, apps)
 
 
-run_simple(
-    "0.0.0.0",
-    int(os.environ.get("PORT", 5000)),
-    application,
-    use_reloader=True,
-    threaded=True,
-)
+if __name__ == "__main__":
+    run_simple(
+        "0.0.0.0",
+        int(os.environ.get("PORT", 5000)),
+        application,
+        use_reloader=True,
+        threaded=True,
+    )

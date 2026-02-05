@@ -3,9 +3,7 @@ import os
 # Set working directory to one level up from where bot.py is
 script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.join(script_dir, "..")
-os.chdir(parent_dir)  # Change working directory
-
-print("Working directory set to:", os.getcwd())
+# os.chdir(parent_dir)  # Handled by launcher
 
 from flask import Flask, jsonify, request
 from selenium import webdriver
@@ -67,7 +65,6 @@ def get_sum():
     options.add_argument("--disable-logging")
     options.add_argument("--blink-settings=imagesEnabled=false")
 
-
     # Don't specify path — chromedriver is in PATH
     service = Service()  # Auto-resolves chromedriver from PATH
 
@@ -93,13 +90,13 @@ def get_sum():
         accounts_part = current_url[index:] if index != -1 else ""
 
         driver.get(f"https://tools.zeno.fm/{accounts_part}analytics/live")
-        #WebDriverWait(driver, 5).until(
-           # EC.presence_of_element_located((By.CSS_SELECTOR, ".td.vs-table--td"))
-       # )
+        # WebDriverWait(driver, 5).until(
+        # EC.presence_of_element_located((By.CSS_SELECTOR, ".td.vs-table--td"))
+        # )
         time.sleep(3)  # Wait for the page to load completely
-       # WebDriverWait(driver, 10).until(
-         #   EC.presence_of_element_located((By.CLASS_NAME, "content-area__content"))
-        #)
+        # WebDriverWait(driver, 10).until(
+        #   EC.presence_of_element_located((By.CLASS_NAME, "content-area__content"))
+        # )
 
         soup = BeautifulSoup(driver.page_source, "html.parser")
         tds = soup.find_all("td", class_="td vs-table--td")

@@ -1,3 +1,2 @@
-heroku ps:scale worker=1 web=1
 worker: python launcher.py
-web: python webAppsLauncher.py
+web: gunicorn -k gevent -w 1 --bind 0.0.0.0:$PORT webAppsLauncher:application
