@@ -47,6 +47,21 @@ MAX_MESSAGES_PER_CHANNEL = 100
 message_cooldowns = {}
 MESSAGE_COOLDOWN_SECONDS = 2
 ONLINE_THRESHOLD_SECONDS = 60
+SESSION_CLEANUP_THRESHOLD = 100  # Cleanup every 100 session checks or additions
+
+session_check_counter = 0
+
+
+def cleanup_sessions():
+    """Remove expired sessions from memory."""
+    now = datetime.utcnow()
+    expired_keys = [
+        token
+        for token, session in user_sessions.items()
+        if datetime.fromisoformat(session["expires_at"]) < now
+    ]
+    for key in expired_keys:
+        del user_sessions[key]
 
 
 def update_user_activity(user_id, station_key):
@@ -135,6 +150,14 @@ def discord_callback():
             "avatar_url": avatar_url,
             "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat(),
         }
+
+        # Lazy cleanup
+        global session_check_counter
+        session_check_counter += 1
+        if session_check_counter >= SESSION_CLEANUP_THRESHOLD:
+            cleanup_sessions()
+            session_check_counter = 0
+
         return redirect(f"{frontend_url}?auth_token={session_token}")
     except Exception as e:
         return redirect(f"{frontend_url}?auth_error=server_error")
@@ -149,6 +172,13 @@ def get_user():
     token = auth_header.split(" ")[1]
     if token not in user_sessions:
         return jsonify({"error": "Invalid session"}), 401
+
+    # Lazy cleanup trigger
+    global session_check_counter
+    session_check_counter += 1
+    if session_check_counter >= SESSION_CLEANUP_THRESHOLD:
+        cleanup_sessions()
+        session_check_counter = 0
 
     return jsonify({"authenticated": True, "user": user_sessions[token]})
 
