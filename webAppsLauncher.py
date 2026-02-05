@@ -19,15 +19,17 @@ from werkzeug.serving import run_simple
 from flask import Flask, request, jsonify
 from flask import render_template
 from flask_cors import CORS
+
 WEBAPPS_DIR = "webApps"
 
-main_app = Flask(__name__, template_folder= script_dir + "/api/templates")
+main_app = Flask(__name__, template_folder=script_dir + "/api/templates")
 
 CORS(main_app)  # enable CORS globally
 
+
 @main_app.route("/")
 def index():
-    return render_template("/main.html")  #"Main app root"
+    return render_template("/main.html")  # "Main app root"
 
 
 def load_flask_app(filepath):
@@ -53,4 +55,10 @@ for filename in os.listdir(WEBAPPS_DIR):
 application = DispatcherMiddleware(main_app, apps)
 
 
-run_simple("0.0.0.0", int(os.environ.get("PORT", 5000)), application, use_reloader=True)
+run_simple(
+    "0.0.0.0",
+    int(os.environ.get("PORT", 5000)),
+    application,
+    use_reloader=True,
+    threaded=True,
+)
