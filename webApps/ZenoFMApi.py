@@ -41,14 +41,25 @@ def home():
     )
 
 
+import threading
+
+# Global lock to ensure only one Selenium instance runs at a time (saves memory)
+scraping_lock = threading.Lock()
+
+
 @app.route("/get-sum", methods=["GET"])
 @cache.cached(timeout=300, query_string=True)
 def get_sum():
-    # Login credentials
     station = request.args.get("station")
     if not station:
         return jsonify({"error": "Missing station parameter"}), 400
-    # print(f"[INFO] Processing station: {station.upper()}")
+
+    with scraping_lock:
+        return _perform_scrape(station)
+
+
+def _perform_scrape(station):
+    # Login credentials
     EMAIL = os.environ.get("ZENOFM_EMAIL_" + station.upper())
     PASSWORD = os.environ.get("ZENOFM_PASSWORD_" + station.upper())
 
@@ -59,13 +70,15 @@ def get_sum():
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
+    options.add_argument("--disable-setuid-sandbox")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-logging")
     options.add_argument("--disable-software-rasterizer")
     options.add_argument("--no-zygote")
-    options.add_argument("--remote-debugging-port=9222")
+    options.add_argument("--single-process")  # Crucial for low memory
+    options.add_argument("--memory-pressure-off")
     options.add_argument("--blink-settings=imagesEnabled=false")
     options.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -78,7 +91,7 @@ def get_sum():
     total_sum = 0
 
     try:
-        print(f"[DEBUG] Initializing Chrome driver for station: {station}")
+        print(f"[DEBUG] [{station}] Initializing Chrome driver (Locked)...")
         driver = webdriver.Chrome(service=service, options=options)
 
         # Log version info
