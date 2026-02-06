@@ -57,49 +57,86 @@ def get_sum():
 
     # Optional: headless mode for production use
     options = Options()
-    options.add_argument("--headless=new")  # Try "new" headless mode
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-logging")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--no-zygote")
+    options.add_argument("--remote-debugging-port=9222")
     options.add_argument("--blink-settings=imagesEnabled=false")
+    options.add_argument(
+        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
 
     # Don't specify path — chromedriver is in PATH
     service = Service()  # Auto-resolves chromedriver from PATH
 
-    driver = webdriver.Chrome(service=service, options=options)
-
+    driver = None
     total_sum = 0
 
     try:
+        print(f"[DEBUG] Initializing Chrome driver for station: {station}")
+        driver = webdriver.Chrome(service=service, options=options)
+
+        # Log version info
+        try:
+            print(f"[DEBUG] Browser: {driver.capabilities['browserVersion']}")
+            print(
+                f"[DEBUG] ChromeDriver: {driver.capabilities['chrome']['chromedriverVersion'].split(' ')[0]}"
+            )
+        except:
+            pass
+
+        driver.set_page_load_timeout(45)
+
+        print(f"[DEBUG] Navigating to login page...")
         driver.get("https://tools.zeno.fm/login")
 
-        WebDriverWait(driver, 10).until(
+        print(f"[DEBUG] Waiting for login form...")
+        WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.ID, "username"))
         )
-        print(EMAIL)
+
+        print(f"[DEBUG] Entering credentials for {EMAIL}...")
         driver.find_element(By.ID, "username").send_keys(EMAIL)
         driver.find_element(By.ID, "password").send_keys(PASSWORD)
         driver.find_element(By.ID, "kc-login").click()
 
-        WebDriverWait(driver, 10).until(EC.url_contains("/accounts"))
+        print(f"[DEBUG] Waiting for redirection to /accounts...")
+        WebDriverWait(driver, 20).until(EC.url_contains("/accounts"))
 
         current_url = driver.current_url
+        print(f"[DEBUG] Current URL: {current_url}")
+
         index = current_url.find("accounts/")
-        accounts_part = current_url[index:] if index != -1 else ""
+        if index == -1:
+            print(f"[ERROR] Could not find 'accounts/' in URL: {current_url}")
+            return (
+                jsonify(
+                    {
+                        "error": f"Login failed or redirected to unexpected URL: {current_url}"
+                    }
+                ),
+                500,
+            )
 
-        driver.get(f"https://tools.zeno.fm/{accounts_part}analytics/live")
-        # WebDriverWait(driver, 5).until(
-        # EC.presence_of_element_located((By.CSS_SELECTOR, ".td.vs-table--td"))
-        # )
+        accounts_part = current_url[index:]
+        analytics_url = f"https://tools.zeno.fm/{accounts_part}analytics/live"
+        print(f"[DEBUG] Navigating to analytics: {analytics_url}")
+
+        driver.get(analytics_url)
+
+        print(f"[DEBUG] Waiting for analytics data to load (3s sleep)...")
         time.sleep(3)  # Wait for the page to load completely
-        # WebDriverWait(driver, 10).until(
-        #   EC.presence_of_element_located((By.CLASS_NAME, "content-area__content"))
-        # )
 
+        print(f"[DEBUG] Parsing page source with BeautifulSoup...")
         soup = BeautifulSoup(driver.page_source, "html.parser")
         tds = soup.find_all("td", class_="td vs-table--td")
+
+        print(f"[DEBUG] Found {len(tds)} table cells.")
 
         i = 0
         while i < len(tds) - 1:
@@ -112,11 +149,24 @@ def get_sum():
                     total_sum += int(number_text)
             i += 2
 
+        print(f"[DEBUG] Successfully calculated total sum: {total_sum}")
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        error_msg = str(e)
+        print(f"[ERROR] Exception occurred: {error_msg}")
+        # Capture current URL for debugging
+        last_url = "Unknown"
+        try:
+            if driver:
+                last_url = driver.current_url
+        except:
+            pass
+        return jsonify({"error": error_msg, "last_url": last_url}), 500
 
     finally:
-        driver.quit()
+        if driver:
+            print(f"[DEBUG] Quitting driver...")
+            driver.quit()
 
     return jsonify({"total_sum": total_sum})
 
