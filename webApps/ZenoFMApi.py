@@ -95,20 +95,48 @@ def get_sum():
         print(f"[DEBUG] Navigating to login page...")
         driver.get("https://tools.zeno.fm/login")
 
-        print(f"[DEBUG] Waiting for login form...")
+        print(f"[DEBUG] Waiting for login form (max 15s)...")
+        # Increase patience and add a small sleep to let static assets settle
         WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.ID, "username"))
+            EC.visibility_of_element_located((By.ID, "username"))
         )
+        time.sleep(1)
+
+        def safe_send_keys(element_id, text):
+            for _ in range(3):
+                try:
+                    el = driver.find_element(By.ID, element_id)
+                    el.clear()
+                    el.send_keys(text)
+                    return
+                except Exception as ex:
+                    print(
+                        f"[DEBUG] Retrying send_keys for {element_id} due to {type(ex).__name__}"
+                    )
+                    time.sleep(1)
+            driver.find_element(By.ID, element_id).send_keys(text)  # Final attempt
 
         print(f"[DEBUG] Entering credentials for {EMAIL}...")
-        driver.find_element(By.ID, "username").send_keys(EMAIL)
-        driver.find_element(By.ID, "password").send_keys(PASSWORD)
-        driver.find_element(By.ID, "kc-login").click()
+        safe_send_keys("username", EMAIL)
+        safe_send_keys("password", PASSWORD)
 
-        print(f"[DEBUG] Waiting for redirection to /accounts...")
-        WebDriverWait(driver, 20).until(EC.url_contains("/accounts"))
+        time.sleep(0.5)
+        print(f"[DEBUG] Clicking login button...")
+        try:
+            driver.find_element(By.ID, "kc-login").click()
+        except Exception:
+            # Fallback if button becomes stale or hidden
+            submit_btn = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.ID, "kc-login"))
+            )
+            submit_btn.click()
+
+        print(f"[DEBUG] Waiting for redirection to /accounts (max 30s)...")
+        # Redirection can be slow on low-memory environments
+        WebDriverWait(driver, 30).until(EC.url_contains("/accounts"))
 
         current_url = driver.current_url
+        print(f"[DEBUG] Current URL after login: {current_url}")
         print(f"[DEBUG] Current URL: {current_url}")
 
         index = current_url.find("accounts/")
