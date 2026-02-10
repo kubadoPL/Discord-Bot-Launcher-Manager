@@ -47,21 +47,6 @@ MAX_MESSAGES_PER_CHANNEL = 100
 message_cooldowns = {}
 MESSAGE_COOLDOWN_SECONDS = 2
 ONLINE_THRESHOLD_SECONDS = 60
-SESSION_CLEANUP_THRESHOLD = 100  # Cleanup every 100 session checks or additions
-
-session_check_counter = 0
-
-
-def cleanup_sessions():
-    """Remove expired sessions from memory."""
-    now = datetime.utcnow()
-    expired_keys = [
-        token
-        for token, session in user_sessions.items()
-        if datetime.fromisoformat(session["expires_at"]) < now
-    ]
-    for key in expired_keys:
-        del user_sessions[key]
 
 
 def update_user_activity(user_id, station_key):
@@ -98,7 +83,7 @@ def discord_login():
         f"?client_id={DISCORD_CLIENT_ID}"
         f"&redirect_uri={DISCORD_REDIRECT_URI}"
         f"&response_type=code"
-        f"&scope=identify"
+        f"&scope=identify%20guilds"
         f"&state={state}"
     )
     return jsonify({"oauth_url": oauth_url})
@@ -148,16 +133,9 @@ def discord_callback():
             "username": user_data["username"],
             "global_name": user_data.get("global_name", user_data["username"]),
             "avatar_url": avatar_url,
+            "discord_access_token": token_json["access_token"],
             "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat(),
         }
-
-        # Lazy cleanup
-        global session_check_counter
-        session_check_counter += 1
-        if session_check_counter >= SESSION_CLEANUP_THRESHOLD:
-            cleanup_sessions()
-            session_check_counter = 0
-
         return redirect(f"{frontend_url}?auth_token={session_token}")
     except Exception as e:
         return redirect(f"{frontend_url}?auth_error=server_error")
@@ -173,14 +151,37 @@ def get_user():
     if token not in user_sessions:
         return jsonify({"error": "Invalid session"}), 401
 
-    # Lazy cleanup trigger
-    global session_check_counter
-    session_check_counter += 1
-    if session_check_counter >= SESSION_CLEANUP_THRESHOLD:
-        cleanup_sessions()
-        session_check_counter = 0
-
     return jsonify({"authenticated": True, "user": user_sessions[token]})
+
+
+@chat_api.route("/discord/check-guild/<guild_id>")
+def check_guild(guild_id):
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    token = auth_header.split(" ")[1]
+    if token not in user_sessions:
+        return jsonify({"error": "Invalid session"}), 401
+
+    session = user_sessions[token]
+    discord_token = session.get("discord_access_token")
+    if not discord_token:
+        return jsonify({"in_guild": False, "error": "No Discord token available"}), 200
+
+    try:
+        guilds_response = http_requests.get(
+            f"{DISCORD_API_URL}/users/@me/guilds",
+            headers={"Authorization": f"Bearer {discord_token}"},
+        )
+        if guilds_response.status_code != 200:
+            return jsonify({"in_guild": False, "error": "Failed to fetch guilds"}), 200
+
+        guilds = guilds_response.json()
+        in_guild = any(g["id"] == guild_id for g in guilds)
+        return jsonify({"in_guild": in_guild})
+    except Exception as e:
+        return jsonify({"in_guild": False, "error": str(e)}), 200
 
 
 @chat_api.route("/chat/history/<station>")
