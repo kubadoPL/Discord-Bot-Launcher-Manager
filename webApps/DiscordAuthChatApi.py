@@ -178,8 +178,22 @@ def check_guild(guild_id):
             return jsonify({"in_guild": False, "error": "Failed to fetch guilds"}), 200
 
         guilds = guilds_response.json()
-        in_guild = any(g["id"] == guild_id for g in guilds)
-        return jsonify({"in_guild": in_guild})
+        matched_guild = next((g for g in guilds if g["id"] == guild_id), None)
+        if matched_guild:
+            icon_hash = matched_guild.get("icon")
+            icon_url = (
+                f"https://cdn.discordapp.com/icons/{guild_id}/{icon_hash}.png?size=128"
+                if icon_hash
+                else None
+            )
+            return jsonify(
+                {
+                    "in_guild": True,
+                    "guild_name": matched_guild.get("name"),
+                    "guild_icon": icon_url,
+                }
+            )
+        return jsonify({"in_guild": False})
     except Exception as e:
         return jsonify({"in_guild": False, "error": str(e)}), 200
 
