@@ -237,6 +237,27 @@ def get_spotify_token():
         )
 
 
+@app.route("/giphy/token", methods=["GET"])
+@cache.cached(timeout=3000, query_string=False)
+def get_giphy_token():
+    GIPHY_TOKEN = os.environ.get("GIPHY_TOKEN")
+
+    if GIPHY_TOKEN:
+        created_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        return jsonify(
+            {
+                "access_token": GIPHY_TOKEN,
+                "expires_in": 3600,  # Static value for consistency
+                "created_at": created_at,
+            }
+        )
+    else:
+        return (
+            jsonify({"error": "GIPHY_TOKEN not found in environment"}),
+            500,
+        )
+
+
 @app.route("/roblox/download_asset", methods=["GET"])
 def download_any_roblox_asset():
     asset_id = request.args.get("id")
