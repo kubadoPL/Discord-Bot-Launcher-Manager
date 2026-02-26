@@ -450,8 +450,8 @@ def send_message():
         if not isinstance(image_data, str) or not image_data.startswith("data:image/"):
             return jsonify({"error": "Invalid image format"}), 400
         # Check base64 size (~2.8MB for 2MB file)
-        if len(image_data) > 2.8 * 1024 * 1024:
-            return jsonify({"error": "Image too large (max 2MB)"}), 400
+        if len(image_data) > 6.8 * 1024 * 1024:
+            return jsonify({"error": "Image too large (max 6MB)"}), 400
 
     # Content or image required
     if not content and not image_data:
