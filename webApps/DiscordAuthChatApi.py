@@ -28,6 +28,8 @@ CORS(
     },
 )
 
+app.config["MAX_CONTENT_LENGTH"] = 3 * 1024 * 1024  # 3MB max request size
+
 chat_api = Blueprint("chat_api", __name__)
 
 # Discord OAuth2 Configuration
@@ -395,9 +397,22 @@ def send_message():
     data = request.json
     content = data.get("message", "").strip()[:200]
     station = data.get("station", "").upper().replace("-", "").replace(" ", "")
+    image_data = data.get("image_data")  # base64 data URL
 
-    if not content or station not in chat_messages:
+    # Validate image if present
+    if image_data:
+        if not isinstance(image_data, str) or not image_data.startswith("data:image/"):
+            return jsonify({"error": "Invalid image format"}), 400
+        # Check base64 size (~2.8MB for 2MB file)
+        if len(image_data) > 2.8 * 1024 * 1024:
+            return jsonify({"error": "Image too large (max 2MB)"}), 400
+
+    # Content or image required
+    if not content and not image_data:
         return jsonify({"error": "Invalid data"}), 400
+
+    if station not in chat_messages:
+        return jsonify({"error": "Invalid station"}), 400
 
     user = user_sessions[token]
     now = datetime.utcnow()
@@ -419,6 +434,7 @@ def send_message():
         "timestamp": now.isoformat() + "Z",
         "station": station,
         "song_data": data.get("song_data"),  # optional song embed
+        "image_data": image_data,  # optional base64 image
         "reactions": {},  # emoji -> [user_ids]
         "reaction_users": {},  # user_id -> {username, avatar_url}
     }
