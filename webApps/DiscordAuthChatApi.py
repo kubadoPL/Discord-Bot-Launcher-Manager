@@ -28,7 +28,7 @@ CORS(
     },
 )
 
-app.config["MAX_CONTENT_LENGTH"] = 3 * 1024 * 1024  # 3MB max request size
+app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024  # 6MB max request size
 
 chat_api = Blueprint("chat_api", __name__)
 
