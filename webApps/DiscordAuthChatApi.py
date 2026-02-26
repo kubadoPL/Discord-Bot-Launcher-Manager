@@ -53,6 +53,52 @@ MESSAGE_COOLDOWN_SECONDS = 2
 ONLINE_THRESHOLD_SECONDS = 60
 OFFLINE_THRESHOLD_SECONDS = 86400  # 24 hours
 all_user_activity = {}  # user_id -> last_activity_timestamp (global)
+custom_emojis = []  # List of {id, name, url, creator_id}
+
+# --- CUSTOM EMOJIS ENDPOINTS ---
+
+
+@chat_api.route("/chat/emojis", methods=["GET"])
+def get_custom_emojis():
+    return jsonify(custom_emojis)
+
+
+@chat_api.route("/chat/emojis/upload", methods=["POST"])
+def upload_custom_emoji():
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    token = auth_header.split(" ")[1]
+    if token not in user_sessions:
+        return jsonify({"error": "Invalid session"}), 401
+
+    data = request.json
+    name = data.get("name", "custom").strip()[:20]
+    image_data = data.get("image_data")
+
+    if not image_data or not image_data.startswith("data:image/"):
+        return jsonify({"error": "Invalid image"}), 400
+
+    # Max 200KB for emojis
+    if len(image_data) > 300 * 1024:
+        return jsonify({"error": "Emoji too large (max 200KB)"}), 400
+
+    user = user_sessions[token]
+    emoji_id = f"custom_{secrets.token_hex(4)}"
+    new_emoji = {
+        "id": emoji_id,
+        "name": name,
+        "url": image_data,
+        "creator_id": user["id"],
+    }
+
+    custom_emojis.append(new_emoji)
+    # Keep only last 50 custom emojis
+    if len(custom_emojis) > 50:
+        custom_emojis.pop(0)
+
+    return jsonify({"success": True, "emoji": new_emoji})
 
 
 def update_user_activity(user_id, station_key, playing_station=None):
@@ -464,7 +510,8 @@ def react_to_message():
         return jsonify({"error": "Missing message_id or emoji"}), 400
 
     # Limit emoji length (prevent abuse)
-    if len(emoji) > 10:
+    # Increased to 40 to support custom_xxxxxxxx IDs
+    if len(emoji) > 40:
         return jsonify({"error": "Invalid emoji"}), 400
 
     user = user_sessions[token]
