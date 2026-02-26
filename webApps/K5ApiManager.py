@@ -258,6 +258,27 @@ def get_giphy_token():
         )
 
 
+@app.route("/youtube/token", methods=["GET"])
+@cache.cached(timeout=3000, query_string=False)
+def get_youtube_token():
+    YOUTUBE_DATA_TOKEN = os.environ.get("YOUTUBE_DATA_TOKEN")
+
+    if YOUTUBE_DATA_TOKEN:
+        created_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        return jsonify(
+            {
+                "access_token": YOUTUBE_DATA_TOKEN,
+                "expires_in": 3600,  # Static value for consistency
+                "created_at": created_at,
+            }
+        )
+    else:
+        return (
+            jsonify({"error": "YOUTUBE_DATA_TOKEN not found in environment"}),
+            500,
+        )
+
+
 @app.route("/roblox/download_asset", methods=["GET"])
 def download_any_roblox_asset():
     asset_id = request.args.get("id")
