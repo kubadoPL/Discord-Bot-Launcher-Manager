@@ -114,7 +114,11 @@ def update_user_activity(user_id, station_key, playing_station=None):
         user_last_station[user_id] = station_key
 
 
-def get_online_users_list(station_key):
+# Caching for online users to prevent backend lag
+online_users_cache = {}  # station_key -> {"list": [], "count": 0, "expires": datetime}
+
+
+def get_online_users_list_raw(station_key):
     now = datetime.utcnow()
     # Station display names
     station_names = {
@@ -155,18 +159,33 @@ def get_online_users_list(station_key):
     return results
 
 
-def get_online_count(station_key):
-    # Only return truly online count for the badge
+def get_online_data(station_key):
     now = datetime.utcnow()
-    if station_key not in online_users:
-        return 0
-    return len(
-        [
-            uid
-            for uid, ts in online_users[station_key].items()
-            if (now - ts).total_seconds() < ONLINE_THRESHOLD_SECONDS
-        ]
-    )
+    cached = online_users_cache.get(station_key)
+
+    # Cache for 5 seconds to reduce CPU load during heavy polling
+    if cached and cached["expires"] > now:
+        return cached["list"], cached["count"]
+
+    results = get_online_users_list_raw(station_key)
+    count = len([u for u in results if u.get("is_online")])
+
+    online_users_cache[station_key] = {
+        "list": results,
+        "count": count,
+        "expires": now + timedelta(seconds=5),
+    }
+    return results, count
+
+
+def get_online_users_list(station_key):
+    users_list, _ = get_online_data(station_key)
+    return users_list
+
+
+def get_online_count(station_key):
+    _, count = get_online_data(station_key)
+    return count
 
 
 @chat_api.route("/")
@@ -253,137 +272,6 @@ def discord_callback():
         return redirect(f"{frontend_url}?auth_token={session_token}")
     except Exception as e:
         return redirect(f"{frontend_url}?auth_error=server_error")
-
-
-# ========================
-# DISCORD ACTIVITIES ENDPOINTS
-# ========================
-
-
-@chat_api.route("/discord/activity-token", methods=["POST"])
-def discord_activity_token():
-    """
-    Token exchange endpoint for Discord Activities.
-    The frontend (Embedded App SDK) calls authorize() which returns a 'code'.
-    This code must be exchanged server-side for an access_token.
-    Unlike regular OAuth2, Activities use grant_type='authorization_code'
-    but WITHOUT a redirect_uri (Discord Activity SDK handles the PKCE flow).
-    """
-    data = request.json
-    code = data.get("code") if data else None
-
-    if not code:
-        return jsonify({"error": "Missing code"}), 400
-
-    if not DISCORD_CLIENT_ID or not DISCORD_CLIENT_SECRET:
-        return jsonify({"error": "Discord OAuth not configured on server"}), 500
-
-    try:
-        token_response = http_requests.post(
-            f"{DISCORD_API_URL}/oauth2/token",
-            data={
-                "client_id": DISCORD_CLIENT_ID,
-                "client_secret": DISCORD_CLIENT_SECRET,
-                "grant_type": "authorization_code",
-                "code": code,
-            },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=10,
-        )
-        token_json = token_response.json()
-
-        if "access_token" not in token_json:
-            return (
-                jsonify({"error": "Token exchange failed", "details": token_json}),
-                400,
-            )
-
-        return jsonify({"access_token": token_json["access_token"]})
-
-    except Exception as e:
-        return jsonify({"error": f"Token exchange error: {str(e)}"}), 500
-
-
-@chat_api.route("/discord/activity-login", methods=["POST"])
-def discord_activity_login():
-    """
-    Creates a backend session from a Discord access_token obtained via the Embedded App SDK.
-    This is the Activity equivalent of the OAuth2 callback — instead of being redirected,
-    the SDK returns the access_token directly, which we use to fetch user data.
-    Returns a session_token and user profile identical to the normal login flow.
-    """
-    data = request.json
-    access_token = data.get("access_token") if data else None
-
-    if not access_token:
-        return jsonify({"error": "Missing access_token"}), 400
-
-    try:
-        # Fetch user info from Discord using the provided access_token
-        user_response = http_requests.get(
-            f"{DISCORD_API_URL}/users/@me",
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=10,
-        )
-
-        if user_response.status_code != 200:
-            return (
-                jsonify(
-                    {
-                        "error": "Failed to fetch user from Discord",
-                        "status": user_response.status_code,
-                    }
-                ),
-                401,
-            )
-
-        user_data = user_response.json()
-
-        # Build user profile (same format as normal login)
-        avatar = user_data.get("avatar")
-        avatar_url = (
-            f"https://cdn.discordapp.com/avatars/{user_data['id']}/{avatar}.png"
-            if avatar
-            else f"https://cdn.discordapp.com/embed/avatars/{int(user_data.get('discriminator', 0)) % 5}.png"
-        )
-
-        profile = {
-            "id": user_data["id"],
-            "username": user_data["username"],
-            "global_name": user_data.get("global_name", user_data["username"]),
-            "avatar_url": avatar_url,
-            "banner_url": (
-                f"https://cdn.discordapp.com/banners/{user_data['id']}/{user_data['banner']}.png?size=600"
-                if user_data.get("banner")
-                else None
-            ),
-            "accent_color": user_data.get("accent_color"),
-        }
-
-        # Store safe profile
-        user_profiles[user_data["id"]] = profile
-
-        # Create session token (same structure as OAuth2 callback)
-        import secrets as _secrets
-
-        session_token = _secrets.token_urlsafe(64)
-        user_sessions[session_token] = {
-            **profile,
-            "discord_access_token": access_token,
-            "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat() + "Z",
-            "via_activity": True,  # Mark as Activity login for debugging
-        }
-
-        return jsonify(
-            {
-                "success": True,
-                "session_token": session_token,
-                "user": profile,
-            }
-        )
-
-    except Exception as e:
-        return jsonify({"error": f"Activity login error: {str(e)}"}), 500
 
 
 @chat_api.route("/discord/user")
@@ -507,14 +395,15 @@ def get_chat_history(station):
                 user_sessions[token]["id"], station_key, playing_header
             )
 
-    online_users_list = get_online_users_list(station_key)
-    online_count = len([u for u in online_users_list if u.get("is_online")])
+    exclude_users = request.args.get("exclude_users") == "1"
+    online_users_list, online_count = get_online_data(station_key)
+
     return jsonify(
         {
             "station": station_key,
             "messages": chat_messages[station_key][-50:],
             "online_count": online_count,
-            "online_users": online_users_list,
+            "online_users": [] if exclude_users else online_users_list,
             "server_time": datetime.utcnow().isoformat() + "Z",
         }
     )
@@ -549,13 +438,14 @@ def poll_messages(station):
         except:
             pass
 
-    online_users_list = get_online_users_list(station_key)
-    online_count = len([u for u in online_users_list if u.get("is_online")])
+    exclude_users = request.args.get("exclude_users") == "1"
+    online_users_list, online_count = get_online_data(station_key)
+
     return jsonify(
         {
             "messages": messages[-50:],
             "online_count": online_count,
-            "online_users": online_users_list,
+            "online_users": [] if exclude_users else online_users_list,
             "server_time": datetime.utcnow().isoformat() + "Z",
         }
     )
