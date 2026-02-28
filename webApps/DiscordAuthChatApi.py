@@ -107,6 +107,12 @@ def upload_custom_emoji():
     return jsonify({"success": True, "emoji": new_emoji})
 
 
+def normalize_station(name):
+    if not name:
+        return ""
+    return name.upper().replace("-", "").replace(" ", "")
+
+
 def update_user_activity(user_id, station_key, playing_station=None):
     now = datetime.utcnow()
     if station_key not in online_users:
@@ -157,7 +163,14 @@ def get_online_data(station_key):
             last_ts = online_users[station_key][uid]
             diff = (now - last_ts).total_seconds()
 
-            is_online = diff < ONLINE_THRESHOLD_SECONDS
+            # Valid global activity check
+            is_globally_active = diff < ONLINE_THRESHOLD_SECONDS
+
+            # Check if this user is actually listening to THIS station
+            user_playing = user_last_station.get(uid, "")
+            is_listening_to_this = normalize_station(user_playing) == station_key
+
+            is_online = is_globally_active and is_listening_to_this
             if is_online:
                 online_count += 1
 
