@@ -48,7 +48,7 @@ scraping_lock = threading.Lock()
 
 
 @app.route("/get-sum", methods=["GET"])
-@cache.cached(timeout=300, query_string=True)
+@cache.cached(timeout=500, query_string=True)
 def get_sum():
     station = request.args.get("station")
     if not station:
