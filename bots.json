@@ -10,9 +10,5 @@
     "PszczelarzBOT": {
         "repo": "PszczelarzBOT",
         "token": "PszczelarzBOT_TOKEN"
-    },
-    "EzeteriuszMaximusBOT": {
-        "repo": "EzeteriuszMaximusBOT",
-        "token": "EZETERIUSZ_TOKEN"
     }
 }
