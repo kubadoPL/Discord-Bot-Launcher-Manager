@@ -14,10 +14,5 @@
     "EzeteriuszMaximusBOT": {
         "repo": "EzeteriuszMaximusBOT",
         "token": "EZETERIUSZ_TOKEN"
-    },
-    "mirmaxrepository": {
-        "repo": "mirmaxrepository",
-        "token": "Roast_TOKEN"
     }
-    
 }
