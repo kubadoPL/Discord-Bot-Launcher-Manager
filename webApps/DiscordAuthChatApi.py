@@ -38,7 +38,6 @@ DISCORD_CLIENT_ID = os.environ.get("DISCORD_CLIENT_ID")
 DISCORD_CLIENT_SECRET = os.environ.get("DISCORD_CLIENT_SECRET")
 DISCORD_REDIRECT_URI = os.environ.get(
     "DISCORD_REDIRECT_URI",
-    "https://bot-launcher-discord-017f7d5f49d9.herokuapp.com/DiscordAuthChatApi/discord/callback",
 )
 DISCORD_API_URL = "https://discord.com/api/v10"
 
