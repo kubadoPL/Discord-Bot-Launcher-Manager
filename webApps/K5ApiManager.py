@@ -43,14 +43,12 @@ def main_page():
 
 
 @app.route("/running_bots")
-@cross_origin(origins=["https://radio-gaming.stream"])
 def running_bots():
     bots = get_running_bots()
     return jsonify(bots)
 
 
 @app.route("/api_key_info", methods=["GET"])
-@cross_origin(origins=["https://radio-gaming.stream"])
 @require_api_key
 def api_key_info():
     api_key = request.headers.get("X-API-Key")
@@ -75,7 +73,6 @@ def api_key_info():
 
 
 @app.route("/get_balance", methods=["GET"])
-@cross_origin(origins=["https://radio-gaming.stream"])
 def get_balance():
     user_id = request.args.get("user_id")
     print(f"[REQUEST] GET /get_balance - user_id: {user_id}")
@@ -103,7 +100,6 @@ def get_balance():
 
 
 @app.route("/update_balance", methods=["POST"])
-@cross_origin(origins=["https://radio-gaming.stream"])
 @require_api_key
 def update_balance():
     data = request.json
@@ -134,7 +130,6 @@ def update_balance():
 
 # Roblox support
 @app.route("/roblox/get_balance", methods=["GET"])
-@cross_origin(origins=["https://radio-gaming.stream"])
 def get_roblox_balance():
     roblox_id = request.args.get("roblox_id")
     print(f"[REQUEST] GET /roblox/get_balance - roblox_id: {roblox_id}")
@@ -168,7 +163,6 @@ def get_roblox_balance():
 
 
 @app.route("/roblox/update_balance", methods=["POST"])
-@cross_origin(origins=["https://radio-gaming.stream"])
 @require_api_key
 def update_roblox_balance():
     data = request.json
@@ -288,7 +282,6 @@ def get_youtube_token():
 
 
 @app.route("/roblox/download_asset", methods=["GET"])
-@cross_origin(origins=["https://radio-gaming.stream"])
 def download_any_roblox_asset():
     asset_id = request.args.get("id")
     if not asset_id:
