@@ -22,7 +22,7 @@ CORS(
     app,
     resources={
         r"/*": {
-            "origins": "*",
+            "origins": ["https://radio-gaming.stream"],
             "allow_headers": ["Authorization", "Content-Type", "X-Playing-Station"],
             "methods": ["GET", "POST", "OPTIONS"],
         }

@@ -21,7 +21,7 @@ from flask_caching import Cache
 
 
 app = Flask(__name__)
-CORS(app)  # enable CORS globally
+CORS(app, origins=["https://radio-gaming.stream"])  # enable CORS only for radio-gaming.stream
 
 cache = Cache(app, config={"CACHE_TYPE": "simple"})
 

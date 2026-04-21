@@ -33,7 +33,7 @@ from flask_caching import Cache
 from datetime import datetime
 
 app = Flask(__name__, template_folder=parent_dir + "/api/templates")
-CORS(app)  # enable CORS globally
+CORS(app)  # enable CORS only for radio-gaming.stream
 
 cache = Cache(app, config={"CACHE_TYPE": "simple"})
 

@@ -32,7 +32,7 @@ WEBAPPS_DIR = "webApps"
 
 main_app = Flask(__name__, template_folder=script_dir + "/api/templates")
 
-CORS(main_app)  # enable CORS globally
+CORS(main_app)  # enable CORS only for radio-gaming.stream
 
 
 @main_app.route("/")
