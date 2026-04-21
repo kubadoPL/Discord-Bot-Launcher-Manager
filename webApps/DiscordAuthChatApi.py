@@ -11,23 +11,18 @@ if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
 from flask import Flask, request, jsonify, redirect, Blueprint
-from flask_cors import CORS
+from flask_cors import cross_origin
 import requests as http_requests
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
 
-# CORS configuration
-CORS(
-    app,
-    resources={
-        r"/*": {
-            "origins": ["https://radio-gaming.stream"],
-            "allow_headers": ["Authorization", "Content-Type", "X-Playing-Station"],
-            "methods": ["GET", "POST", "OPTIONS"],
-        }
-    },
-)
+# CORS options for all API routes
+CORS_OPTIONS = {
+    "origins": ["https://radio-gaming.stream"],
+    "allow_headers": ["Authorization", "Content-Type", "X-Playing-Station"],
+    "methods": ["GET", "POST", "OPTIONS"],
+}
 
 app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024  # 6MB max request size
 
@@ -72,11 +67,13 @@ STATION_NAMES = {
 
 
 @chat_api.route("/chat/emojis", methods=["GET"])
+@cross_origin(**CORS_OPTIONS)
 def get_custom_emojis():
     return jsonify(custom_emojis)
 
 
 @chat_api.route("/chat/emojis/upload", methods=["POST"])
+@cross_origin(**CORS_OPTIONS)
 def upload_custom_emoji():
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -222,6 +219,7 @@ def home():
 
 
 @chat_api.route("/discord/login")
+@cross_origin(**CORS_OPTIONS)
 def discord_login():
     if not DISCORD_CLIENT_ID:
         return jsonify({"error": "Discord OAuth not configured"}), 500
@@ -238,6 +236,7 @@ def discord_login():
 
 
 @chat_api.route("/discord/callback")
+@cross_origin(**CORS_OPTIONS)
 def discord_callback():
     code = request.args.get("code")
     frontend_url = os.environ.get(
@@ -303,6 +302,7 @@ def discord_callback():
 
 
 @chat_api.route("/discord/user")
+@cross_origin(**CORS_OPTIONS)
 def get_user():
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -316,6 +316,7 @@ def get_user():
 
 
 @chat_api.route("/discord/check-guild/<guild_id>")
+@cross_origin(**CORS_OPTIONS)
 def check_guild(guild_id):
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -408,6 +409,7 @@ def check_guild(guild_id):
 
 
 @chat_api.route("/chat/history/<station>")
+@cross_origin(**CORS_OPTIONS)
 def get_chat_history(station):
     station_key = station.upper().replace("-", "").replace(" ", "")
     if station_key not in chat_messages:
@@ -441,6 +443,7 @@ def get_chat_history(station):
 
 
 @chat_api.route("/chat/poll/<station>")
+@cross_origin(**CORS_OPTIONS)
 def poll_messages(station):
     station_key = station.upper().replace("-", "").replace(" ", "")
     since = request.args.get("since", "")
@@ -534,6 +537,7 @@ def poll_messages(station):
 
 
 @chat_api.route("/chat/send", methods=["POST"])
+@cross_origin(**CORS_OPTIONS)
 def send_message():
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -597,6 +601,7 @@ def send_message():
 
 
 @chat_api.route("/chat/react", methods=["POST"])
+@cross_origin(**CORS_OPTIONS)
 def react_to_message():
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -677,6 +682,7 @@ def react_to_message():
 
 
 @chat_api.route("/music/itunes", methods=["GET"])
+@cross_origin(**CORS_OPTIONS)
 def search_itunes():
     query = request.args.get("q")
     if not query:
@@ -690,6 +696,7 @@ def search_itunes():
 
 
 @chat_api.route("/music/deezer", methods=["GET"])
+@cross_origin(**CORS_OPTIONS)
 def search_deezer():
     query = request.args.get("q")
     if not query:
@@ -708,6 +715,7 @@ def search_deezer():
 
 
 @chat_api.route("/discord/activity-token", methods=["POST"])
+@cross_origin(**CORS_OPTIONS)
 def discord_activity_token():
     """
     Token exchange endpoint for Discord Activities.
@@ -752,6 +760,7 @@ def discord_activity_token():
 
 
 @chat_api.route("/discord/activity-login", methods=["POST"])
+@cross_origin(**CORS_OPTIONS)
 def discord_activity_login():
     """
     Creates a backend session from a Discord access_token obtained via the Embedded App SDK.

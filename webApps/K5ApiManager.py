@@ -28,12 +28,11 @@ from functools import wraps
 import base64
 import requests
 
-from flask_cors import CORS
+from flask_cors import cross_origin
 from flask_caching import Cache
 from datetime import datetime
 
 app = Flask(__name__, template_folder=parent_dir + "/api/templates")
-CORS(app)  # enable CORS only for radio-gaming.stream
 
 cache = Cache(app, config={"CACHE_TYPE": "simple"})
 
@@ -44,12 +43,14 @@ def main_page():
 
 
 @app.route("/running_bots")
+@cross_origin(origins=["https://radio-gaming.stream"])
 def running_bots():
     bots = get_running_bots()
     return jsonify(bots)
 
 
 @app.route("/api_key_info", methods=["GET"])
+@cross_origin(origins=["https://radio-gaming.stream"])
 @require_api_key
 def api_key_info():
     api_key = request.headers.get("X-API-Key")
@@ -74,6 +75,7 @@ def api_key_info():
 
 
 @app.route("/get_balance", methods=["GET"])
+@cross_origin(origins=["https://radio-gaming.stream"])
 def get_balance():
     user_id = request.args.get("user_id")
     print(f"[REQUEST] GET /get_balance - user_id: {user_id}")
@@ -101,6 +103,7 @@ def get_balance():
 
 
 @app.route("/update_balance", methods=["POST"])
+@cross_origin(origins=["https://radio-gaming.stream"])
 @require_api_key
 def update_balance():
     data = request.json
@@ -131,6 +134,7 @@ def update_balance():
 
 # Roblox support
 @app.route("/roblox/get_balance", methods=["GET"])
+@cross_origin(origins=["https://radio-gaming.stream"])
 def get_roblox_balance():
     roblox_id = request.args.get("roblox_id")
     print(f"[REQUEST] GET /roblox/get_balance - roblox_id: {roblox_id}")
@@ -164,6 +168,7 @@ def get_roblox_balance():
 
 
 @app.route("/roblox/update_balance", methods=["POST"])
+@cross_origin(origins=["https://radio-gaming.stream"])
 @require_api_key
 def update_roblox_balance():
     data = request.json
@@ -196,6 +201,7 @@ def update_roblox_balance():
 
 
 @app.route("/spotify/token", methods=["GET"])
+@cross_origin(origins=["https://radio-gaming.stream"])
 @cache.cached(timeout=3000, query_string=False)
 def get_spotify_token():
     SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID")
@@ -238,6 +244,7 @@ def get_spotify_token():
 
 
 @app.route("/giphy/token", methods=["GET"])
+@cross_origin(origins=["https://radio-gaming.stream"])
 @cache.cached(timeout=3000, query_string=False)
 def get_giphy_token():
     GIPHY_TOKEN = os.environ.get("GIPHY_TOKEN")
@@ -259,6 +266,7 @@ def get_giphy_token():
 
 
 @app.route("/youtube/token", methods=["GET"])
+@cross_origin(origins=["https://radio-gaming.stream"])
 @cache.cached(timeout=3000, query_string=False)
 def get_youtube_token():
     YOUTUBE_DATA_TOKEN = os.environ.get("YOUTUBE_DATA_TOKEN")
@@ -280,6 +288,7 @@ def get_youtube_token():
 
 
 @app.route("/roblox/download_asset", methods=["GET"])
+@cross_origin(origins=["https://radio-gaming.stream"])
 def download_any_roblox_asset():
     asset_id = request.args.get("id")
     if not asset_id:
