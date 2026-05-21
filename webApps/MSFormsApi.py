@@ -2695,7 +2695,17 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                 # Check if AI has an answer for this question
                 ai_answer_for_q = None
                 if ai_answers:
+                    # Try by number first
                     ai_answer_for_q = ai_answers.get(str(question_num))
+                    # Fallback: match by title (handles conditional questions shifting numbers)
+                    if ai_answer_for_q is None and scanned_questions:
+                        for sq in scanned_questions:
+                            sq_title = sq.get('title', '')
+                            if sq_title and (sq_title == title or sq_title in title or title in sq_title):
+                                ai_answer_for_q = ai_answers.get(str(sq['num']))
+                                if ai_answer_for_q is not None:
+                                    print(f"[FormBot] AI: Matched by title (fill Q{question_num} = scan Q{sq['num']})")
+                                    break
 
                 if q_type == "radio":
                     if ai_answer_for_q is not None:
