@@ -134,10 +134,12 @@ UWAGA: Odpowiadaj TYLKO jako JSON, bez zadnych dodatkowych znakow! Kazda wartosc
     # Models to try in order
     models = [
         "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
         "gemini-2.0-flash",
         "gemini-2.0-flash-lite",
+        "gemini-1.5-flash",
     ]
-    backoff_times = [5, 15, 30]
+    backoff_times = [3, 5, 10, 15, 20]
 
     client = genai.Client(api_key=api_key)
 
@@ -153,7 +155,7 @@ UWAGA: Odpowiadaj TYLKO jako JSON, bez zadnych dodatkowych znakow! Kazda wartosc
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.8,
-                    max_output_tokens=8192,
+                    max_output_tokens=16384,
                     response_mime_type="application/json",
                 ),
             )
