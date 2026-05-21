@@ -2508,27 +2508,14 @@ def _preview_form_questions(form_url, event_queue=None):
                 # Click ALL options to discover every conditional branch
                 if q_type == "radio":
                     try:
-                        p_q_id = question_el.get_attribute("id") or ""
-                        p_radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
-                        p_num_radios = len(p_radios)
+                        p_num_radios = len(question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]'))
                         for pri in range(p_num_radios):
                             try:
-                                if p_q_id:
-                                    try:
-                                        p_fresh = driver.find_element(By.ID, p_q_id)
-                                    except Exception:
-                                        p_fresh = question_el
-                                else:
-                                    p_fresh = question_el
-                                p_fresh_radios = p_fresh.find_elements(By.CSS_SELECTOR, '[role="radio"]')
-                                if pri < len(p_fresh_radios):
-                                    try:
-                                        p_fresh_radios[pri].click()
-                                    except Exception:
-                                        try:
-                                            driver.execute_script("arguments[0].click();", p_fresh_radios[pri])
-                                        except Exception:
-                                            pass
+                                driver.execute_script(
+                                    "var radios = arguments[0].querySelectorAll('[role=\"radio\"]');"
+                                    "if(radios[arguments[1]]) radios[arguments[1]].click();",
+                                    question_el, pri
+                                )
                             except Exception:
                                 pass
                             time.sleep(0.4)
@@ -2669,8 +2656,9 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                         q_type = _detect_question_type(q_el)
                         options = _get_option_labels(q_el, q_type)
 
-                        # Skip if already found inline (same title, different DOM element)
-                        if title not in scanned_titles:
+                        # Skip if already found (same title = duplicate)
+                        title_key = ' '.join(title.lower().split())
+                        if title_key not in scanned_titles:
                             scan_num += 1
                             q_data = {"num": scan_num, "title": title, "type": q_type, "options": options}
                             if q_type == "matrix":
@@ -2678,34 +2666,21 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                                 q_data["options"] = col_names
                                 q_data["rows"] = row_titles
                             scanned_questions.append(q_data)
-                            scanned_titles.add(title)
+                            scanned_titles.add(title_key)
                             _emit("status", f"AI: Skanowanie Q{scan_num}: {title[:40]}...")
 
                         # Click through EACH radio option to discover ALL conditional branches
                         if q_type == "radio":
                             try:
-                                q_el_id = q_el.get_attribute("id") or ""
-                                radios = q_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
-                                num_radios = len(radios)
+                                num_radios = len(q_el.find_elements(By.CSS_SELECTOR, '[role="radio"]'))
                                 for ri in range(num_radios):
+                                    # Use JavaScript to click by index - immune to stale element refs
                                     try:
-                                        # Re-find element each time to avoid stale refs
-                                        if q_el_id:
-                                            try:
-                                                q_fresh = scan_driver.find_element(By.ID, q_el_id)
-                                            except Exception:
-                                                q_fresh = q_el
-                                        else:
-                                            q_fresh = q_el
-                                        fresh_radios = q_fresh.find_elements(By.CSS_SELECTOR, '[role="radio"]')
-                                        if ri < len(fresh_radios):
-                                            try:
-                                                fresh_radios[ri].click()
-                                            except Exception:
-                                                try:
-                                                    scan_driver.execute_script("arguments[0].click();", fresh_radios[ri])
-                                                except Exception:
-                                                    pass
+                                        scan_driver.execute_script(
+                                            "var radios = arguments[0].querySelectorAll('[role=\"radio\"]');"
+                                            "if(radios[arguments[1]]) radios[arguments[1]].click();",
+                                            q_el, ri
+                                        )
                                     except Exception:
                                         pass
                                     time.sleep(0.6)
@@ -2720,10 +2695,11 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                                                 ct = _get_question_title(cq)
                                             except Exception:
                                                 continue
-                                            if not ct or ct == "(unknown question)" or ct in scanned_titles:
+                                            ct_key = ' '.join(ct.lower().split())
+                                            if not ct or ct == "(unknown question)" or ct_key in scanned_titles:
                                                 continue
                                             # Found new conditional question!
-                                            scanned_titles.add(ct)
+                                            scanned_titles.add(ct_key)
                                             scan_num += 1
                                             ctype = _detect_question_type(cq)
                                             copts = _get_option_labels(cq, ctype)
