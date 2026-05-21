@@ -4,6 +4,7 @@ import time
 import threading
 import json
 import uuid
+import collections
 from queue import Queue
 
 from flask import Flask, jsonify, request, render_template_string, Response
@@ -37,8 +38,82 @@ TEXT_ANSWERS = [
     "Trudno powiedzieć",
 ]
 
-# Global lock to ensure only one Selenium instance runs at a time (saves memory)
-scraping_lock = threading.Lock()
+# ─── Browser Queue ─────────────────────────────────────────────────────────────
+# Tracks who is waiting for the browser so we can show queue position to users.
+
+class BrowserQueue:
+    """Managed queue that tracks waiting users and lets them know their position."""
+
+    def __init__(self):
+        self._lock = threading.Lock()          # protects internal state
+        self._semaphore = threading.Semaphore(1)  # only 1 browser at a time
+        self._waiters = collections.OrderedDict()  # id -> {"user": ..., "event_queue": ...}
+        self._current_user = None              # user label of whoever holds the browser
+
+    def acquire(self, user_label, waiter_id, event_queue=None):
+        """Block until the browser is free.  While waiting, push queue events."""
+        # Register ourselves as a waiter
+        with self._lock:
+            self._waiters[waiter_id] = {"user": user_label, "event_queue": event_queue}
+
+        # Notify everyone of updated positions
+        self._broadcast_positions()
+
+        # Try to acquire (blocks if someone else has it)
+        while not self._semaphore.acquire(timeout=2):
+            # While waiting, keep pushing position updates every 2s
+            self._broadcast_positions()
+
+        # We now hold the browser
+        with self._lock:
+            self._current_user = user_label
+            # Remove ourselves from waiters
+            self._waiters.pop(waiter_id, None)
+
+        # Notify remaining waiters of updated positions
+        self._broadcast_positions()
+
+    def release(self):
+        """Release the browser for the next waiter."""
+        with self._lock:
+            self._current_user = None
+        self._semaphore.release()
+        self._broadcast_positions()
+
+    def _broadcast_positions(self):
+        """Send queue position updates to all waiting users."""
+        with self._lock:
+            waiter_ids = list(self._waiters.keys())
+            current = self._current_user
+
+        for pos_idx, wid in enumerate(waiter_ids):
+            with self._lock:
+                info = self._waiters.get(wid)
+            if info and info.get("event_queue"):
+                try:
+                    info["event_queue"].put({
+                        "event": "queue",
+                        "data": {
+                            "position": pos_idx + 1,
+                            "total_waiting": len(waiter_ids),
+                            "current_user": current or "(nieznany)",
+                        },
+                    })
+                except Exception:
+                    pass
+
+    @property
+    def current_user(self):
+        with self._lock:
+            return self._current_user
+
+    @property
+    def queue_size(self):
+        with self._lock:
+            return len(self._waiters)
+
+
+browser_queue = BrowserQueue()
 
 
 @app.route("/")
@@ -273,6 +348,10 @@ HOME_PAGE_HTML = r"""
     </div>
 
     <div id="progress-area" class="card">
+      <div id="queue-bar" style="display:none; background:linear-gradient(135deg,#fbbf24,#f59e0b); color:#78350f; padding:12px 16px; border-radius:10px; margin-bottom:14px; font-size:0.88rem; font-weight:500; display:flex; align-items:center; gap:10px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span id="queue-text"></span>
+      </div>
       <div class="status-bar">
         <div class="spinner" id="spinner"></div>
         <span class="status-text" id="status-text">Laczenie...</span>
@@ -316,6 +395,19 @@ HOME_PAGE_HTML = r"""
 
       evtSource.addEventListener('status', function(e) {
         statusText.textContent = e.data;
+      });
+
+      evtSource.addEventListener('queue', function(e) {
+        const d = JSON.parse(e.data);
+        const queueBar = document.getElementById('queue-bar');
+        const queueText = document.getElementById('queue-text');
+        queueBar.style.display = 'flex';
+        statusText.textContent = 'Oczekiwanie w kolejce...';
+        queueText.textContent = 'Pozycja w kolejce: ' + d.position + '/' + d.total_waiting;
+      });
+
+      evtSource.addEventListener('queue_done', function(e) {
+        document.getElementById('queue-bar').style.display = 'none';
       });
 
       evtSource.addEventListener('question', function(e) {
@@ -434,8 +526,13 @@ def fill_form(form_url):
             target_url += "&" + qs
         else:
             target_url += "?" + qs
-    with scraping_lock:
+    user_label = request.remote_addr or "API"
+    waiter_id = str(uuid.uuid4())
+    browser_queue.acquire(user_label, waiter_id)
+    try:
         return _perform_form_fill(target_url)
+    finally:
+        browser_queue.release()
 
 
 @app.route("/stream-fill", methods=["GET"])
@@ -448,10 +545,17 @@ def stream_fill():
         return Response(err_gen(), mimetype='text/event-stream')
 
     event_queue = Queue()
+    user_label = request.remote_addr or "Uzytkownik"
+    waiter_id = str(uuid.uuid4())
 
     def worker():
-        with scraping_lock:
+        browser_queue.acquire(user_label, waiter_id, event_queue=event_queue)
+        try:
+            # Tell the client they left the queue
+            event_queue.put({"event": "queue_done", "data": ""})
             _perform_form_fill(form_url, event_queue=event_queue)
+        finally:
+            browser_queue.release()
 
     t = threading.Thread(target=worker, daemon=True)
     t.start()
