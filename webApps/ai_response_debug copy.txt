@@ -1,0 +1,93 @@
+{
+  "1": 1,
+  "2": 4,
+  "3": 2,
+  "4": 5,
+  "5": 0,
+  "6": 1,
+  "7": {
+    "Samochód prywatny": 1,
+    "Komunikacja miejska (autobus, tramwaj, kolej aglomeracyjna)": 0,
+    "Rower własny": 1,
+    "Hulajnoga elektryczna własna": 3,
+    "Hulajnoga elektryczna na minuty": 3,
+    "Carsharing (krótkoterminowy wynajem samochodów)": 3,
+    "Carpooling (wspólne przejazdy samochodem z innymi pasażerami)": 3,
+    "Motocykl / skuter / Motorower": 3,
+    "Chodzę pieszo": 0
+  },
+  "8": {
+    "Hulajnoga elektryczna": 0,
+    "Rower publiczny": 0,
+    "Samochód w ramach carsharingu": 1,
+    "Skuter": 1
+  },
+  "9": [1, 3, 4],
+  "10": {
+    "Hulajnoga elektryczna": 1,
+    "Rower publiczny": 0,
+    "Samochód w ramach carsharingu": 1,
+    "Skuter": 1
+  },
+  "11": {
+    "Skutery elektryczne na minuty": 2,
+    "Deskorolki elektryczne na minuty": 3,
+    "Rowery elektryczne na minuty": 1,
+    "Mikrosamochody na minuty": 2
+  },
+  "12": {
+    "Hulajnogi elektryczne na minuty": 2,
+    "Rower publiczny": 1
+  },
+  "13": 2,
+  "14": "Miasto powinno się skupić na dobrym transporcie publicznym, a te nowe rzeczy to tylko kłopoty dla pieszych i samochodów.",
+  "15": "Dla starszych ludzi to przede wszystkim bezpieczeństwo, bo na tych hulajnogach to się boję jeździć. No i żeby ceny były rozsądne, bo benzyna i tak droga.",
+  "16": {
+    "Drogi rowerowe": 2,
+    "Parkingi i miejsca parkingowe": 2,
+    "Stojaki do przypięcia pojazdów": 2,
+    "Podpórki na skrzyżowaniach": 3,
+    "Stacje do samodzielnych napraw": 3
+  },
+  "17": 1,
+  "18": 3,
+  "19": {
+    "Pieszych": 0,
+    "Rowerzystów": 1,
+    "Osób o ograniczonej mobilności poruszających się np. na wózkach / o kulach": 0,
+    "Kierowców pojazdów silnikowych (samochodów, motocyklów itp.)": 1,
+    "Innych użytkowników hulajnóg elektrycznych": 1,
+    "Kierowców pojazdów transportu zbiorowego (autobusów, tramwajów)": 1
+  },
+  "20": 0,
+  "21": 2,
+  "22": 1,
+  "23": 1,
+  "24": [0, 3, 5],
+  "25": [0, 2, 3],
+  "26": {
+    "Niższe ceny": 2,
+    "Lepsza dostępność pojazdów w mojej okolicy": 3,
+    "Więcej dróg rowerowych w Łodzi": 2,
+    "Większe bezpieczeństwo podczas jazdy (np. wolniejsza prędkość poruszania się hulajnóg, lepsze wyposażenie hulajnóg w hamulce, dzwonek, kierunkowskazy)": 2,
+    "Łatwiejszy sposób wypożyczenia hulajnóg": 3,
+    "Większa dostępność pojazdów do wypożyczenia i możliwość zwrotu pojazdów w przy przystankach komunikacji miejskiej": 3,
+    "Atrakcyjne promocje cenowe i abonamenty na przejazdy (np. niższe ceny w określonych godzinach, tańsze pakiety minut)": 3
+  },
+  "27": 0,
+  "28": 2,
+  "29": {
+    "Pieszych": 1,
+    "Innych rowerzystów": 2,
+    "Osób o ograniczonej mobilności poruszających się np. na wózkach / o kulach": 1,
+    "Kierowców pojazdów silnikowych (samochodów, motocyklów, itp.)": 3,
+    "Użytkowników hulajnóg elektrycznych": 2,
+    "Kierowców pojazdów transportu zbiorowego (autobusów, tramwajów)": 3
+  },
+  "30": 0,
+  "31": 0,
+  "32": [0, 3, 6],
+  "33": 3,
+  "34": 1,
+  "35": 1
+}

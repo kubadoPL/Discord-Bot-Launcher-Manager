@@ -42,3 +42,4 @@ pipx
 deno
 gunicorn
 gevent
+google-genai

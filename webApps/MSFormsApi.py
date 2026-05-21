@@ -44,20 +44,44 @@ TEXT_ANSWERS = [
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
-# Cache scanned questions per form URL to avoid re-scanning
+# Default API key from environment variable
+GEMINI_DEFAULT_KEY = os.environ.get("GEMINI_API_KEY", "")
+if not GEMINI_DEFAULT_KEY:
+    print("[FormBot] WARNING: GEMINI_API_KEY env var not set. AI mode requires manual key input.")
+else:
+    print(f"[FormBot] GEMINI_API_KEY loaded from env ({GEMINI_DEFAULT_KEY[:8]}...)")
+
+# Cache scanned questions per form URL (in-memory + file)
+_SCAN_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ai_scan_cache.json")
 _ai_scan_cache = {}  # { form_url: [scanned_questions_list] }
+
+def _load_scan_cache():
+    """Load scan cache from file on startup."""
+    global _ai_scan_cache
+    try:
+        if os.path.exists(_SCAN_CACHE_FILE):
+            with open(_SCAN_CACHE_FILE, "r", encoding="utf-8") as f:
+                _ai_scan_cache = json.loads(f.read())
+            print(f"[FormBot] Loaded scan cache: {len(_ai_scan_cache)} form(s)")
+    except Exception as e:
+        print(f"[FormBot] Could not load scan cache: {e}")
+
+def _save_scan_cache():
+    """Save scan cache to file."""
+    try:
+        with open(_SCAN_CACHE_FILE, "w", encoding="utf-8") as f:
+            f.write(json.dumps(_ai_scan_cache, ensure_ascii=False, indent=2))
+    except Exception as e:
+        print(f"[FormBot] Could not save scan cache: {e}")
+
+_load_scan_cache()
 
 
 def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None):
-    """Send all questions to Gemini and get a coherent set of answers.
-    
-    questions_data: list of dicts with keys: num, title, type, options, rows (for matrix)
-    Returns: dict mapping question number -> answer
-      - radio: index of option to select (0-based)
-      - checkbox: list of indices to select
-      - matrix: dict mapping row_title -> index of column (0-based)
-      - text: string answer
-    """
+    """Send all questions to Gemini and get a coherent set of answers using google-genai SDK."""
+    from google import genai
+    from google.genai import types
+
     if _emit_fn:
         _emit_fn("status", "AI: Przygotowywanie pytan dla Gemini...")
 
@@ -100,52 +124,48 @@ Formaty odpowiedzi:
 - radio: numer opcji (0-based), np. 2
 - checkbox: lista numerow opcji, np. [0, 2]
 - matrix: obiekt z wierszami jako klucze i numerem kolumny jako wartosc, np. {{"Wiersz1": 1, "Wiersz2": 3}}
-- text: KROTKI string z unikalna odpowiedzia w JEDNEJ LINII (BEZ znakow nowej linii!), np. "Moim zdaniem komunikacja mogłaby byc lepsza"
+- text: KROTKI string z unikalna odpowiedzia w JEDNEJ LINII (BEZ znakow nowej linii!), np. "Moim zdaniem komunikacja moglaby byc lepsza"
 
 UWAGA: Odpowiadaj TYLKO jako JSON, bez zadnych dodatkowych znakow! Kazda wartosc tekstowa musi byc w jednej linii!"""
 
     if _emit_fn:
         _emit_fn("status", "AI: Wysylanie do Gemini...")
 
-    request_body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.8,
-            "maxOutputTokens": 8192,
-        },
-    }
-
-    # Retry with backoff for rate limits (429)
-    max_retries = 3
-    backoff_times = [5, 15, 30]
+    # Models to try in order
     models = [
-        "gemini-2.5-flash",       # newest, highest rate limit
-        "gemini-2.0-flash",       # stable fallback
-        "gemini-2.0-flash-lite",  # lightest, highest rate limit
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
     ]
+    backoff_times = [5, 15, 30]
+
+    client = genai.Client(api_key=api_key)
 
     last_error = None
-    for attempt in range(max_retries):
+    for attempt, model in enumerate(models):
         try:
-            model = models[attempt]
-            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-            resp = http_requests.post(
-                f"{api_url}?key={api_key}",
-                json=request_body,
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+            if _emit_fn:
+                _emit_fn("status", f"AI: Wysylanie do {model}...")
+            print(f"[FormBot] AI: Trying model {model} (attempt {attempt + 1}/{len(models)})...")
 
-            # Extract text from Gemini response
-            ai_text = data["candidates"][0]["content"]["parts"][0]["text"]
-            
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.8,
+                    max_output_tokens=8192,
+                    response_mime_type="application/json",
+                ),
+            )
+
+            ai_text = response.text or ""
+
             # Save raw response to file for debugging
-            import os
-            debug_path = os.path.join(os.path.dirname(__file__), "ai_response_debug.txt")
+            debug_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ai_response_debug.txt")
             with open(debug_path, "w", encoding="utf-8") as f:
                 f.write(ai_text)
             print(f"[FormBot] AI: Raw response saved to {debug_path}")
+
             # Clean up - remove markdown code fences if present
             ai_text = ai_text.strip()
             if ai_text.startswith("```"):
@@ -154,49 +174,46 @@ UWAGA: Odpowiadaj TYLKO jako JSON, bez zadnych dodatkowych znakow! Kazda wartosc
                 ai_text = ai_text[:-3]
             ai_text = ai_text.strip()
 
-            # Try parsing JSON directly first
+            # Parse JSON
             try:
                 ai_answers = json.loads(ai_text)
             except json.JSONDecodeError as je:
-                print(f"[FormBot] AI: Raw JSON parse failed: {je}")
-                print(f"[FormBot] AI: Raw text (first 500): {repr(ai_text[:500])}")
+                print(f"[FormBot] AI: JSON parse failed: {je}")
                 if _emit_fn:
                     _emit_fn("status", "AI: Naprawiam format odpowiedzi...")
-                # Fix: replace literal newlines/carriage returns that are inside strings
                 ai_text_fixed = ai_text.replace('\r\n', ' ').replace('\r', '').replace('\n', ' ')
-                print(f"[FormBot] AI: Retrying with newlines removed...")
                 ai_answers = json.loads(ai_text_fixed)
-            
+
             if _emit_fn:
-                _emit_fn("status", f"AI: ✅ Otrzymano odpowiedzi na {len(ai_answers)} pytan")
-            
-            print(f"[FormBot] AI answers: {json.dumps(ai_answers, ensure_ascii=False, indent=2)}")
+                _emit_fn("status", f"AI: ✅ Otrzymano odpowiedzi na {len(ai_answers)} pytan (model: {model})")
+
+            print(f"[FormBot] AI answers ({model}): {json.dumps(ai_answers, ensure_ascii=False, indent=2)}")
             return ai_answers
 
-        except http_requests.exceptions.HTTPError as e:
+        except Exception as e:
             last_error = e
-            status_code = e.response.status_code if e.response is not None else "?"
-            if e.response is not None and e.response.status_code == 429 and attempt < max_retries - 1:
+            err_str = str(e)
+            is_retryable = any(s in err_str for s in ["429", "500", "503", "RESOURCE_EXHAUSTED", "overloaded", "unavailable"])
+            print(f"[FormBot] AI error with {model}: {err_str[:120]}")
+
+            if is_retryable and attempt < len(models) - 1:
                 wait = backoff_times[attempt]
-                next_model = models[attempt + 1] if attempt + 1 < len(models) else models[-1]
-                print(f"[FormBot] AI rate limited, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                next_model = models[attempt + 1]
                 if _emit_fn:
-                    _emit_fn("status", f"AI: ⏳ Rate limit (429), czekam {wait}s... (proba {attempt + 2}/{max_retries}, model: {next_model})")
+                    _emit_fn("status", f"AI: ⏳ Blad {model}, czekam {wait}s... (nastepny: {next_model})")
                 time.sleep(wait)
                 continue
             if _emit_fn:
-                _emit_fn("status", f"AI: ❌ Blad HTTP {status_code} (model: {models[attempt]})")
-            break
-        except Exception as e:
-            last_error = e
-            if _emit_fn:
-                _emit_fn("status", f"AI: ❌ Blad: {str(e)[:60]}")
+                _emit_fn("status", f"AI: ❌ {err_str[:60]}")
             break
 
     print(f"[FormBot] AI ERROR: {last_error}")
     if _emit_fn:
         _emit_fn("status", f"AI: ❌ {str(last_error)[:80]} — uzywam losowych odpowiedzi")
     return None
+
+
+
 
 
 # ─── Browser Queue ─────────────────────────────────────────────────────────────
@@ -304,7 +321,16 @@ browser_queue = BrowserQueue()
 
 @app.route("/")
 def home():
-    return render_template_string(HOME_PAGE_HTML)
+    html = HOME_PAGE_HTML
+    if GEMINI_DEFAULT_KEY:
+        html = html.replace("{{AI_KEY_PLACEHOLDER}}", "Domyslny klucz z env (zostaw puste)")
+        html = html.replace("{{AI_KEY_HINT}}", "&#9989; Domyslny klucz zaladowany z GEMINI_API_KEY. Mozesz nadpisac wpisujac wlasny.")
+        html = html.replace("{{HAS_DEFAULT_KEY}}", "true")
+    else:
+        html = html.replace("{{AI_KEY_PLACEHOLDER}}", "Wklej klucz API Gemini...")
+        html = html.replace("{{AI_KEY_HINT}}", "Klucz mozna uzyskac na <a href='https://aistudio.google.com/apikey' target='_blank' style='color:#7c3aed; text-decoration:underline;'>aistudio.google.com/apikey</a>")
+        html = html.replace("{{HAS_DEFAULT_KEY}}", "false")
+    return render_template_string(html)
 
 
 @app.route("/queue-status")
@@ -812,10 +838,10 @@ HOME_PAGE_HTML = r"""
         </div>
         <div id="ai-key-row" style="display:none; margin-top:8px;">
           <div style="display:flex; gap:6px; align-items:center;">
-            <input type="password" id="gemini-api-key" placeholder="Wklej klucz API Gemini..." style="flex:1; padding:10px 14px; border:1px solid rgba(139,92,246,0.25); border-radius:8px; font-size:0.85rem; font-family:'Inter',sans-serif; outline:none; background:rgba(255,255,255,0.9); color:#1e293b;">
+            <input type="password" id="gemini-api-key" placeholder="{{AI_KEY_PLACEHOLDER}}" style="flex:1; padding:10px 14px; border:1px solid rgba(139,92,246,0.25); border-radius:8px; font-size:0.85rem; font-family:'Inter',sans-serif; outline:none; background:rgba(255,255,255,0.9); color:#1e293b;">
             <button type="button" onclick="var k=document.getElementById('gemini-api-key'); var t=k.type==='password'?'text':'password'; k.type=t; this.textContent=t==='password'?'&#128065;':'&#128064;'" style="padding:8px 10px; border:1px solid rgba(139,92,246,0.25); border-radius:8px; background:rgba(139,92,246,0.08); cursor:pointer; font-size:1rem; line-height:1;" title="Pokaz/ukryj klucz">&#128065;</button>
           </div>
-          <div style="font-size:0.72rem; color:#8b5cf6; margin-top:4px;">Klucz mozna uzyskac na <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#7c3aed; text-decoration:underline;">aistudio.google.com/apikey</a></div>
+          <div style="font-size:0.72rem; color:#8b5cf6; margin-top:4px;">{{AI_KEY_HINT}}</div>
         </div>
       </div>
     </div>
@@ -888,9 +914,11 @@ HOME_PAGE_HTML = r"""
       return document.getElementById('ai-mode-toggle').checked;
     }
 
+    var _hasDefaultKey = {{HAS_DEFAULT_KEY}};
     function getGeminiKey() {
       return (document.getElementById('gemini-api-key').value || '').trim();
     }
+    function hasDefaultKey() { return _hasDefaultKey; }
     // ─── Queue status polling ──────────────────────────────
     function pollQueueStatus() {
       fetch('queue-status')
@@ -1282,13 +1310,13 @@ HOME_PAGE_HTML = r"""
       }
       if (isAiMode()) {
         var aiKey = getGeminiKey();
-        if (!aiKey || aiKey.length < 10) {
+        if (!aiKey && !hasDefaultKey()) {
           alert('Wklej klucz API Gemini!\\nKlucz zaczyna sie od AIza... (nie URL strony)');
           btn.disabled = false; previewBtn.disabled = false;
           previewActionBtns.forEach(function(b) { b.disabled = false; });
           return;
         }
-        if (aiKey.startsWith('http')) {
+        if (aiKey && aiKey.startsWith('http')) {
           alert('To jest URL strony, nie klucz API!\\nWejdz na aistudio.google.com/apikey, skopiuj klucz (zaczyna sie od AIza...) i wklej go tutaj.');
           btn.disabled = false; previewBtn.disabled = false;
           previewActionBtns.forEach(function(b) { b.disabled = false; });
@@ -1340,7 +1368,10 @@ HOME_PAGE_HTML = r"""
         const div = document.createElement('div');
         div.className = 'event-item answer';
         const answerText = Array.isArray(d.answer) ? d.answer.join(', ') : (typeof d.answer === 'object' && d.answer !== null ? JSON.stringify(d.answer) : d.answer);
-        div.innerHTML = '<div class="event-title">Odpowiedz Q' + d.num + '</div>'
+        const srcBadge = d.source === 'AI'
+          ? '<span style="font-size:0.7rem; background:rgba(16,185,129,0.15); color:#059669; padding:1px 6px; border-radius:4px; margin-left:6px;">&#129302; AI</span>'
+          : '<span style="font-size:0.7rem; background:rgba(245,158,11,0.15); color:#d97706; padding:1px 6px; border-radius:4px; margin-left:6px;">&#127922; Losowe</span>';
+        div.innerHTML = '<div class="event-title">Odpowiedz Q' + d.num + srcBadge + '</div>'
           + '<div class="event-detail">' + escHtml(String(answerText)) + '</div>';
         eventLog.appendChild(div);
         eventLog.scrollTop = eventLog.scrollHeight;
@@ -1508,7 +1539,7 @@ def stream_fill():
 
     # Parse optional AI mode
     ai_mode = request.args.get("ai_mode", "") == "1"
-    ai_key = request.args.get("ai_key", "")
+    ai_key = request.args.get("ai_key", "") or GEMINI_DEFAULT_KEY
 
     event_queue = Queue()
     user_label = request.remote_addr or "Uzytkownik"
@@ -1678,50 +1709,96 @@ def _handle_checkbox_ai(question_el, ai_indices):
 
 def _handle_matrix_ai(question_el, ai_row_answers):
     """Fill matrix by AI answers: dict of row_title -> column_index (0-based)."""
-    rows = question_el.find_elements(By.CSS_SELECTOR, '[role="radiogroup"], tr.office-form-matrix-row, tr[data-automation-id]')
-    if not rows:
-        rows = question_el.find_elements(By.CSS_SELECTOR, 'div[role="row"], div[data-automation-id*="row"]')
-    if not rows:
+    if not isinstance(ai_row_answers, dict) or not ai_row_answers:
+        print(f"[FormBot] MATRIX AI: Invalid ai_row_answers: {type(ai_row_answers)}")
         return {}
 
+    # Find all radio buttons in this matrix question (same approach as non-AI handler)
+    radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
+    if not radios:
+        print(f"[FormBot] MATRIX AI: No radio buttons found in matrix!")
+        return {}
+
+    # Collect aria-labels
+    aria_labels = []
+    for r in radios:
+        aria = r.get_attribute("aria-label") or ""
+        aria_labels.append(aria)
+
+    # Find column headers
+    column_headers = []
+    try:
+        header_cells = question_el.find_elements(By.CSS_SELECTOR, 'div[role="columnheader"], th')
+        for cell in header_cells:
+            text = cell.text.strip()
+            if text:
+                column_headers.append(text)
+    except Exception:
+        pass
+
+    print(f"[FormBot] MATRIX AI: {len(radios)} radios, {len(column_headers)} columns: {column_headers[:5]}")
+
+    # Group radios by row title
+    rows = {}  # row_title -> list of (radio_element, col_name, col_index)
+    if column_headers:
+        for radio, aria in zip(radios, aria_labels):
+            row_title = aria
+            col_name = ""
+            col_idx_in_row = -1
+            for ci, col in enumerate(column_headers):
+                if aria.endswith(col):
+                    row_title = aria[: -len(col)].strip()
+                    col_name = col
+                    col_idx_in_row = ci
+                    break
+            if row_title not in rows:
+                rows[row_title] = []
+            rows[row_title].append((radio, col_name, col_idx_in_row))
+    else:
+        # Fallback: group by name attribute
+        name_groups = {}
+        for radio, aria in zip(radios, aria_labels):
+            name = radio.get_attribute("name") or "unknown"
+            if name not in name_groups:
+                name_groups[name] = []
+            name_groups[name].append((radio, aria))
+        for name, items in name_groups.items():
+            row_title = items[0][1] if items else name
+            rows[row_title] = [(r, a, i) for i, (r, a) in enumerate(items)]
+
+    print(f"[FormBot] MATRIX AI: Found {len(rows)} rows: {list(rows.keys())[:5]}")
+
+    # Now match AI answers to rows and click
     results = {}
-    if not isinstance(ai_row_answers, dict):
-        return results
-
-    for row_el in rows:
-        row_text = ""
-        try:
-            row_label = row_el.find_elements(By.CSS_SELECTOR, "td, span, div")
-            if row_label:
-                row_text = row_label[0].text.strip()
-        except Exception:
-            pass
-
-        col_idx = ai_row_answers.get(row_text)
+    for row_title, radio_list in rows.items():
+        # Find matching AI answer
+        col_idx = ai_row_answers.get(row_title)
         if col_idx is None:
-            # Try matching by partial text
+            # Try partial matching
             for key, val in ai_row_answers.items():
-                if key in row_text or row_text in key:
+                if key in row_title or row_title in key:
                     col_idx = val
                     break
 
-        if col_idx is not None:
-            radios = row_el.find_elements(By.CSS_SELECTOR, '[role="radio"], input[type="radio"]')
-            col_idx = int(col_idx)
-            if 0 <= col_idx < len(radios):
+        if col_idx is None:
+            print(f"[FormBot] MATRIX AI: No match for row '{row_title[:50]}'")
+            continue
+
+        col_idx = int(col_idx)
+        if 0 <= col_idx < len(radio_list):
+            radio_to_click = radio_list[col_idx][0]
+            try:
+                radio_to_click.click()
+            except Exception:
                 try:
-                    radios[col_idx].click()
+                    question_el.parent.execute_script("arguments[0].click();", radio_to_click)
                 except Exception:
-                    try:
-                        question_el.parent.execute_script("arguments[0].click();", radios[col_idx])
-                    except Exception:
-                        pass
-                # Get column name
-                try:
-                    col_label = radios[col_idx].get_attribute("aria-label") or str(col_idx)
-                except Exception:
-                    col_label = str(col_idx)
-                results[row_text] = col_label
+                    pass
+            col_label = radio_list[col_idx][1] if radio_list[col_idx][1] else str(col_idx)
+            results[row_title] = col_label
+            print(f"[FormBot] MATRIX AI: '{row_title[:40]}' -> col {col_idx} = {col_label}")
+        else:
+            print(f"[FormBot] MATRIX AI: col_idx {col_idx} out of range (0-{len(radio_list)-1}) for '{row_title[:40]}'")
 
     return results
 
@@ -2395,6 +2472,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
 
                 # Save to cache
                 _ai_scan_cache[form_url] = scanned_questions
+                _save_scan_cache()
                 print(f"[FormBot] AI: Cached {len(scanned_questions)} questions for this form")
 
             except Exception as scan_err:
@@ -2505,8 +2583,9 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     else:
                         answer = _handle_radio_question(question_el, title, weights=weights)
                     result_entry["answer"] = answer
-                    print(f"[FormBot] Selected: {answer}" + (" (AI)" if ai_answer_for_q is not None else ""))
-                    _emit("answer", {"num": question_num, "answer": answer})
+                    source = "AI" if ai_answer_for_q is not None else "Losowe"
+                    print(f"[FormBot] Selected: {answer} ({source})")
+                    _emit("answer", {"num": question_num, "answer": answer, "source": source})
 
                 elif q_type == "checkbox":
                     if ai_answer_for_q is not None:
@@ -2514,8 +2593,9 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     else:
                         answers = _handle_checkbox_question(question_el, title, weights=weights)
                     result_entry["answer"] = answers
-                    print(f"[FormBot] Selected: {answers}" + (" (AI)" if ai_answer_for_q is not None else ""))
-                    _emit("answer", {"num": question_num, "answer": answers})
+                    source = "AI" if ai_answer_for_q is not None else "Losowe"
+                    print(f"[FormBot] Selected: {answers} ({source})")
+                    _emit("answer", {"num": question_num, "answer": answers, "source": source})
 
                 elif q_type == "matrix":
                     if ai_answer_for_q is not None:
@@ -2523,10 +2603,11 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     else:
                         answers = _handle_matrix_question(question_el, title, weights=weights)
                     result_entry["answer"] = answers
+                    source = "AI" if ai_answer_for_q is not None else "Losowe"
                     if answers:
                         for row, col in answers.items():
-                            print(f"[FormBot]   {row} -> {col}")
-                    _emit("answer", {"num": question_num, "answer": answers})
+                            print(f"[FormBot]   {row} -> {col} ({source})")
+                    _emit("answer", {"num": question_num, "answer": answers, "source": source})
 
                 elif q_type == "text":
                     if ai_answer_for_q is not None:
@@ -2534,8 +2615,9 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     else:
                         answer = _handle_text_question(question_el, title, weights=weights)
                     result_entry["answer"] = answer
-                    print(f"[FormBot] Typed: {answer}" + (" (AI)" if ai_answer_for_q is not None else ""))
-                    _emit("answer", {"num": question_num, "answer": answer})
+                    source = "AI" if ai_answer_for_q is not None else "Losowe"
+                    print(f"[FormBot] Typed: {answer} ({source})")
+                    _emit("answer", {"num": question_num, "answer": answer, "source": source})
 
                 else:
                     print(f"[FormBot] [WARN] Unknown question type, skipping.")
