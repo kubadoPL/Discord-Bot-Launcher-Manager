@@ -430,67 +430,96 @@ def _perform_form_fill(form_url):
         )
         time.sleep(3)  # Extra wait for JS rendering
 
-        # Find all question items
-        questions = driver.find_elements(By.CSS_SELECTOR, q_selector)
-        print(f"[FormBot] Found {len(questions)} questions on the form.")
+        # Dynamic question processing - re-scan after each answer to catch
+        # conditional/branching questions that appear after selecting an answer
+        answered_ids = set()  # Track which questions we already answered
+        question_num = 0
+        max_passes = 10  # Safety limit to prevent infinite loops
 
-        for i, question_el in enumerate(questions, start=1):
-            # Scroll the question into view
-            driver.execute_script(
-                "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});",
-                question_el,
-            )
-            time.sleep(0.5)
+        for _pass in range(max_passes):
+            questions = driver.find_elements(By.CSS_SELECTOR, q_selector)
+            new_questions_found = False
 
-            title = _get_question_title(question_el)
-            q_type = _detect_question_type(question_el)
-
-            print(f"\n[FormBot] === Question {i} ===")
-            print(f"[FormBot] Title: {title}")
-            print(f"[FormBot] Type: {q_type}")
-
-            # DEBUG: dump inner HTML of unknown questions so we can fix selectors
-            if q_type == "unknown" or title == "(unknown question)":
+            for question_el in questions:
+                # Build a unique key for this question element
+                q_id = question_el.get_attribute("id") or ""
                 try:
-                    inner = question_el.get_attribute("innerHTML")
-                    print(f"[FormBot] DEBUG HTML (first 2000 chars):\n{inner[:2000]}")
+                    q_title_preview = question_el.text[:80]
                 except Exception:
-                    pass
+                    q_title_preview = ""
+                q_key = q_id or q_title_preview
 
-            result_entry = {
-                "question_number": i,
-                "title": title,
-                "type": q_type,
-                "answer": None,
-            }
+                if q_key in answered_ids:
+                    continue  # Already processed
 
-            if q_type == "radio":
-                answer = _handle_radio_question(question_el, title)
-                result_entry["answer"] = answer
-                print(f"[FormBot] Selected: {answer}")
+                new_questions_found = True
+                answered_ids.add(q_key)
+                question_num += 1
 
-            elif q_type == "checkbox":
-                answers = _handle_checkbox_question(question_el, title)
-                result_entry["answer"] = answers
-                print(f"[FormBot] Selected: {answers}")
+                # Scroll the question into view
+                driver.execute_script(
+                    "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});",
+                    question_el,
+                )
+                time.sleep(0.5)
 
-            elif q_type == "matrix":
-                answers = _handle_matrix_question(question_el, title)
-                result_entry["answer"] = answers
-                if answers:
-                    for row, col in answers.items():
-                        print(f"[FormBot]   {row} -> {col}")
+                title = _get_question_title(question_el)
+                q_type = _detect_question_type(question_el)
 
-            elif q_type == "text":
-                answer = _handle_text_question(question_el, title)
-                result_entry["answer"] = answer
-                print(f"[FormBot] Typed: {answer}")
+                print(f"\n[FormBot] === Question {question_num} ===")
+                print(f"[FormBot] Title: {title}")
+                print(f"[FormBot] Type: {q_type}")
 
-            else:
-                print(f"[FormBot] [WARN] Unknown question type, skipping.")
+                # DEBUG: dump inner HTML of unknown questions so we can fix selectors
+                if q_type == "unknown" or title == "(unknown question)":
+                    try:
+                        inner = question_el.get_attribute("innerHTML")
+                        print(f"[FormBot] DEBUG HTML (first 2000 chars):\n{inner[:2000]}")
+                    except Exception:
+                        pass
 
-            results.append(result_entry)
-            time.sleep(0.3)
+                result_entry = {
+                    "question_number": question_num,
+                    "title": title,
+                    "type": q_type,
+                    "answer": None,
+                }
+
+                if q_type == "radio":
+                    answer = _handle_radio_question(question_el, title)
+                    result_entry["answer"] = answer
+                    print(f"[FormBot] Selected: {answer}")
+
+                elif q_type == "checkbox":
+                    answers = _handle_checkbox_question(question_el, title)
+                    result_entry["answer"] = answers
+                    print(f"[FormBot] Selected: {answers}")
+
+                elif q_type == "matrix":
+                    answers = _handle_matrix_question(question_el, title)
+                    result_entry["answer"] = answers
+                    if answers:
+                        for row, col in answers.items():
+                            print(f"[FormBot]   {row} -> {col}")
+
+                elif q_type == "text":
+                    answer = _handle_text_question(question_el, title)
+                    result_entry["answer"] = answer
+                    print(f"[FormBot] Typed: {answer}")
+
+                else:
+                    print(f"[FormBot] [WARN] Unknown question type, skipping.")
+
+                results.append(result_entry)
+                time.sleep(0.5)
+
+            if not new_questions_found:
+                # No new questions appeared - we're done
+                break
+
+            # Wait a moment for any conditional questions to appear after answers
+            time.sleep(1.5)
+            print(f"[FormBot] Re-scanning for new conditional questions (pass {_pass + 1})...")
 
         # ── Submit or print results ──────────────────────────────────────────
         print(f"\n{'='*60}")
