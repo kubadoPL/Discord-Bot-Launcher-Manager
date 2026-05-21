@@ -2629,6 +2629,8 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                 scanned_ids = set()
                 scan_num = 0
 
+                scanned_titles = set()  # tracks titles to avoid duplicates from inline scan
+
                 for _scan_pass in range(15):
                     questions = scan_driver.find_elements(By.CSS_SELECTOR, q_selector)
                     new_found = False
@@ -2645,9 +2647,13 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
 
                         new_found = True
                         scanned_ids.add(q_key)
-                        scan_num += 1
 
                         title = _get_question_title(q_el)
+                        if title in scanned_titles:
+                            continue  # already found inline
+                        scanned_titles.add(title)
+                        scan_num += 1
+
                         q_type = _detect_question_type(q_el)
                         options = _get_option_labels(q_el, q_type)
 
@@ -2661,7 +2667,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                         scanned_questions.append(q_data)
                         _emit("status", f"AI: Skanowanie Q{scan_num}: {title[:40]}...")
 
-                        # Click through EACH option individually to discover conditional questions
+                        # Click through EACH radio option to discover conditional questions
                         if q_type == "radio":
                             try:
                                 radios = q_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
@@ -2674,30 +2680,30 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                                         except Exception:
                                             pass
                                     time.sleep(0.4)
-                                    # Quick scan for new conditional questions after each click
-                                    cond_questions = scan_driver.find_elements(By.CSS_SELECTOR, q_selector)
-                                    for cq in cond_questions:
-                                        cq_id = cq.get_attribute("id") or ""
-                                        try:
-                                            cq_text = cq.text[:80]
-                                        except Exception:
-                                            cq_text = ""
-                                        cq_key = cq_id or cq_text
-                                        if cq_key in scanned_ids:
-                                            continue
-                                        scanned_ids.add(cq_key)
-                                        scan_num += 1
-                                        ct = _get_question_title(cq)
-                                        ctype = _detect_question_type(cq)
-                                        copts = _get_option_labels(cq, ctype)
-                                        cdata = {"num": scan_num, "title": ct, "type": ctype, "options": copts}
-                                        if ctype == "matrix":
-                                            cr, cc = _get_matrix_info(cq)
-                                            cdata["options"] = cc
-                                            cdata["rows"] = cr
-                                        scanned_questions.append(cdata)
-                                        _emit("status", f"AI: Warunkowe Q{scan_num}: {ct[:40]}...")
-                                        print(f"[FormBot] AI scan: Found conditional Q{scan_num}: {ct[:60]}")
+                                    # Scan for conditional questions after each click
+                                    try:
+                                        cond_questions = scan_driver.find_elements(By.CSS_SELECTOR, q_selector)
+                                        for cq in cond_questions:
+                                            try:
+                                                ct = _get_question_title(cq)
+                                            except Exception:
+                                                continue
+                                            if ct in scanned_titles or ct == "(unknown question)":
+                                                continue
+                                            scanned_titles.add(ct)
+                                            scan_num += 1
+                                            ctype = _detect_question_type(cq)
+                                            copts = _get_option_labels(cq, ctype)
+                                            cdata = {"num": scan_num, "title": ct, "type": ctype, "options": copts}
+                                            if ctype == "matrix":
+                                                cr, cc = _get_matrix_info(cq)
+                                                cdata["options"] = cc
+                                                cdata["rows"] = cr
+                                            scanned_questions.append(cdata)
+                                            _emit("status", f"AI: Warunkowe Q{scan_num}: {ct[:40]}...")
+                                            print(f"[FormBot] AI scan: Found conditional Q{scan_num}: {ct[:60]}")
+                                    except Exception:
+                                        pass
                             except Exception:
                                 pass
                         elif q_type == "checkbox":
