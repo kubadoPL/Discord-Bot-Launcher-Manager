@@ -29,6 +29,7 @@ DEFAULT_FORM_URL = (
 )
 
 ALLOW_SEND = True  # Set to True when you want to actually submit the form
+HEADLESS = False  # Set to False to open Chrome visibly (debug mode)
 
 # Placeholder texts for free-text questions
 TEXT_ANSWERS = [
@@ -75,9 +76,10 @@ def fill_form(form_url):
 
 
 def _create_driver():
-    """Create a headless Chrome driver with low-memory options."""
+    """Create a Chrome driver. Runs headless when HEADLESS=True."""
     options = Options()
-    options.add_argument("--headless=new")
+    if HEADLESS:
+        options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-dev-shm-usage")
@@ -113,7 +115,8 @@ def _get_question_title(question_el):
 
 def _handle_radio_question(question_el, title):
     """Handle a simple single-choice (radio) question. Returns chosen label."""
-    radios = question_el.find_elements(By.CSS_SELECTOR, 'input[role="radio"]')
+    # Try input[role=radio] (MS Forms) then div[role=radio] (Google Forms)
+    radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
     if not radios:
         return None
 
@@ -123,21 +126,23 @@ def _handle_radio_question(question_el, title):
     try:
         chosen.click()
     except Exception:
-        # If the input itself isn't clickable, try clicking its parent label
         try:
             parent = chosen.find_element(By.XPATH, "./ancestor::label")
             parent.click()
         except Exception:
-            pass
+            try:
+                driver = question_el.parent
+                driver.execute_script("arguments[0].click();", chosen)
+            except Exception:
+                pass
 
     return label_text
 
 
 def _handle_checkbox_question(question_el, title):
     """Handle a multi-select (checkbox) question. Returns list of chosen labels."""
-    checkboxes = question_el.find_elements(
-        By.CSS_SELECTOR, 'input[role="checkbox"]'
-    )
+    # Try input[role=checkbox] (MS Forms) then div[role=checkbox] (Google Forms)
+    checkboxes = question_el.find_elements(By.CSS_SELECTOR, '[role="checkbox"]')
     if not checkboxes:
         return None
 
@@ -156,7 +161,11 @@ def _handle_checkbox_question(question_el, title):
                 parent = cb.find_element(By.XPATH, "./ancestor::label")
                 parent.click()
             except Exception:
-                pass
+                try:
+                    driver = question_el.parent
+                    driver.execute_script("arguments[0].click();", cb)
+                except Exception:
+                    pass
 
     return chosen_labels
 
@@ -328,10 +337,10 @@ def _detect_question_type(question_el):
     except Exception:
         pass
 
-    # Check for radio buttons
-    radios = question_el.find_elements(By.CSS_SELECTOR, 'input[role="radio"]')
+    # Check for radio buttons (input or div with role=radio)
+    radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
     if radios:
-        # Could be matrix without columnheader detection — check if there are
+        # Could be matrix without columnheader detection - check if there are
         # multiple radios with the same name grouping differently
         names = set()
         for r in radios:
@@ -342,10 +351,8 @@ def _detect_question_type(question_el):
             return "matrix"
         return "radio"
 
-    # Check for checkboxes
-    checkboxes = question_el.find_elements(
-        By.CSS_SELECTOR, 'input[role="checkbox"]'
-    )
+    # Check for checkboxes (input or div with role=checkbox)
+    checkboxes = question_el.find_elements(By.CSS_SELECTOR, '[role="checkbox"]')
     if checkboxes:
         return "checkbox"
 
@@ -387,8 +394,8 @@ def _detect_provider(url):
 # Provider-specific selectors for finding question containers
 QUESTION_SELECTORS = {
     "msforms": 'div[data-automation-id="questionItem"]',
-    "google": 'div[role="listitem"]',
-    "unknown": 'div[data-automation-id="questionItem"], div[role="listitem"]',
+    "google": 'div[jsmodel="CP1oW"]',
+    "unknown": 'div[data-automation-id="questionItem"], div[jsmodel="CP1oW"]',
 }
 
 # Provider-specific selectors for question title text
@@ -442,6 +449,14 @@ def _perform_form_fill(form_url):
             print(f"[FormBot] Title: {title}")
             print(f"[FormBot] Type: {q_type}")
 
+            # DEBUG: dump inner HTML of unknown questions so we can fix selectors
+            if q_type == "unknown" or title == "(unknown question)":
+                try:
+                    inner = question_el.get_attribute("innerHTML")
+                    print(f"[FormBot] DEBUG HTML (first 2000 chars):\n{inner[:2000]}")
+                except Exception:
+                    pass
+
             result_entry = {
                 "question_number": i,
                 "title": title,
@@ -486,7 +501,15 @@ def _perform_form_fill(form_url):
             submit_btn = None
             # Try multiple selectors to find the submit button
             selectors = [
+                # MS Forms
                 (By.CSS_SELECTOR, 'button[data-automation-id="submitButton"]'),
+                # Google Forms - the submit button uses jsname="M2UYVd"
+                (By.CSS_SELECTOR, 'div[role="button"][jsname="M2UYVd"]'),
+                # Generic text-based fallbacks
+                (By.XPATH, "//span[contains(., 'Prze')]/ancestor::div[@role='button']"),
+                (By.XPATH, "//span[contains(., 'Wy')]/ancestor::div[@role='button']"),
+                (By.XPATH, "//div[@role='button'][contains(., 'Prze')]"),
+                (By.XPATH, "//div[@role='button'][contains(., 'Submit')]"),
                 (By.XPATH, "//button[contains(., 'Prze')]"),
                 (By.XPATH, "//button[contains(., 'Submit')]"),
                 (By.XPATH, "//button[contains(., 'Send')]"),
