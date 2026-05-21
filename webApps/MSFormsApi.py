@@ -6,6 +6,7 @@ import json
 import uuid
 import collections
 from queue import Queue
+import urllib.parse
 
 from flask import Flask, jsonify, request, render_template_string, Response
 from flask_cors import cross_origin
@@ -157,7 +158,7 @@ HOME_PAGE_HTML = r"""
     }
     .container {
       width: 100%;
-      max-width: 680px;
+      max-width: 740px;
       padding: 40px 20px;
     }
     .logo {
@@ -232,6 +233,30 @@ HOME_PAGE_HTML = r"""
     }
     .btn:active { transform: translateY(0); }
     .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .btn-secondary {
+      padding: 14px 28px;
+      background: rgba(255,255,255,0.85);
+      border: 2px solid #0d9488;
+      border-radius: 12px;
+      color: #0d9488;
+      font-size: 0.95rem;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.3s, background 0.3s;
+      white-space: nowrap;
+    }
+    .btn-secondary:hover {
+      transform: translateY(-1px);
+      background: rgba(13, 148, 136, 0.08);
+      box-shadow: 0 6px 25px rgba(13, 148, 136, 0.15);
+    }
+    .btn-secondary:active { transform: translateY(0); }
+    .btn-secondary:disabled {
       opacity: 0.5;
       cursor: not-allowed;
       transform: none;
@@ -331,6 +356,155 @@ HOME_PAGE_HTML = r"""
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: rgba(13, 148, 136, 0.25); border-radius: 3px; }
+
+    /* ─── Preview / Sliders ──────────────────────────────────── */
+    #preview-area { display: none; }
+    #preview-area.active { display: block; }
+    .preview-q-card {
+      padding: 18px 20px;
+      margin-bottom: 14px;
+      background: rgba(240, 253, 250, 0.6);
+      border-radius: 14px;
+      border: 1px solid rgba(13, 148, 136, 0.1);
+      animation: fadeSlideIn 0.35s ease;
+    }
+    .preview-q-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .preview-q-num {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, #0d9488, #0891b2);
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .preview-q-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: #1e293b;
+      flex: 1;
+    }
+    .preview-q-type {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #94a3b8;
+      padding: 3px 10px;
+      background: rgba(13, 148, 136, 0.08);
+      border-radius: 6px;
+      font-weight: 600;
+    }
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(0,0,0,0.04);
+    }
+    .slider-row:last-child { border-bottom: none; }
+    .slider-label {
+      flex: 1;
+      font-size: 0.88rem;
+      color: #334155;
+      min-width: 0;
+      word-break: break-word;
+    }
+    .slider-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .slider-control input[type="range"] {
+      width: 120px;
+      height: 6px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: linear-gradient(90deg, #0d9488, #0891b2);
+      border-radius: 3px;
+      outline: none;
+      opacity: 0.85;
+      transition: opacity 0.2s;
+    }
+    .slider-control input[type="range"]:hover { opacity: 1; }
+    .slider-control input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      border: 2px solid #0d9488;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+      transition: transform 0.15s;
+    }
+    .slider-control input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
+    }
+    .slider-control input[type="range"]::-moz-range-thumb {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      border: 2px solid #0d9488;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+    .slider-value {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #0d9488;
+      min-width: 38px;
+      text-align: right;
+    }
+    .preview-text-note {
+      font-size: 0.85rem;
+      color: #64748b;
+      font-style: italic;
+      padding: 6px 0;
+    }
+    .matrix-row-group {
+      margin-bottom: 12px;
+      padding: 10px 14px;
+      background: rgba(13, 148, 136, 0.03);
+      border-radius: 10px;
+      border-left: 3px solid rgba(13, 148, 136, 0.3);
+    }
+    .matrix-row-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #0d9488;
+      margin-bottom: 6px;
+    }
+    .btn-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .btn-group .btn, .btn-group .btn-secondary { flex: 1; text-align: center; }
+    .preview-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 22px;
+    }
+    .preview-actions .btn { flex: 1; text-align: center; }
+    .reset-link {
+      display: inline-block;
+      margin-top: 10px;
+      font-size: 0.82rem;
+      color: #94a3b8;
+      cursor: pointer;
+      text-decoration: underline;
+      transition: color 0.2s;
+    }
+    .reset-link:hover { color: #0d9488; }
   </style>
 </head>
 <body>
@@ -340,10 +514,29 @@ HOME_PAGE_HTML = r"""
       <p>Automatyczne wypelnianie formularzy</p>
     </div>
 
-    <div class="card">
+    <div class="card" id="url-card">
       <div class="input-group">
         <input type="text" id="url-input" placeholder="Wklej link do formularza (Google Forms / MS Forms)...">
-        <button class="btn" id="start-btn" onclick="startFill()">Start</button>
+      </div>
+      <div class="btn-group" style="margin-top: 12px;">
+        <button class="btn-secondary" id="preview-btn" onclick="previewForm()">&#128269; Podglad arkusza</button>
+        <button class="btn" id="start-btn" onclick="startFill()">&#9654; Start</button>
+      </div>
+    </div>
+
+    <!-- Preview area with sliders -->
+    <div id="preview-area" class="card">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;">
+        <h2 style="font-size:1.15rem; color:#1e293b;">&#128196; Podglad formularza</h2>
+        <span class="reset-link" onclick="resetAllSliders()">Resetuj suwaki</span>
+      </div>
+      <div id="preview-status" class="status-bar" style="display:none;">
+        <div class="spinner" id="preview-spinner"></div>
+        <span class="status-text" id="preview-status-text">Wczytywanie...</span>
+      </div>
+      <div id="preview-questions"></div>
+      <div class="preview-actions" id="preview-actions" style="display:none;">
+        <button class="btn" onclick="startFillWithWeights()">&#9654; Wypelnij z ustawieniami</button>
       </div>
     </div>
 
@@ -371,11 +564,206 @@ HOME_PAGE_HTML = r"""
   </div>
 
   <script>
-    function startFill() {
+    // Global state for preview data and weights
+    let previewData = null; // Array of {num, title, type, options: [...]}
+
+    // ─── Preview Form ──────────────────────────────────────
+    function previewForm() {
       const url = document.getElementById('url-input').value.trim();
       if (!url) { alert('Wpisz URL formularza!'); return; }
 
+      const previewBtn = document.getElementById('preview-btn');
+      const startBtn = document.getElementById('start-btn');
+      const previewArea = document.getElementById('preview-area');
+      const previewStatus = document.getElementById('preview-status');
+      const previewQuestions = document.getElementById('preview-questions');
+      const previewActions = document.getElementById('preview-actions');
+
+      previewBtn.disabled = true;
+      startBtn.disabled = true;
+      previewArea.classList.add('active');
+      previewStatus.style.display = 'flex';
+      previewQuestions.innerHTML = '';
+      previewActions.style.display = 'none';
+      document.getElementById('preview-status-text').textContent = 'Wczytywanie formularza...';
+      previewData = [];
+
+      const encodedUrl = encodeURIComponent(url);
+      const evtSource = new EventSource('preview-form?url=' + encodedUrl);
+
+      evtSource.addEventListener('status', function(e) {
+        document.getElementById('preview-status-text').textContent = e.data;
+      });
+
+      evtSource.addEventListener('queue', function(e) {
+        const d = JSON.parse(e.data);
+        document.getElementById('preview-status-text').textContent =
+          'Kolejka: pozycja ' + d.position + '/' + d.total_waiting;
+      });
+
+      evtSource.addEventListener('question_preview', function(e) {
+        const d = JSON.parse(e.data);
+        previewData.push(d);
+        renderPreviewQuestion(d);
+      });
+
+      evtSource.addEventListener('preview_done', function(e) {
+        evtSource.close();
+        previewStatus.style.display = 'none';
+        previewActions.style.display = 'flex';
+        previewBtn.disabled = false;
+        startBtn.disabled = false;
+      });
+
+      evtSource.addEventListener('error_ev', function(e) {
+        evtSource.close();
+        document.getElementById('preview-status-text').textContent = 'Blad: ' + e.data;
+        document.getElementById('preview-spinner').style.display = 'none';
+        previewBtn.disabled = false;
+        startBtn.disabled = false;
+      });
+
+      evtSource.onerror = function() {
+        evtSource.close();
+        document.getElementById('preview-status-text').textContent = 'Polaczenie przerwane';
+        document.getElementById('preview-spinner').style.display = 'none';
+        previewBtn.disabled = false;
+        startBtn.disabled = false;
+      };
+    }
+
+    function renderPreviewQuestion(q) {
+      const container = document.getElementById('preview-questions');
+      const card = document.createElement('div');
+      card.className = 'preview-q-card';
+      card.id = 'preview-q-' + q.num;
+
+      let headerHtml = '<div class="preview-q-header">'
+        + '<div class="preview-q-num">' + q.num + '</div>'
+        + '<div class="preview-q-title">' + escHtml(q.title) + '</div>'
+        + '<div class="preview-q-type">' + q.type + '</div>'
+        + '</div>';
+
+      let bodyHtml = '';
+      if ((q.type === 'radio' || q.type === 'checkbox') && q.options && q.options.length > 0) {
+        q.options.forEach(function(opt, idx) {
+          const sliderId = 'slider-q' + q.num + '-opt' + idx;
+          const defaultVal = Math.round(100 / q.options.length);
+          bodyHtml += '<div class="slider-row">'
+            + '<div class="slider-label">' + escHtml(opt) + '</div>'
+            + '<div class="slider-control">'
+            + '<input type="range" id="' + sliderId + '" min="0" max="100" value="' + defaultVal + '"'
+            + ' oninput="updateSliderValue(this)"'
+            + ' data-qnum="' + q.num + '" data-optidx="' + idx + '">'
+            + '<span class="slider-value" id="' + sliderId + '-val">' + defaultVal + '%</span>'
+            + '</div></div>';
+        });
+      } else if (q.type === 'matrix' && q.options && q.options.length > 0 && q.rows && q.rows.length > 0) {
+        q.rows.forEach(function(row, rowIdx) {
+          bodyHtml += '<div class="matrix-row-group">';
+          bodyHtml += '<div class="matrix-row-title">' + escHtml(row) + '</div>';
+          q.options.forEach(function(opt, colIdx) {
+            const sliderId = 'slider-q' + q.num + '-row' + rowIdx + '-opt' + colIdx;
+            const defaultVal = Math.round(100 / q.options.length);
+            bodyHtml += '<div class="slider-row">'
+              + '<div class="slider-label">' + escHtml(opt) + '</div>'
+              + '<div class="slider-control">'
+              + '<input type="range" id="' + sliderId + '" min="0" max="100" value="' + defaultVal + '"'
+              + ' oninput="updateSliderValue(this)">'
+              + '<span class="slider-value" id="' + sliderId + '-val">' + defaultVal + '%</span>'
+              + '</div></div>';
+          });
+          bodyHtml += '</div>';
+        });
+      } else if (q.type === 'text') {
+        bodyHtml = '<div class="preview-text-note">Pytanie tekstowe &mdash; zostanie wypelnione losowa odpowiedzia</div>';
+      } else {
+        bodyHtml = '<div class="preview-text-note">Typ: ' + escHtml(q.type) + '</div>';
+      }
+
+      card.innerHTML = headerHtml + bodyHtml;
+      container.appendChild(card);
+    }
+
+    function updateSliderValue(slider) {
+      document.getElementById(slider.id + '-val').textContent = slider.value + '%';
+    }
+
+    function resetAllSliders() {
+      if (!previewData) return;
+      previewData.forEach(function(q) {
+        if ((q.type === 'radio' || q.type === 'checkbox') && q.options) {
+          const defaultVal = Math.round(100 / q.options.length);
+          q.options.forEach(function(opt, idx) {
+            const slider = document.getElementById('slider-q' + q.num + '-opt' + idx);
+            if (slider) {
+              slider.value = defaultVal;
+              document.getElementById(slider.id + '-val').textContent = defaultVal + '%';
+            }
+          });
+        } else if (q.type === 'matrix' && q.options && q.rows) {
+          const defaultVal = Math.round(100 / q.options.length);
+          q.rows.forEach(function(row, rowIdx) {
+            q.options.forEach(function(opt, colIdx) {
+              const slider = document.getElementById('slider-q' + q.num + '-row' + rowIdx + '-opt' + colIdx);
+              if (slider) {
+                slider.value = defaultVal;
+                document.getElementById(slider.id + '-val').textContent = defaultVal + '%';
+              }
+            });
+          });
+        }
+      });
+    }
+
+    function collectWeights() {
+      // Build a weights object:
+      // radio/checkbox: { "question_title": { "option_label": weight } }
+      // matrix: { "question_title": { "row_title": { "col_label": weight } } }
+      if (!previewData) return {};
+      const weights = {};
+      previewData.forEach(function(q) {
+        if ((q.type === 'radio' || q.type === 'checkbox') && q.options && q.options.length > 0) {
+          const qWeights = {};
+          q.options.forEach(function(opt, idx) {
+            const slider = document.getElementById('slider-q' + q.num + '-opt' + idx);
+            qWeights[opt] = slider ? parseInt(slider.value) : 50;
+          });
+          weights[q.title] = qWeights;
+        } else if (q.type === 'matrix' && q.options && q.rows) {
+          const matrixWeights = {};
+          q.rows.forEach(function(row, rowIdx) {
+            const rowWeights = {};
+            q.options.forEach(function(opt, colIdx) {
+              const slider = document.getElementById('slider-q' + q.num + '-row' + rowIdx + '-opt' + colIdx);
+              rowWeights[opt] = slider ? parseInt(slider.value) : 50;
+            });
+            matrixWeights[row] = rowWeights;
+          });
+          weights[q.title] = matrixWeights;
+        }
+      });
+      return weights;
+    }
+
+    // ─── Start fill with slider weights ────────────────────
+    function startFillWithWeights() {
+      const url = document.getElementById('url-input').value.trim();
+      if (!url) { alert('Wpisz URL formularza!'); return; }
+      const weights = collectWeights();
+      _doStartFill(url, weights);
+    }
+
+    // ─── Start fill without weights (quick mode) ──────────
+    function startFill() {
+      const url = document.getElementById('url-input').value.trim();
+      if (!url) { alert('Wpisz URL formularza!'); return; }
+      _doStartFill(url, null);
+    }
+
+    function _doStartFill(url, weights) {
       const btn = document.getElementById('start-btn');
+      const previewBtn = document.getElementById('preview-btn');
       const progArea = document.getElementById('progress-area');
       const resArea = document.getElementById('results-area');
       const eventLog = document.getElementById('event-log');
@@ -383,6 +771,7 @@ HOME_PAGE_HTML = r"""
       const spinner = document.getElementById('spinner');
 
       btn.disabled = true;
+      previewBtn.disabled = true;
       progArea.classList.add('active');
       resArea.classList.remove('active');
       eventLog.innerHTML = '';
@@ -390,8 +779,11 @@ HOME_PAGE_HTML = r"""
       statusText.textContent = 'Uruchamianie przegladarki...';
       spinner.style.display = 'block';
 
-      const encodedUrl = encodeURIComponent(url);
-      const evtSource = new EventSource('stream-fill?url=' + encodedUrl);
+      let sseUrl = 'stream-fill?url=' + encodeURIComponent(url);
+      if (weights && Object.keys(weights).length > 0) {
+        sseUrl += '&weights=' + encodeURIComponent(JSON.stringify(weights));
+      }
+      const evtSource = new EventSource(sseUrl);
 
       evtSource.addEventListener('status', function(e) {
         statusText.textContent = e.data;
@@ -445,6 +837,7 @@ HOME_PAGE_HTML = r"""
         statusText.textContent = 'Gotowe! (' + d.questions_filled + ' pytan)';
         statusText.className = 'status-text done';
         btn.disabled = false;
+        previewBtn.disabled = false;
         showResults(d);
       });
 
@@ -454,6 +847,7 @@ HOME_PAGE_HTML = r"""
         statusText.textContent = 'Blad: ' + e.data;
         statusText.className = 'status-text error';
         btn.disabled = false;
+        previewBtn.disabled = false;
       });
 
       evtSource.onerror = function() {
@@ -462,6 +856,7 @@ HOME_PAGE_HTML = r"""
         statusText.textContent = 'Polaczenie przerwane';
         statusText.className = 'status-text error';
         btn.disabled = false;
+        previewBtn.disabled = false;
       };
     }
 
@@ -504,7 +899,7 @@ HOME_PAGE_HTML = r"""
 
     // Allow Enter key to start
     document.getElementById('url-input').addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') startFill();
+      if (e.key === 'Enter') previewForm();
     });
   </script>
 </body>
@@ -535,9 +930,9 @@ def fill_form(form_url):
         browser_queue.release()
 
 
-@app.route("/stream-fill", methods=["GET"])
-def stream_fill():
-    """SSE endpoint that streams live progress while filling the form."""
+@app.route("/preview-form", methods=["GET"])
+def preview_form():
+    """SSE endpoint that reads form questions and streams them for preview."""
     form_url = request.args.get("url", "")
     if not form_url:
         def err_gen():
@@ -551,9 +946,56 @@ def stream_fill():
     def worker():
         browser_queue.acquire(user_label, waiter_id, event_queue=event_queue)
         try:
+            event_queue.put({"event": "queue_done", "data": ""})
+            _preview_form_questions(form_url, event_queue=event_queue)
+        finally:
+            browser_queue.release()
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+
+    def generate():
+        while True:
+            msg = event_queue.get()
+            if msg is None:
+                break
+            event_type = msg.get("event", "status")
+            data = msg.get("data", "")
+            if isinstance(data, dict):
+                data = json.dumps(data, ensure_ascii=False)
+            yield f'event: {event_type}\ndata: {data}\n\n'
+
+    return Response(generate(), mimetype='text/event-stream')
+
+
+@app.route("/stream-fill", methods=["GET"])
+def stream_fill():
+    """SSE endpoint that streams live progress while filling the form."""
+    form_url = request.args.get("url", "")
+    if not form_url:
+        def err_gen():
+            yield 'event: error_ev\ndata: Podaj URL formularza\n\n'
+        return Response(err_gen(), mimetype='text/event-stream')
+
+    # Parse optional weights from query string
+    weights_raw = request.args.get("weights", "")
+    weights = None
+    if weights_raw:
+        try:
+            weights = json.loads(weights_raw)
+        except (json.JSONDecodeError, ValueError):
+            weights = None
+
+    event_queue = Queue()
+    user_label = request.remote_addr or "Uzytkownik"
+    waiter_id = str(uuid.uuid4())
+
+    def worker():
+        browser_queue.acquire(user_label, waiter_id, event_queue=event_queue)
+        try:
             # Tell the client they left the queue
             event_queue.put({"event": "queue_done", "data": ""})
-            _perform_form_fill(form_url, event_queue=event_queue)
+            _perform_form_fill(form_url, event_queue=event_queue, weights=weights)
         finally:
             browser_queue.release()
 
@@ -633,15 +1075,50 @@ def _get_question_title(question_el):
     return "(unknown question)"
 
 
-def _handle_radio_question(question_el, title):
+def _weighted_choice(items_with_labels, weights_for_question):
+    """
+    Pick an item using user-defined weights.
+    items_with_labels: list of (element, label_text) tuples
+    weights_for_question: dict {label_text: weight_int} or None
+    Returns the chosen (element, label_text) tuple.
+    """
+    if not weights_for_question:
+        return random.choice(items_with_labels)
+
+    # Build a weight list matching item order
+    weight_list = []
+    for _el, label in items_with_labels:
+        w = weights_for_question.get(label, 50)
+        weight_list.append(max(w, 0))
+
+    total = sum(weight_list)
+    if total == 0:
+        # All weights are zero — fall back to uniform
+        return random.choice(items_with_labels)
+
+    # Weighted random selection
+    r = random.uniform(0, total)
+    cumulative = 0
+    for i, w in enumerate(weight_list):
+        cumulative += w
+        if r <= cumulative:
+            return items_with_labels[i]
+    return items_with_labels[-1]  # fallback
+
+
+def _handle_radio_question(question_el, title, weights=None):
     """Handle a simple single-choice (radio) question. Returns chosen label."""
     # Try input[role=radio] (MS Forms) then div[role=radio] (Google Forms)
     radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
     if not radios:
         return None
 
-    chosen = random.choice(radios)
-    label_text = _get_input_label(question_el, chosen)
+    # Build list of (element, label) pairs
+    items = [(r, _get_input_label(question_el, r)) for r in radios]
+
+    # Get weights for this question title
+    q_weights = weights.get(title) if weights else None
+    chosen, label_text = _weighted_choice(items, q_weights)
 
     try:
         chosen.click()
@@ -659,44 +1136,52 @@ def _handle_radio_question(question_el, title):
     return label_text
 
 
-def _handle_checkbox_question(question_el, title):
+def _handle_checkbox_question(question_el, title, weights=None):
     """Handle a multi-select (checkbox) question. Returns list of chosen labels."""
     # Try input[role=checkbox] (MS Forms) then div[role=checkbox] (Google Forms)
     checkboxes = question_el.find_elements(By.CSS_SELECTOR, '[role="checkbox"]')
     if not checkboxes:
         return None
 
+    # Build list of (element, label) pairs
+    items = [(cb, _get_input_label(question_el, cb)) for cb in checkboxes]
+    q_weights = weights.get(title) if weights else None
+
     # Select random number of options (1 to min(3, total))
     count = random.randint(1, min(3, len(checkboxes)))
-    chosen_cbs = random.sample(checkboxes, count)
-    chosen_labels = []
 
-    for cb in chosen_cbs:
-        label_text = _get_input_label(question_el, cb)
+    chosen_labels = []
+    remaining_items = list(items)
+
+    for _ in range(count):
+        if not remaining_items:
+            break
+        chosen_el, label_text = _weighted_choice(remaining_items, q_weights)
         chosen_labels.append(label_text)
+        remaining_items = [(e, l) for e, l in remaining_items if e is not chosen_el]
         try:
-            cb.click()
+            chosen_el.click()
         except Exception:
             try:
-                parent = cb.find_element(By.XPATH, "./ancestor::label")
+                parent = chosen_el.find_element(By.XPATH, "./ancestor::label")
                 parent.click()
             except Exception:
                 try:
                     driver = question_el.parent
-                    driver.execute_script("arguments[0].click();", cb)
+                    driver.execute_script("arguments[0].click();", chosen_el)
                 except Exception:
                     pass
 
     return chosen_labels
 
 
-def _handle_matrix_question(question_el, title):
+def _handle_matrix_question(question_el, title, weights=None):
     """
     Handle a matrix/grid question.
     Groups radio buttons by row (using aria-label prefix) and picks one per row.
     Returns dict of {row_title: chosen_column}.
     """
-    radios = question_el.find_elements(By.CSS_SELECTOR, 'input[role="radio"]')
+    radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
     if not radios:
         return None
 
@@ -756,10 +1241,17 @@ def _handle_matrix_question(question_el, title):
             row_title = items[0][1].rsplit(" ", 1)[0] if items else name
             rows[row_title] = [(r, a) for r, a in items]
 
-    # Pick one random option per row
+    # Get weights for this question title (per-row weights)
+    # Structure: { row_title: { col_name: weight } }
+    q_weights = weights.get(title) if weights else None
+
+    # Pick one option per row using weighted selection
     result = {}
     for row_title, options in rows.items():
-        chosen_radio, chosen_col = random.choice(options)
+        # Look up row-specific weights
+        row_weights = q_weights.get(row_title) if q_weights else None
+        # Use _weighted_choice: options is list of (radio_el, col_name)
+        chosen_radio, chosen_col = _weighted_choice(options, row_weights)
         result[row_title] = chosen_col
         try:
             chosen_radio.click()
@@ -926,7 +1418,164 @@ TITLE_SELECTORS = {
 }
 
 
-def _perform_form_fill(form_url, event_queue=None):
+def _get_matrix_info(question_el):
+    """Extract row titles and column names from a matrix question for preview.
+    Returns (rows, columns) tuple where both are lists of strings.
+    """
+    columns = []
+    row_titles = []
+
+    # --- Column headers ---
+    # Method 1: DOM structure (MS Forms uses div[role="columnheader"] or th)
+    try:
+        header_cells = question_el.find_elements(
+            By.CSS_SELECTOR, 'div[role="columnheader"], th'
+        )
+        for cell in header_cells:
+            text = cell.text.strip()
+            if text:
+                columns.append(text)
+    except Exception:
+        pass
+
+    # Common extraction: group radios by name to get rows
+    radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
+    name_groups = collections.OrderedDict()
+    aria_by_group = collections.OrderedDict()
+    if radios:
+        for radio in radios:
+            name = radio.get_attribute("name") or "default"
+            if name not in name_groups:
+                name_groups[name] = []
+                aria_by_group[name] = []
+            name_groups[name].append(radio)
+            aria_by_group[name].append(radio.get_attribute("aria-label") or "")
+
+    groups_list = list(aria_by_group.values())
+    num_cols = len(groups_list[0]) if groups_list else 0
+
+    # Method 2: extract column names from aria-labels if DOM headers not found
+    if not columns and len(groups_list) >= 2 and num_cols > 0:
+        for col_idx in range(num_cols):
+            labels = [g[col_idx] for g in groups_list if col_idx < len(g)]
+            if len(labels) >= 2:
+                suffix = labels[0]
+                for lbl in labels[1:]:
+                    common = []
+                    for c1, c2 in zip(reversed(suffix), reversed(lbl)):
+                        if c1 == c2:
+                            common.append(c1)
+                        else:
+                            break
+                    suffix = "".join(reversed(common))
+                col_name = suffix.strip()
+                columns.append(col_name if col_name else labels[0].strip())
+            elif labels:
+                columns.append(labels[0].strip())
+    elif not columns and num_cols > 0 and groups_list:
+        for label in groups_list[0]:
+            if label.strip():
+                columns.append(label.strip())
+
+    # --- Row titles ---
+    if columns and groups_list:
+        # Strip column suffix from aria-labels to get row titles
+        for name, arias in aria_by_group.items():
+            if arias:
+                row_label = arias[0]
+                for col in columns:
+                    if row_label.endswith(col):
+                        row_label = row_label[: -len(col)].strip()
+                        break
+                row_titles.append(row_label if row_label else name)
+    elif groups_list:
+        # Fallback: use first part of aria-label
+        for name, arias in aria_by_group.items():
+            if arias:
+                row_label = arias[0].rsplit(" ", 1)[0] if arias[0] else name
+                row_titles.append(row_label)
+
+    return row_titles, columns
+
+
+def _get_option_labels(question_el, q_type):
+    """Extract option labels from a question element for preview."""
+    options = []
+    if q_type == "radio":
+        radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
+        for r in radios:
+            label = _get_input_label(question_el, r)
+            options.append(label)
+    elif q_type == "checkbox":
+        checkboxes = question_el.find_elements(By.CSS_SELECTOR, '[role="checkbox"]')
+        for cb in checkboxes:
+            label = _get_input_label(question_el, cb)
+            options.append(label)
+    # Matrix is handled separately via _get_matrix_info
+    return options
+
+
+def _preview_form_questions(form_url, event_queue=None):
+    """Opens the form, reads all questions and their options, returns preview data."""
+    driver = None
+    provider = _detect_provider(form_url)
+
+    def _emit(event, data=""):
+        if event_queue is not None:
+            event_queue.put({"event": event, "data": data})
+
+    try:
+        _emit("status", f"Provider: {provider}")
+        _emit("status", "Uruchamianie przegladarki...")
+        driver = _create_driver()
+        driver.set_page_load_timeout(60)
+
+        _emit("status", "Ladowanie formularza...")
+        driver.get(form_url)
+
+        q_selector = QUESTION_SELECTORS.get(provider, QUESTION_SELECTORS["unknown"])
+        _emit("status", "Czekanie na zaladowanie pytan...")
+        WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, q_selector))
+        )
+        time.sleep(3)
+
+        questions = driver.find_elements(By.CSS_SELECTOR, q_selector)
+        _emit("status", f"Znaleziono {len(questions)} pytan")
+
+        for idx, question_el in enumerate(questions, 1):
+            title = _get_question_title(question_el)
+            q_type = _detect_question_type(question_el)
+            options = _get_option_labels(question_el, q_type)
+
+            preview_data = {
+                "num": idx,
+                "title": title,
+                "type": q_type,
+                "options": options,
+            }
+
+            # For matrix questions, also extract row titles and column names
+            if q_type == "matrix":
+                row_titles, col_names = _get_matrix_info(question_el)
+                preview_data["options"] = col_names
+                preview_data["rows"] = row_titles
+
+            _emit("question_preview", preview_data)
+
+        _emit("preview_done", {"total": len(questions)})
+
+    except Exception as e:
+        _emit("error_ev", str(e))
+
+    finally:
+        if driver:
+            driver.quit()
+        if event_queue is not None:
+            event_queue.put(None)
+
+
+def _perform_form_fill(form_url, event_queue=None, weights=None):
     """Main function: opens the form, reads questions, fills random answers."""
     driver = None
     results = []
@@ -1019,19 +1668,19 @@ def _perform_form_fill(form_url, event_queue=None):
                 }
 
                 if q_type == "radio":
-                    answer = _handle_radio_question(question_el, title)
+                    answer = _handle_radio_question(question_el, title, weights=weights)
                     result_entry["answer"] = answer
                     print(f"[FormBot] Selected: {answer}")
                     _emit("answer", {"num": question_num, "answer": answer})
 
                 elif q_type == "checkbox":
-                    answers = _handle_checkbox_question(question_el, title)
+                    answers = _handle_checkbox_question(question_el, title, weights=weights)
                     result_entry["answer"] = answers
                     print(f"[FormBot] Selected: {answers}")
                     _emit("answer", {"num": question_num, "answer": answers})
 
                 elif q_type == "matrix":
-                    answers = _handle_matrix_question(question_el, title)
+                    answers = _handle_matrix_question(question_el, title, weights=weights)
                     result_entry["answer"] = answers
                     if answers:
                         for row, col in answers.items():
