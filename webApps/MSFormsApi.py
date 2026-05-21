@@ -30,7 +30,7 @@ cache = Cache(app, config={"CACHE_TYPE": "simple"})
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 ALLOW_SEND = True  # Set to True when you want to actually submit the form
-HEADLESS = False  # Set to False to open Chrome visibly (debug mode)
+HEADLESS = True  # Set to False to open Chrome visibly (debug mode)
 
 # Placeholder texts for free-text questions
 TEXT_ANSWERS = [
