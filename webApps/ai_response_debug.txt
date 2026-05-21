@@ -1,0 +1,11 @@
+```json
+{
+  "1": 1,
+  "2": 4,
+  "3": 7,
+  "4": 5,
+  "5": 0,
+  "6": 0,
+  "7": {
+    "Samochód prywatny": 0,
+    "Komunikacja miejska (

@@ -44,6 +44,9 @@ TEXT_ANSWERS = [
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
+# Cache scanned questions per form URL to avoid re-scanning
+_ai_scan_cache = {}  # { form_url: [scanned_questions_list] }
+
 
 def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None):
     """Send all questions to Gemini and get a coherent set of answers.
@@ -71,10 +74,15 @@ def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None):
         elif q['type'] == 'text':
             questions_text += "  (pytanie otwarte - napisz wlasna, unikalna odpowiedz pasujaca do Twojej postaci)\n"
 
-    prompt = f"""Jestes prawdziwa osoba wypelniajaca ankiete. Stwórz realistyczna postac (wiek, plec, zawod, wyksztalcenie, miejsce zamieszkania itp.) i odpowiadaj SPOJNIE zgodnie z nia.
+    # Random persona seed so AI creates different people each time
+    persona_gender = random.choice(["mezczyzna", "kobieta"])
+    persona_age = random.choice(["18-24", "25-34", "35-44", "45-54", "55-64", "65+"])
+    persona_job = random.choice(["student", "pracownik biurowy", "nauczyciel", "informatyk", "sprzedawca", "kierowca", "lekarz", "emeryt", "bezrobotny", "przedsiebiorca", "pracownik fizyczny", "freelancer"])
+
+    prompt = f"""Jestes prawdziwa osoba wypelniajaca ankiete. Twoja postac to: {persona_gender}, wiek {persona_age} lat, zawod: {persona_job}. Rozwin te cechy i odpowiadaj SPOJNIE.
 
 WAZNE ZASADY:
-1. Odpowiedzi musza byc logicznie spojne! Np. jesli masz 20 lat, nie mozesz byc emerytem.
+1. Odpowiedzi musza byc logicznie spojne z Twoja postacia! Np. jesli masz 20 lat, nie mozesz byc emerytem. Jesli jestes emerytem, musisz miec 60+ lat.
 2. Na pytania tekstowe (otwarte) pisz WLASNE, UNIKALNE, NATURALNE odpowiedzi - tak jak napisalby prawdziwy czlowiek. NIE pisz ogolnikow typu "Brak uwag" czy "Nie wiem". Napisz cos konkretnego, osobistego, co pasuje do Twojej postaci. 1-2 zdania wystarczy.
 3. Odpowiedzi tekstowe powinny brzmiec naturalnie, z drobnymi niedoskonalosciami jak w prawdziwej ankiecie.
 
@@ -92,9 +100,9 @@ Formaty odpowiedzi:
 - radio: numer opcji (0-based), np. 2
 - checkbox: lista numerow opcji, np. [0, 2]
 - matrix: obiekt z wierszami jako klucze i numerem kolumny jako wartosc, np. {{"Wiersz1": 1, "Wiersz2": 3}}
-- text: string z unikalna odpowiedzia, np. "Moim zdaniem komunikacja w miescie mogłaby byc lepsza, szczegolnie wieczorami"
+- text: KROTKI string z unikalna odpowiedzia w JEDNEJ LINII (BEZ znakow nowej linii!), np. "Moim zdaniem komunikacja mogłaby byc lepsza"
 
-UWAGA: Odpowiadaj TYLKO jako JSON, bez zadnych dodatkowych znakow!"""
+UWAGA: Odpowiadaj TYLKO jako JSON, bez zadnych dodatkowych znakow! Kazda wartosc tekstowa musi byc w jednej linii!"""
 
     if _emit_fn:
         _emit_fn("status", "AI: Wysylanie do Gemini...")
@@ -103,7 +111,7 @@ UWAGA: Odpowiadaj TYLKO jako JSON, bez zadnych dodatkowych znakow!"""
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0.8,
-            "maxOutputTokens": 2048,
+            "maxOutputTokens": 8192,
         },
     }
 
@@ -132,6 +140,12 @@ UWAGA: Odpowiadaj TYLKO jako JSON, bez zadnych dodatkowych znakow!"""
             # Extract text from Gemini response
             ai_text = data["candidates"][0]["content"]["parts"][0]["text"]
             
+            # Save raw response to file for debugging
+            import os
+            debug_path = os.path.join(os.path.dirname(__file__), "ai_response_debug.txt")
+            with open(debug_path, "w", encoding="utf-8") as f:
+                f.write(ai_text)
+            print(f"[FormBot] AI: Raw response saved to {debug_path}")
             # Clean up - remove markdown code fences if present
             ai_text = ai_text.strip()
             if ai_text.startswith("```"):
@@ -140,32 +154,49 @@ UWAGA: Odpowiadaj TYLKO jako JSON, bez zadnych dodatkowych znakow!"""
                 ai_text = ai_text[:-3]
             ai_text = ai_text.strip()
 
-            ai_answers = json.loads(ai_text)
+            # Try parsing JSON directly first
+            try:
+                ai_answers = json.loads(ai_text)
+            except json.JSONDecodeError as je:
+                print(f"[FormBot] AI: Raw JSON parse failed: {je}")
+                print(f"[FormBot] AI: Raw text (first 500): {repr(ai_text[:500])}")
+                if _emit_fn:
+                    _emit_fn("status", "AI: Naprawiam format odpowiedzi...")
+                # Fix: replace literal newlines/carriage returns that are inside strings
+                ai_text_fixed = ai_text.replace('\r\n', ' ').replace('\r', '').replace('\n', ' ')
+                print(f"[FormBot] AI: Retrying with newlines removed...")
+                ai_answers = json.loads(ai_text_fixed)
             
             if _emit_fn:
-                _emit_fn("status", f"AI: Otrzymano odpowiedzi na {len(ai_answers)} pytan")
+                _emit_fn("status", f"AI: ✅ Otrzymano odpowiedzi na {len(ai_answers)} pytan")
             
             print(f"[FormBot] AI answers: {json.dumps(ai_answers, ensure_ascii=False, indent=2)}")
             return ai_answers
 
         except http_requests.exceptions.HTTPError as e:
             last_error = e
+            status_code = e.response.status_code if e.response is not None else "?"
             if e.response is not None and e.response.status_code == 429 and attempt < max_retries - 1:
                 wait = backoff_times[attempt]
+                next_model = models[attempt + 1] if attempt + 1 < len(models) else models[-1]
                 print(f"[FormBot] AI rate limited, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
                 if _emit_fn:
-                    _emit_fn("status", f"AI: Rate limit, czekam {wait}s... (proba {attempt + 2}/{max_retries})")
+                    _emit_fn("status", f"AI: ⏳ Rate limit (429), czekam {wait}s... (proba {attempt + 2}/{max_retries}, model: {next_model})")
                 time.sleep(wait)
                 continue
+            if _emit_fn:
+                _emit_fn("status", f"AI: ❌ Blad HTTP {status_code} (model: {models[attempt]})")
             break
         except Exception as e:
             last_error = e
+            if _emit_fn:
+                _emit_fn("status", f"AI: ❌ Blad: {str(e)[:60]}")
             break
 
     print(f"[FormBot] AI ERROR: {last_error}")
     if _emit_fn:
-        _emit_fn("status", f"AI: Blad - {str(last_error)[:80]}. Uzywam losowych odpowiedzi.")
-        return None
+        _emit_fn("status", f"AI: ❌ {str(last_error)[:80]} — uzywam losowych odpowiedzi")
+    return None
 
 
 # ─── Browser Queue ─────────────────────────────────────────────────────────────
@@ -780,7 +811,10 @@ HOME_PAGE_HTML = r"""
           <span style="font-size:0.75rem; color:#8b5cf6; background:rgba(139,92,246,0.12); padding:2px 8px; border-radius:6px;">spojne odpowiedzi</span>
         </div>
         <div id="ai-key-row" style="display:none; margin-top:8px;">
-          <input type="password" id="gemini-api-key" placeholder="Wklej klucz API Gemini..." style="width:100%; padding:10px 14px; border:1px solid rgba(139,92,246,0.25); border-radius:8px; font-size:0.85rem; font-family:'Inter',sans-serif; outline:none; background:rgba(255,255,255,0.9); color:#1e293b;">
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input type="password" id="gemini-api-key" placeholder="Wklej klucz API Gemini..." style="flex:1; padding:10px 14px; border:1px solid rgba(139,92,246,0.25); border-radius:8px; font-size:0.85rem; font-family:'Inter',sans-serif; outline:none; background:rgba(255,255,255,0.9); color:#1e293b;">
+            <button type="button" onclick="var k=document.getElementById('gemini-api-key'); var t=k.type==='password'?'text':'password'; k.type=t; this.textContent=t==='password'?'&#128065;':'&#128064;'" style="padding:8px 10px; border:1px solid rgba(139,92,246,0.25); border-radius:8px; background:rgba(139,92,246,0.08); cursor:pointer; font-size:1rem; line-height:1;" title="Pokaz/ukryj klucz">&#128065;</button>
+          </div>
           <div style="font-size:0.72rem; color:#8b5cf6; margin-top:4px;">Klucz mozna uzyskac na <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#7c3aed; text-decoration:underline;">aistudio.google.com/apikey</a></div>
         </div>
       </div>
@@ -1246,8 +1280,21 @@ HOME_PAGE_HTML = r"""
       if (weights && Object.keys(weights).length > 0) {
         sseUrl += '&weights=' + encodeURIComponent(JSON.stringify(weights));
       }
-      if (isAiMode() && getGeminiKey()) {
-        sseUrl += '&ai_mode=1&ai_key=' + encodeURIComponent(getGeminiKey());
+      if (isAiMode()) {
+        var aiKey = getGeminiKey();
+        if (!aiKey || aiKey.length < 10) {
+          alert('Wklej klucz API Gemini!\\nKlucz zaczyna sie od AIza... (nie URL strony)');
+          btn.disabled = false; previewBtn.disabled = false;
+          previewActionBtns.forEach(function(b) { b.disabled = false; });
+          return;
+        }
+        if (aiKey.startsWith('http')) {
+          alert('To jest URL strony, nie klucz API!\\nWejdz na aistudio.google.com/apikey, skopiuj klucz (zaczyna sie od AIza...) i wklej go tutaj.');
+          btn.disabled = false; previewBtn.disabled = false;
+          previewActionBtns.forEach(function(b) { b.disabled = false; });
+          return;
+        }
+        sseUrl += '&ai_mode=1&ai_key=' + encodeURIComponent(aiKey);
         statusText.textContent = 'AI: Przygotowywanie...';
       }
       const evtSource = new EventSource(sseUrl);
@@ -2266,80 +2313,96 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
     # ─── AI Mode: Pre-scan all questions, ask Gemini, then fill ───
     ai_answers = None
     if ai_mode and ai_key:
-        _emit("status", "AI: Skanowanie pytan...")
-        browser_queue.set_activity("AI: skanowanie pytan")
+        # Check cache first
+        scanned_questions = _ai_scan_cache.get(form_url)
 
-        try:
-            scan_driver = _create_driver()
-            scan_driver.set_page_load_timeout(60)
-            scan_driver.get(form_url)
+        if scanned_questions:
+            _emit("status", f"AI: Uzycie {len(scanned_questions)} pytan z cache")
+            print(f"[FormBot] AI: Using cached scan ({len(scanned_questions)} questions)")
+        else:
+            _emit("status", "AI: Skanowanie pytan...")
+            browser_queue.set_activity("AI: skanowanie pytan")
 
-            q_selector = QUESTION_SELECTORS.get(provider, QUESTION_SELECTORS["unknown"])
-            WebDriverWait(scan_driver, 20).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, q_selector))
-            )
-            time.sleep(3)
+            try:
+                scan_driver = _create_driver()
+                scan_driver.set_page_load_timeout(60)
+                scan_driver.get(form_url)
 
-            # Scan all questions (click through options to find conditional ones too)
-            scanned_questions = []
-            scanned_ids = set()
-            scan_num = 0
+                q_selector = QUESTION_SELECTORS.get(provider, QUESTION_SELECTORS["unknown"])
+                WebDriverWait(scan_driver, 20).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, q_selector))
+                )
+                time.sleep(3)
 
-            for _scan_pass in range(10):
-                questions = scan_driver.find_elements(By.CSS_SELECTOR, q_selector)
-                new_found = False
+                # Scan all questions (click through options to find conditional ones too)
+                scanned_questions = []
+                scanned_ids = set()
+                scan_num = 0
 
-                for q_el in questions:
-                    q_id = q_el.get_attribute("id") or ""
-                    try:
-                        q_text = q_el.text[:80]
-                    except Exception:
-                        q_text = ""
-                    q_key = q_id or q_text
-                    if q_key in scanned_ids:
-                        continue
+                for _scan_pass in range(10):
+                    questions = scan_driver.find_elements(By.CSS_SELECTOR, q_selector)
+                    new_found = False
 
-                    new_found = True
-                    scanned_ids.add(q_key)
-                    scan_num += 1
-
-                    title = _get_question_title(q_el)
-                    q_type = _detect_question_type(q_el)
-                    options = _get_option_labels(q_el, q_type)
-
-                    q_data = {"num": scan_num, "title": title, "type": q_type, "options": options}
-
-                    if q_type == "matrix":
-                        row_titles, col_names = _get_matrix_info(q_el)
-                        q_data["options"] = col_names
-                        q_data["rows"] = row_titles
-
-                    scanned_questions.append(q_data)
-                    _emit("status", f"AI: Skanowanie Q{scan_num}: {title[:40]}...")
-
-                    # Click through radio options to reveal conditional questions
-                    if q_type == "radio":
+                    for q_el in questions:
+                        q_id = q_el.get_attribute("id") or ""
                         try:
-                            radios = q_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
-                            for r_opt in radios:
-                                try:
-                                    r_opt.click()
-                                except Exception:
-                                    try:
-                                        scan_driver.execute_script("arguments[0].click();", r_opt)
-                                    except Exception:
-                                        pass
-                                time.sleep(0.5)
+                            q_text = q_el.text[:80]
                         except Exception:
-                            pass
+                            q_text = ""
+                        q_key = q_id or q_text
+                        if q_key in scanned_ids:
+                            continue
 
-                if not new_found:
-                    break
-                time.sleep(1)
+                        new_found = True
+                        scanned_ids.add(q_key)
+                        scan_num += 1
 
-            scan_driver.quit()
+                        title = _get_question_title(q_el)
+                        q_type = _detect_question_type(q_el)
+                        options = _get_option_labels(q_el, q_type)
 
-            # Now ask Gemini
+                        q_data = {"num": scan_num, "title": title, "type": q_type, "options": options}
+
+                        if q_type == "matrix":
+                            row_titles, col_names = _get_matrix_info(q_el)
+                            q_data["options"] = col_names
+                            q_data["rows"] = row_titles
+
+                        scanned_questions.append(q_data)
+                        _emit("status", f"AI: Skanowanie Q{scan_num}: {title[:40]}...")
+
+                        # Click through radio options to reveal conditional questions
+                        if q_type == "radio":
+                            try:
+                                radios = q_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
+                                for r_opt in radios:
+                                    try:
+                                        r_opt.click()
+                                    except Exception:
+                                        try:
+                                            scan_driver.execute_script("arguments[0].click();", r_opt)
+                                        except Exception:
+                                            pass
+                                    time.sleep(0.5)
+                            except Exception:
+                                pass
+
+                    if not new_found:
+                        break
+                    time.sleep(1)
+
+                scan_driver.quit()
+
+                # Save to cache
+                _ai_scan_cache[form_url] = scanned_questions
+                print(f"[FormBot] AI: Cached {len(scanned_questions)} questions for this form")
+
+            except Exception as scan_err:
+                print(f"[FormBot] AI scan error: {scan_err}")
+                _emit("status", f"AI: Blad skanowania ({str(scan_err)[:60]}), uzywam losowych")
+
+        # Ask Gemini (whether from cache or fresh scan)
+        if scanned_questions:
             browser_queue.set_activity("AI: czekanie na Gemini")
             ai_answers = _ask_gemini_for_answers(scanned_questions, ai_key, _emit_fn=_emit)
 
@@ -2347,10 +2410,6 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                 _emit("status", f"AI: Otrzymano {len(ai_answers)} odpowiedzi, wypelnianie...")
             else:
                 _emit("status", "AI: Brak odpowiedzi, uzywam losowych")
-
-        except Exception as scan_err:
-            print(f"[FormBot] AI scan error: {scan_err}")
-            _emit("status", f"AI: Blad skanowania ({str(scan_err)[:60]}), uzywam losowych")
 
     # ─── Main fill ───
     try:
