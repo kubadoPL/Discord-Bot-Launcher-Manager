@@ -77,7 +77,7 @@ def _save_scan_cache():
 _load_scan_cache()
 
 
-def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None):
+def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None, weights=None):
     """Send all questions to Gemini and get a coherent set of answers using google-genai SDK."""
     from google import genai
     from google.genai import types
@@ -92,9 +92,33 @@ def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None):
         if q['type'] in ('radio', 'checkbox') and q.get('options'):
             for i, opt in enumerate(q['options']):
                 questions_text += f"  {i}: {opt}\n"
+            # Add weight hints if available
+            if weights and q.get('title') in weights:
+                q_weights = weights[q['title']]
+                if isinstance(q_weights, dict):
+                    hint_parts = []
+                    total = sum(q_weights.values())
+                    if total > 0:
+                        for opt_label, w in q_weights.items():
+                            pct = int(w / total * 100) if total > 0 else 0
+                            if pct > 0:
+                                hint_parts.append(f"{opt_label}: ~{pct}%")
+                        if hint_parts:
+                            questions_text += f"  WSKAZOWKA preferencji uzytkownka: {', '.join(hint_parts)}\n"
         elif q['type'] == 'matrix' and q.get('rows') and q.get('options'):
             questions_text += f"  Kolumny: {', '.join(f'{i}: {c}' for i, c in enumerate(q['options']))}\n"
             questions_text += f"  Wiersze: {', '.join(q['rows'])}\n"
+            # Add matrix weight hints
+            if weights and q.get('title') in weights:
+                q_weights = weights[q['title']]
+                if isinstance(q_weights, dict):
+                    for row_name, row_w in q_weights.items():
+                        if isinstance(row_w, dict):
+                            total = sum(row_w.values())
+                            if total > 0:
+                                parts = [f"{col}: ~{int(v/total*100)}%" for col, v in row_w.items() if v > 0]
+                                if parts:
+                                    questions_text += f"  WSKAZOWKA dla wiersza '{row_name}': {', '.join(parts)}\n"
         elif q['type'] == 'text':
             questions_text += "  (pytanie otwarte - napisz wlasna, unikalna odpowiedz pasujaca do Twojej postaci)\n"
 
@@ -103,12 +127,17 @@ def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None):
     persona_age = random.choice(["18-24", "25-34", "35-44", "45-54", "55-64", "65+"])
     persona_job = random.choice(["student", "pracownik biurowy", "nauczyciel", "informatyk", "sprzedawca", "kierowca", "lekarz", "emeryt", "bezrobotny", "przedsiebiorca", "pracownik fizyczny", "freelancer"])
 
+    has_hints = weights is not None and len(weights) > 0
+    hints_note = ""
+    if has_hints:
+        hints_note = "\n4. Przy niektorych pytaniach sa WSKAZOWKI preferencji uzytkownika (np. '~30% opcja A'). Staraj sie kierowac tymi wskazowkami jako sugestiami statystycznymi - nie musisz ich sluchac jesli nie pasuja do Twojej postaci, ale traktuj je jako silne sugestie co uzytkownik preferuje."
+
     prompt = f"""Jestes prawdziwa osoba wypelniajaca ankiete. Twoja postac to: {persona_gender}, wiek {persona_age} lat, zawod: {persona_job}. Rozwin te cechy i odpowiadaj SPOJNIE.
 
 WAZNE ZASADY:
 1. Odpowiedzi musza byc logicznie spojne z Twoja postacia! Np. jesli masz 20 lat, nie mozesz byc emerytem. Jesli jestes emerytem, musisz miec 60+ lat.
 2. Na pytania tekstowe (otwarte) pisz WLASNE, UNIKALNE, NATURALNE odpowiedzi - tak jak napisalby prawdziwy czlowiek. NIE pisz ogolnikow typu "Brak uwag" czy "Nie wiem". Napisz cos konkretnego, osobistego, co pasuje do Twojej postaci. 1-2 zdania wystarczy.
-3. Odpowiedzi tekstowe powinny brzmiec naturalnie, z drobnymi niedoskonalosciami jak w prawdziwej ankiecie.
+3. Odpowiedzi tekstowe powinny brzmiec naturalnie, z drobnymi niedoskonalosciami jak w prawdziwej ankiecie.{hints_note}
 
 Oto pytania:
 {questions_text}
@@ -228,7 +257,7 @@ UWAGA: Odpowiadaj TYLKO jako JSON, bez zadnych dodatkowych znakow! Kazda wartosc
                 new_key = _pending_ai_keys.pop(request_id)
                 print(f"[FormBot] AI: Received new API key, retrying...")
                 _emit_fn("status", "AI: Nowy klucz otrzymany, ponawiam...")
-                return _ask_gemini_for_answers(questions_data, new_key, _emit_fn)
+                return _ask_gemini_for_answers(questions_data, new_key, _emit_fn, weights=weights)
             _time.sleep(1)
         _pending_ai_keys.pop(request_id, None)
         _emit_fn("status", "AI: ❌ Timeout - nie otrzymano nowego klucza, uzywam losowych odpowiedzi")
@@ -2550,7 +2579,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
         # Ask Gemini (whether from cache or fresh scan)
         if scanned_questions:
             browser_queue.set_activity("AI: czekanie na Gemini")
-            ai_answers = _ask_gemini_for_answers(scanned_questions, ai_key, _emit_fn=_emit)
+            ai_answers = _ask_gemini_for_answers(scanned_questions, ai_key, _emit_fn=_emit, weights=weights)
 
             if ai_answers:
                 _emit("status", f"AI: Otrzymano {len(ai_answers)} odpowiedzi, wypelnianie...")
