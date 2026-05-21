@@ -972,6 +972,17 @@ HOME_PAGE_HTML = r"""
         <div class="spinner" id="preview-spinner"></div>
         <span class="status-text" id="preview-status-text">Wczytywanie...</span>
       </div>
+      <div id="preview-nav" style="display:none; position:sticky; top:0; z-index:10; background:linear-gradient(135deg,rgba(240,253,250,0.97),rgba(236,254,255,0.97)); backdrop-filter:blur(8px); border:1px solid rgba(13,148,136,0.15); border-radius:10px; padding:8px 12px; margin-bottom:12px; display:none; align-items:center; justify-content:space-between; gap:6px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+        <div style="display:flex; gap:4px;">
+          <button onclick="previewNavTo('first')" title="Pierwsze" style="padding:6px 10px; border:none; border-radius:7px; background:rgba(13,148,136,0.12); color:#0d9488; font-size:0.82rem; font-weight:700; cursor:pointer; font-family:'Inter',sans-serif; transition:background 0.15s;" onmouseover="this.style.background='rgba(13,148,136,0.22)'" onmouseout="this.style.background='rgba(13,148,136,0.12)'">&laquo; Start</button>
+          <button onclick="previewNavTo('prev')" title="Poprzednie" style="padding:6px 12px; border:none; border-radius:7px; background:rgba(13,148,136,0.12); color:#0d9488; font-size:0.82rem; font-weight:700; cursor:pointer; font-family:'Inter',sans-serif; transition:background 0.15s;" onmouseover="this.style.background='rgba(13,148,136,0.22)'" onmouseout="this.style.background='rgba(13,148,136,0.12)'">&lsaquo; Poprz</button>
+        </div>
+        <span id="preview-nav-counter" style="font-size:0.82rem; font-weight:600; color:#475569; min-width:50px; text-align:center;">0/0</span>
+        <div style="display:flex; gap:4px;">
+          <button onclick="previewNavTo('next')" title="Nastepne" style="padding:6px 12px; border:none; border-radius:7px; background:rgba(13,148,136,0.12); color:#0d9488; font-size:0.82rem; font-weight:700; cursor:pointer; font-family:'Inter',sans-serif; transition:background 0.15s;" onmouseover="this.style.background='rgba(13,148,136,0.22)'" onmouseout="this.style.background='rgba(13,148,136,0.12)'">Nast &rsaquo;</button>
+          <button onclick="previewNavTo('last')" title="Ostatnie" style="padding:6px 10px; border:none; border-radius:7px; background:rgba(13,148,136,0.12); color:#0d9488; font-size:0.82rem; font-weight:700; cursor:pointer; font-family:'Inter',sans-serif; transition:background 0.15s;" onmouseover="this.style.background='rgba(13,148,136,0.22)'" onmouseout="this.style.background='rgba(13,148,136,0.12)'">Koniec &raquo;</button>
+        </div>
+      </div>
       <div id="preview-questions"></div>
       <div class="preview-actions" id="preview-actions" style="display:none;">
         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
@@ -1086,6 +1097,8 @@ HOME_PAGE_HTML = r"""
       previewActions.style.display = 'none';
       document.getElementById('preview-status-text').textContent = 'Wczytywanie formularza...';
       previewData = [];
+      _previewNavCurrent = 0;
+      document.getElementById('preview-nav').style.display = 'none';
 
       const encodedUrl = encodeURIComponent(url);
       const evtSource = new EventSource('preview-form?url=' + encodedUrl);
@@ -1111,8 +1124,16 @@ HOME_PAGE_HTML = r"""
 
       evtSource.addEventListener('question_preview', function(e) {
         const d = JSON.parse(e.data);
+        // Dedup by normalized title
+        const normTitle = d.title.toLowerCase().replace(/\s+/g, ' ').trim();
+        const isDupe = previewData.some(function(existing) {
+          return existing.title.toLowerCase().replace(/\s+/g, ' ').trim() === normTitle;
+        });
+        if (isDupe) return; // skip duplicate
+        d.num = previewData.length + 1; // renumber
         previewData.push(d);
         renderPreviewQuestion(d);
+        updatePreviewNav();
       });
 
       evtSource.addEventListener('preview_done', function(e) {
@@ -1138,6 +1159,42 @@ HOME_PAGE_HTML = r"""
         previewBtn.disabled = false;
         startBtn.disabled = false;
       };
+    }
+
+    var _previewNavCurrent = 0;
+
+    function updatePreviewNav() {
+      var nav = document.getElementById('preview-nav');
+      var counter = document.getElementById('preview-nav-counter');
+      var total = previewData.length;
+      if (total >= 2) {
+        nav.style.display = 'flex';
+        counter.textContent = (_previewNavCurrent + 1) + '/' + total;
+      } else {
+        nav.style.display = 'none';
+      }
+    }
+
+    function previewNavTo(dir) {
+      var cards = document.querySelectorAll('.preview-q-card');
+      if (!cards.length) return;
+      var total = cards.length;
+      if (dir === 'first') _previewNavCurrent = 0;
+      else if (dir === 'last') _previewNavCurrent = total - 1;
+      else if (dir === 'prev') _previewNavCurrent = Math.max(0, _previewNavCurrent - 1);
+      else if (dir === 'next') _previewNavCurrent = Math.min(total - 1, _previewNavCurrent + 1);
+      var target = cards[_previewNavCurrent];
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.style.transition = 'box-shadow 0.3s, border-color 0.3s';
+        target.style.boxShadow = '0 0 0 3px rgba(13,148,136,0.35)';
+        target.style.borderColor = '#0d9488';
+        setTimeout(function() {
+          target.style.boxShadow = '';
+          target.style.borderColor = '';
+        }, 1200);
+      }
+      updatePreviewNav();
     }
 
     function renderPreviewQuestion(q) {
@@ -2742,6 +2799,21 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     time.sleep(1)
 
                 scan_driver.quit()
+
+                # Final dedup — remove any duplicates by normalized title
+                deduped = []
+                seen_titles = set()
+                for sq in scanned_questions:
+                    t_key = ' '.join(sq['title'].lower().split())
+                    if t_key in seen_titles:
+                        print(f"[FormBot] AI scan: removing duplicate: {sq['title'][:60]}")
+                        continue
+                    seen_titles.add(t_key)
+                    deduped.append(sq)
+                # Renumber
+                for i, sq in enumerate(deduped, 1):
+                    sq['num'] = i
+                scanned_questions = deduped
 
                 # Save to cache
                 _ai_scan_cache[form_url] = scanned_questions
