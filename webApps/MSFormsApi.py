@@ -2517,7 +2517,32 @@ def _preview_form_questions(form_url, event_queue=None):
                                     driver.execute_script("arguments[0].click();", radio_opt)
                                 except Exception:
                                     pass
-                            time.sleep(0.25)
+                            time.sleep(0.3)
+                            # Scan for conditional questions after each click
+                            cond_questions = driver.find_elements(By.CSS_SELECTOR, q_selector)
+                            for cq in cond_questions:
+                                cq_id = cq.get_attribute("id") or ""
+                                try:
+                                    cq_text = cq.text[:80]
+                                except Exception:
+                                    cq_text = ""
+                                cq_key = cq_id or cq_text
+                                if cq_key in answered_ids:
+                                    continue
+                                answered_ids.add(cq_key)
+                                question_num += 1
+                                ct = _get_question_title(cq)
+                                ctype = _detect_question_type(cq)
+                                copts = _get_option_labels(cq, ctype)
+                                cpd = {"num": question_num, "title": ct, "type": ctype, "options": copts}
+                                if ctype == "matrix":
+                                    cr, cc = _get_matrix_info(cq)
+                                    cpd["options"] = cc
+                                    cpd["rows"] = cr
+                                elif ctype == "text":
+                                    cpd["text_answers"] = list(TEXT_ANSWERS)
+                                _emit("question_preview", cpd)
+                                _emit("status", f"Warunkowe Q{question_num}: {ct[:40]}...")
                     except Exception:
                         pass
                 elif q_type == "checkbox":
@@ -2604,7 +2629,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                 scanned_ids = set()
                 scan_num = 0
 
-                for _scan_pass in range(10):
+                for _scan_pass in range(15):
                     questions = scan_driver.find_elements(By.CSS_SELECTOR, q_selector)
                     new_found = False
 
@@ -2636,7 +2661,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                         scanned_questions.append(q_data)
                         _emit("status", f"AI: Skanowanie Q{scan_num}: {title[:40]}...")
 
-                        # Click through radio options to reveal conditional questions
+                        # Click through EACH option individually to discover conditional questions
                         if q_type == "radio":
                             try:
                                 radios = q_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
@@ -2648,13 +2673,58 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                                             scan_driver.execute_script("arguments[0].click();", r_opt)
                                         except Exception:
                                             pass
-                                    time.sleep(0.5)
+                                    time.sleep(0.4)
+                                    # Quick scan for new conditional questions after each click
+                                    cond_questions = scan_driver.find_elements(By.CSS_SELECTOR, q_selector)
+                                    for cq in cond_questions:
+                                        cq_id = cq.get_attribute("id") or ""
+                                        try:
+                                            cq_text = cq.text[:80]
+                                        except Exception:
+                                            cq_text = ""
+                                        cq_key = cq_id or cq_text
+                                        if cq_key in scanned_ids:
+                                            continue
+                                        scanned_ids.add(cq_key)
+                                        scan_num += 1
+                                        ct = _get_question_title(cq)
+                                        ctype = _detect_question_type(cq)
+                                        copts = _get_option_labels(cq, ctype)
+                                        cdata = {"num": scan_num, "title": ct, "type": ctype, "options": copts}
+                                        if ctype == "matrix":
+                                            cr, cc = _get_matrix_info(cq)
+                                            cdata["options"] = cc
+                                            cdata["rows"] = cr
+                                        scanned_questions.append(cdata)
+                                        _emit("status", f"AI: Warunkowe Q{scan_num}: {ct[:40]}...")
+                                        print(f"[FormBot] AI scan: Found conditional Q{scan_num}: {ct[:60]}")
+                            except Exception:
+                                pass
+                        elif q_type == "checkbox":
+                            try:
+                                checkboxes = q_el.find_elements(By.CSS_SELECTOR, '[role="checkbox"]')
+                                for cb_opt in checkboxes:
+                                    try:
+                                        cb_opt.click()
+                                    except Exception:
+                                        try:
+                                            scan_driver.execute_script("arguments[0].click();", cb_opt)
+                                        except Exception:
+                                            pass
+                                    time.sleep(0.3)
+                                # Uncheck all
+                                for cb_opt in checkboxes:
+                                    try:
+                                        if cb_opt.get_attribute("aria-checked") == "true":
+                                            cb_opt.click()
+                                    except Exception:
+                                        pass
                             except Exception:
                                 pass
 
                     if not new_found:
                         break
-                    time.sleep(1)
+                    time.sleep(0.8)
 
                 scan_driver.quit()
 
