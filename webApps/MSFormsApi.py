@@ -1880,11 +1880,18 @@ def _handle_checkbox_ai(question_el, ai_indices):
 
 def _handle_matrix_ai(question_el, ai_row_answers):
     """Fill matrix by AI answers: dict of row_title -> column_index (0-based)."""
+    import unicodedata
+
+    def _normalize(s):
+        """Normalize text for comparison: NFKC + strip + collapse whitespace."""
+        s = unicodedata.normalize("NFKC", s)
+        return ' '.join(s.split()).strip()
+
     if not isinstance(ai_row_answers, dict) or not ai_row_answers:
         print(f"[FormBot] MATRIX AI: Invalid ai_row_answers: {type(ai_row_answers)}")
         return {}
 
-    # Find all radio buttons in this matrix question (same approach as non-AI handler)
+    # Find all radio buttons in this matrix question
     radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
     if not radios:
         print(f"[FormBot] MATRIX AI: No radio buttons found in matrix!")
@@ -1908,6 +1915,8 @@ def _handle_matrix_ai(question_el, ai_row_answers):
         pass
 
     print(f"[FormBot] MATRIX AI: {len(radios)} radios, {len(column_headers)} columns: {column_headers[:5]}")
+    if aria_labels:
+        print(f"[FormBot] MATRIX AI: Sample aria-labels: {aria_labels[:3]}")
 
     # Group radios by row title
     rows = {}  # row_title -> list of (radio_element, col_name, col_index)
@@ -1917,8 +1926,9 @@ def _handle_matrix_ai(question_el, ai_row_answers):
             col_name = ""
             col_idx_in_row = -1
             for ci, col in enumerate(column_headers):
-                if aria.endswith(col):
-                    row_title = aria[: -len(col)].strip()
+                # Try exact suffix match, then normalized
+                if aria.endswith(col) or _normalize(aria).endswith(_normalize(col)):
+                    row_title = aria[: -len(col)].strip() if aria.endswith(col) else _normalize(aria)[: -len(_normalize(col))].strip()
                     col_name = col
                     col_idx_in_row = ci
                     break
@@ -1939,20 +1949,27 @@ def _handle_matrix_ai(question_el, ai_row_answers):
 
     print(f"[FormBot] MATRIX AI: Found {len(rows)} rows: {list(rows.keys())[:5]}")
 
+    # Build normalized AI answer keys for fuzzy matching
+    ai_norm = {_normalize(k): (k, v) for k, v in ai_row_answers.items()}
+
     # Now match AI answers to rows and click
     results = {}
     for row_title, radio_list in rows.items():
-        # Find matching AI answer
+        row_norm = _normalize(row_title)
+
+        # Find matching AI answer: exact -> normalized -> partial
         col_idx = ai_row_answers.get(row_title)
+        if col_idx is None and row_norm in ai_norm:
+            col_idx = ai_norm[row_norm][1]
         if col_idx is None:
-            # Try partial matching
-            for key, val in ai_row_answers.items():
-                if key in row_title or row_title in key:
+            # Try partial matching (normalized)
+            for ai_key_norm, (orig_key, val) in ai_norm.items():
+                if ai_key_norm in row_norm or row_norm in ai_key_norm:
                     col_idx = val
                     break
 
         if col_idx is None:
-            print(f"[FormBot] MATRIX AI: No match for row '{row_title[:50]}'")
+            print(f"[FormBot] MATRIX AI: No match for row '{row_title[:60]}'")
             continue
 
         col_idx = int(col_idx)
