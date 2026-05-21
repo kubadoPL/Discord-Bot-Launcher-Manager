@@ -2,8 +2,11 @@ import os
 import random
 import time
 import threading
+import json
+import uuid
+from queue import Queue
 
-from flask import Flask, jsonify, request, render_template_string
+from flask import Flask, jsonify, request, render_template_string, Response
 from flask_cors import cross_origin
 from flask_caching import Cache
 
@@ -40,17 +43,375 @@ scraping_lock = threading.Lock()
 
 @app.route("/")
 def home():
-    return render_template_string(
-        """
-    <!doctype html>
-    <html>
-      <head><title>MS Forms Bot</title></head>
-      <body>
-        <h1>Forms Auto-filler. Use /fill-form or /fill-form/&lt;URL&gt; to run.</h1>
-      </body>
-    </html>
-    """
-    )
+    return render_template_string(HOME_PAGE_HTML)
+
+
+HOME_PAGE_HTML = r"""
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FormBot - Auto-filler</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0a0a1a;
+      color: #e0e0f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      top: -50%; left: -50%;
+      width: 200%; height: 200%;
+      background: radial-gradient(ellipse at 30% 20%, rgba(88, 60, 255, 0.12) 0%, transparent 50%),
+                  radial-gradient(ellipse at 70% 80%, rgba(0, 200, 255, 0.08) 0%, transparent 50%);
+      z-index: -1;
+      animation: bgShift 20s ease-in-out infinite alternate;
+    }
+    @keyframes bgShift {
+      0% { transform: translate(0, 0); }
+      100% { transform: translate(-5%, 3%); }
+    }
+    .container {
+      width: 100%;
+      max-width: 680px;
+      padding: 40px 20px;
+    }
+    .logo {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .logo h1 {
+      font-size: 2.4rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #7c5cff, #00c8ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.5px;
+    }
+    .logo p {
+      color: #8888aa;
+      font-size: 0.95rem;
+      margin-top: 6px;
+    }
+    .card {
+      background: rgba(20, 20, 40, 0.7);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(124, 92, 255, 0.15);
+      border-radius: 16px;
+      padding: 28px;
+      margin-bottom: 20px;
+      transition: border-color 0.3s;
+    }
+    .card:hover { border-color: rgba(124, 92, 255, 0.35); }
+    .input-group {
+      display: flex;
+      gap: 10px;
+    }
+    .input-group input {
+      flex: 1;
+      padding: 14px 18px;
+      background: rgba(10, 10, 30, 0.8);
+      border: 1px solid rgba(124, 92, 255, 0.25);
+      border-radius: 12px;
+      color: #e0e0f0;
+      font-size: 0.95rem;
+      font-family: 'Inter', sans-serif;
+      outline: none;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+    .input-group input:focus {
+      border-color: #7c5cff;
+      box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.15);
+    }
+    .input-group input::placeholder { color: #555570; }
+    .btn {
+      padding: 14px 28px;
+      background: linear-gradient(135deg, #7c5cff, #5a3ce6);
+      border: none;
+      border-radius: 12px;
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.3s;
+      white-space: nowrap;
+    }
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 25px rgba(124, 92, 255, 0.35);
+    }
+    .btn:active { transform: translateY(0); }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+    /* Progress area */
+    #progress-area { display: none; }
+    #progress-area.active { display: block; }
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .spinner {
+      width: 22px; height: 22px;
+      border: 3px solid rgba(124, 92, 255, 0.2);
+      border-top-color: #7c5cff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status-text {
+      font-size: 0.9rem;
+      color: #aaaacc;
+    }
+    .status-text.done { color: #4ade80; }
+    .status-text.error { color: #f87171; }
+    /* Event log */
+    #event-log {
+      max-height: 300px;
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+    .event-item {
+      padding: 10px 14px;
+      margin-bottom: 6px;
+      background: rgba(10, 10, 30, 0.5);
+      border-radius: 10px;
+      border-left: 3px solid #7c5cff;
+      font-size: 0.85rem;
+      animation: fadeSlideIn 0.3s ease;
+    }
+    .event-item.answer { border-left-color: #4ade80; }
+    .event-item.warn { border-left-color: #facc15; }
+    .event-item.error-ev { border-left-color: #f87171; }
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .event-title { color: #cccce0; font-weight: 500; }
+    .event-detail { color: #8888aa; margin-top: 3px; }
+    /* Results */
+    #results-area { display: none; }
+    #results-area.active { display: block; }
+    .result-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .result-header .badge {
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .badge.success { background: rgba(74, 222, 128, 0.15); color: #4ade80; }
+    .badge.fail { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+    .result-card {
+      padding: 14px 16px;
+      margin-bottom: 8px;
+      background: rgba(10, 10, 30, 0.5);
+      border-radius: 10px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .result-num {
+      width: 30px; height: 30px;
+      background: linear-gradient(135deg, #7c5cff, #5a3ce6);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .result-body { flex: 1; }
+    .result-q { font-weight: 500; color: #cccce0; font-size: 0.9rem; }
+    .result-a { color: #4ade80; font-size: 0.85rem; margin-top: 4px; }
+    .result-type { color: #666680; font-size: 0.75rem; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .footer { text-align: center; color: #444460; font-size: 0.8rem; margin-top: 40px; padding-bottom: 30px; }
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(124, 92, 255, 0.3); border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">
+      <h1>FormBot</h1>
+      <p>Automatyczne wypelnianie formularzy</p>
+    </div>
+
+    <div class="card">
+      <div class="input-group">
+        <input type="text" id="url-input" placeholder="Wklej link do formularza (Google Forms / MS Forms)...">
+        <button class="btn" id="start-btn" onclick="startFill()">Start</button>
+      </div>
+    </div>
+
+    <div id="progress-area" class="card">
+      <div class="status-bar">
+        <div class="spinner" id="spinner"></div>
+        <span class="status-text" id="status-text">Laczenie...</span>
+      </div>
+      <div id="event-log"></div>
+    </div>
+
+    <div id="results-area" class="card">
+      <div class="result-header">
+        <h2 style="font-size:1.2rem;">Wyniki</h2>
+        <span class="badge" id="result-badge"></span>
+      </div>
+      <div id="results-list"></div>
+    </div>
+
+    <div class="footer">FormBot &mdash; Selenium + Flask</div>
+  </div>
+
+  <script>
+    function startFill() {
+      const url = document.getElementById('url-input').value.trim();
+      if (!url) { alert('Wpisz URL formularza!'); return; }
+
+      const btn = document.getElementById('start-btn');
+      const progArea = document.getElementById('progress-area');
+      const resArea = document.getElementById('results-area');
+      const eventLog = document.getElementById('event-log');
+      const statusText = document.getElementById('status-text');
+      const spinner = document.getElementById('spinner');
+
+      btn.disabled = true;
+      progArea.classList.add('active');
+      resArea.classList.remove('active');
+      eventLog.innerHTML = '';
+      statusText.className = 'status-text';
+      statusText.textContent = 'Uruchamianie przegladarki...';
+      spinner.style.display = 'block';
+
+      const encodedUrl = encodeURIComponent(url);
+      const evtSource = new EventSource('/stream-fill?url=' + encodedUrl);
+
+      evtSource.addEventListener('status', function(e) {
+        statusText.textContent = e.data;
+      });
+
+      evtSource.addEventListener('question', function(e) {
+        const d = JSON.parse(e.data);
+        const div = document.createElement('div');
+        div.className = 'event-item';
+        div.innerHTML = '<div class="event-title">Q' + d.num + ': ' + escHtml(d.title) + '</div>'
+          + '<div class="event-detail">Typ: ' + d.type + '</div>';
+        eventLog.appendChild(div);
+        eventLog.scrollTop = eventLog.scrollHeight;
+      });
+
+      evtSource.addEventListener('answer', function(e) {
+        const d = JSON.parse(e.data);
+        const div = document.createElement('div');
+        div.className = 'event-item answer';
+        const answerText = Array.isArray(d.answer) ? d.answer.join(', ') : (typeof d.answer === 'object' && d.answer !== null ? JSON.stringify(d.answer) : d.answer);
+        div.innerHTML = '<div class="event-title">Odpowiedz Q' + d.num + '</div>'
+          + '<div class="event-detail">' + escHtml(String(answerText)) + '</div>';
+        eventLog.appendChild(div);
+        eventLog.scrollTop = eventLog.scrollHeight;
+      });
+
+      evtSource.addEventListener('warn', function(e) {
+        const div = document.createElement('div');
+        div.className = 'event-item warn';
+        div.innerHTML = '<div class="event-title">Ostrzezenie</div><div class="event-detail">' + escHtml(e.data) + '</div>';
+        eventLog.appendChild(div);
+      });
+
+      evtSource.addEventListener('done', function(e) {
+        evtSource.close();
+        const d = JSON.parse(e.data);
+        spinner.style.display = 'none';
+        statusText.textContent = 'Gotowe! (' + d.questions_filled + ' pytan)';
+        statusText.className = 'status-text done';
+        btn.disabled = false;
+        showResults(d);
+      });
+
+      evtSource.addEventListener('error_ev', function(e) {
+        evtSource.close();
+        spinner.style.display = 'none';
+        statusText.textContent = 'Blad: ' + e.data;
+        statusText.className = 'status-text error';
+        btn.disabled = false;
+      });
+
+      evtSource.onerror = function() {
+        evtSource.close();
+        spinner.style.display = 'none';
+        statusText.textContent = 'Polaczenie przerwane';
+        statusText.className = 'status-text error';
+        btn.disabled = false;
+      };
+    }
+
+    function showResults(data) {
+      const resArea = document.getElementById('results-area');
+      const badge = document.getElementById('result-badge');
+      const list = document.getElementById('results-list');
+      resArea.classList.add('active');
+      list.innerHTML = '';
+
+      if (data.status === 'submitted') {
+        badge.className = 'badge success';
+        badge.textContent = 'Wyslano';
+      } else {
+        badge.className = 'badge fail';
+        badge.textContent = data.status;
+      }
+
+      (data.results || []).forEach(function(r) {
+        const answerText = r.answer == null ? '-' :
+          (Array.isArray(r.answer) ? r.answer.join(', ') :
+          (typeof r.answer === 'object' ? JSON.stringify(r.answer) : r.answer));
+        const card = document.createElement('div');
+        card.className = 'result-card';
+        card.innerHTML = '<div class="result-num">' + r.question_number + '</div>'
+          + '<div class="result-body">'
+          + '<div class="result-q">' + escHtml(r.title) + '</div>'
+          + '<div class="result-type">' + r.type + '</div>'
+          + '<div class="result-a">' + escHtml(String(answerText)) + '</div>'
+          + '</div>';
+        list.appendChild(card);
+      });
+    }
+
+    function escHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    // Allow Enter key to start
+    document.getElementById('url-input').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') startFill();
+    });
+  </script>
+</body>
+</html>
+"""
 
 
 @app.route("/fill-form", methods=["GET"], defaults={"form_url": None})
@@ -69,6 +430,38 @@ def fill_form(form_url):
             target_url += "?" + qs
     with scraping_lock:
         return _perform_form_fill(target_url)
+
+
+@app.route("/stream-fill", methods=["GET"])
+def stream_fill():
+    """SSE endpoint that streams live progress while filling the form."""
+    form_url = request.args.get("url", "")
+    if not form_url:
+        def err_gen():
+            yield 'event: error_ev\ndata: Podaj URL formularza\n\n'
+        return Response(err_gen(), mimetype='text/event-stream')
+
+    event_queue = Queue()
+
+    def worker():
+        with scraping_lock:
+            _perform_form_fill(form_url, event_queue=event_queue)
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+
+    def generate():
+        while True:
+            msg = event_queue.get()  # Blocks until message
+            if msg is None:
+                break  # Sentinel - stream done
+            event_type = msg.get("event", "status")
+            data = msg.get("data", "")
+            if isinstance(data, dict):
+                data = json.dumps(data, ensure_ascii=False)
+            yield f'event: {event_type}\ndata: {data}\n\n'
+
+    return Response(generate(), mimetype='text/event-stream')
 
 
 def _create_driver():
@@ -92,12 +485,15 @@ def _create_driver():
 
 def _get_question_title(question_el):
     """Extract the question title text from a questionItem element."""
-    # Try MS Forms selector first, then Google Forms, then generic heading
+    # Try specific selectors first, then progressively more generic ones
     for selector in [
         'div[data-automation-id="questionTitle"]',
+        'span.text-format-content',
         'div[role="heading"]',
         'span[class*="title"]',
-        'h2', 'h3',
+        'legend',
+        'label[class*="header"]',
+        'h2', 'h3', 'h4',
     ]:
         try:
             title_el = question_el.find_element(By.CSS_SELECTOR, selector)
@@ -106,6 +502,24 @@ def _get_question_title(question_el):
                 return text
         except Exception:
             continue
+
+    # Try aria-label on the question container itself
+    aria = question_el.get_attribute("aria-label") or ""
+    if aria.strip():
+        return aria.strip()
+
+    # Last resort: get the first meaningful line of text from the element,
+    # excluding text that belongs to radio/checkbox options
+    try:
+        full_text = question_el.text.strip()
+        if full_text:
+            # Take the first line - usually the question title
+            first_line = full_text.split("\n")[0].strip()
+            if first_line and len(first_line) > 1:
+                return first_line
+    except Exception:
+        pass
+
     return "(unknown question)"
 
 
@@ -402,24 +816,34 @@ TITLE_SELECTORS = {
 }
 
 
-def _perform_form_fill(form_url):
+def _perform_form_fill(form_url, event_queue=None):
     """Main function: opens the form, reads questions, fills random answers."""
     driver = None
     results = []
     provider = _detect_provider(form_url)
 
+    def _emit(event, data=""):
+        """Push an SSE event if streaming is active."""
+        if event_queue is not None:
+            event_queue.put({"event": event, "data": data})
+
     try:
+        _emit("status", f"Provider: {provider}")
         print(f"[FormBot] Provider detected: {provider}")
+
+        _emit("status", "Uruchamianie przegladarki...")
         print(f"[FormBot] Initializing Chrome driver...")
         driver = _create_driver()
         driver.set_page_load_timeout(60)
 
+        _emit("status", "Ladowanie formularza...")
         print(f"[FormBot] Navigating to form: {form_url}")
         driver.get(form_url)
 
         # Wait for the form to load using provider-specific selector
         q_selector = QUESTION_SELECTORS.get(provider, QUESTION_SELECTORS["unknown"])
         t_selector = TITLE_SELECTORS.get(provider, TITLE_SELECTORS["unknown"])
+        _emit("status", "Czekanie na zaladowanie pytan...")
         print(f"[FormBot] Waiting for form to load (selector: {q_selector})...")
         WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, q_selector))
@@ -466,6 +890,9 @@ def _perform_form_fill(form_url):
                 print(f"[FormBot] Title: {title}")
                 print(f"[FormBot] Type: {q_type}")
 
+                _emit("question", {"num": question_num, "title": title, "type": q_type})
+                _emit("status", f"Pytanie {question_num}: {title[:50]}...")
+
                 # DEBUG: dump inner HTML of unknown questions so we can fix selectors
                 if q_type == "unknown" or title == "(unknown question)":
                     try:
@@ -485,11 +912,13 @@ def _perform_form_fill(form_url):
                     answer = _handle_radio_question(question_el, title)
                     result_entry["answer"] = answer
                     print(f"[FormBot] Selected: {answer}")
+                    _emit("answer", {"num": question_num, "answer": answer})
 
                 elif q_type == "checkbox":
                     answers = _handle_checkbox_question(question_el, title)
                     result_entry["answer"] = answers
                     print(f"[FormBot] Selected: {answers}")
+                    _emit("answer", {"num": question_num, "answer": answers})
 
                 elif q_type == "matrix":
                     answers = _handle_matrix_question(question_el, title)
@@ -497,14 +926,17 @@ def _perform_form_fill(form_url):
                     if answers:
                         for row, col in answers.items():
                             print(f"[FormBot]   {row} -> {col}")
+                    _emit("answer", {"num": question_num, "answer": answers})
 
                 elif q_type == "text":
                     answer = _handle_text_question(question_el, title)
                     result_entry["answer"] = answer
                     print(f"[FormBot] Typed: {answer}")
+                    _emit("answer", {"num": question_num, "answer": answer})
 
                 else:
                     print(f"[FormBot] [WARN] Unknown question type, skipping.")
+                    _emit("warn", f"Q{question_num}: nieznany typ pytania")
 
                 results.append(result_entry)
                 time.sleep(0.5)
@@ -515,14 +947,18 @@ def _perform_form_fill(form_url):
 
             # Wait a moment for any conditional questions to appear after answers
             time.sleep(1.5)
+            _emit("status", f"Szukanie nowych pytan (przejscie {_pass + 1})...")
             print(f"[FormBot] Re-scanning for new conditional questions (pass {_pass + 1})...")
 
-        # ── Submit or print results ──────────────────────────────────────────
+        # -- Submit or print results --
         print(f"\n{'='*60}")
         print(f"[FormBot] FORM FILL COMPLETE - {len(results)} questions processed.")
         print(f"{'='*60}")
 
+        submit_status = "dry_run"
+
         if ALLOW_SEND:
+            _emit("status", "Wysylanie formularza...")
             submit_btn = None
             # Try multiple selectors to find the submit button
             selectors = [
@@ -568,6 +1004,7 @@ def _perform_form_fill(form_url):
                     )
                     submit_btn.click()
                     print("[FormBot] [OK] Form submitted!")
+                    submit_status = "submitted"
                     time.sleep(3)
                 except Exception as click_err:
                     # Fallback: JS click
@@ -575,11 +1012,14 @@ def _perform_form_fill(form_url):
                     try:
                         driver.execute_script("arguments[0].click();", submit_btn)
                         print("[FormBot] [OK] Form submitted via JS click!")
+                        submit_status = "submitted"
                         time.sleep(3)
                     except Exception as js_err:
                         print(f"[FormBot] [FAIL] JS click also failed: {js_err}")
+                        submit_status = "submit_failed"
             else:
                 print("[FormBot] [FAIL] Could not find submit button on the page.")
+                submit_status = "no_submit_button"
         else:
             print("[FormBot] ALLOW_SEND=False - NOT submitting. Printing results:")
             for r in results:
@@ -588,29 +1028,42 @@ def _perform_form_fill(form_url):
                 print(f"    Answer: {r['answer']}")
                 print()
 
+        final_data = {
+            "status": submit_status,
+            "questions_filled": len(results),
+            "results": results,
+        }
+        _emit("done", final_data)
+
     except Exception as e:
         error_msg = str(e)
         print(f"[FormBot] ERROR: {error_msg}")
+        _emit("error_ev", error_msg)
         last_url = "Unknown"
         try:
             if driver:
                 last_url = driver.current_url
         except Exception:
             pass
-        return jsonify({"error": error_msg, "last_url": last_url}), 500
+        if event_queue is None:
+            return jsonify({"error": error_msg, "last_url": last_url}), 500
 
     finally:
         if driver:
             print(f"[FormBot] Quitting driver...")
             driver.quit()
+        # Send sentinel to close SSE stream
+        if event_queue is not None:
+            event_queue.put(None)
 
-    return jsonify(
-        {
-            "status": "submitted" if ALLOW_SEND else "dry_run",
-            "questions_filled": len(results),
-            "results": results,
-        }
-    )
+    if event_queue is None:
+        return jsonify(
+            {
+                "status": submit_status,
+                "questions_filled": len(results),
+                "results": results,
+            }
+        )
 
 
 def run_api():
