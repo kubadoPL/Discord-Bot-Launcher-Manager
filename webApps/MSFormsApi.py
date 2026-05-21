@@ -288,7 +288,7 @@ HOME_PAGE_HTML = r"""
       <div id="results-list"></div>
     </div>
 
-    <div class="footer">FormBot &mdash; Selenium + Flask</div>
+    <div class="footer">FormBot &mdash; Copyright by K5 Studio 2026</div>
   </div>
 
   <script>
