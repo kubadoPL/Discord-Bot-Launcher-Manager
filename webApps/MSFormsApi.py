@@ -692,6 +692,9 @@ HOME_PAGE_HTML = r"""
       <div id="results-list"></div>
     </div>
 
+    <div style="text-align:center; margin: 20px 0 8px;">
+      <button onclick="window.scrollTo({top:0,behavior:'smooth'})" style="padding:10px 28px; background:linear-gradient(135deg,#0d9488,#0891b2); border:none; border-radius:10px; color:#fff; font-size:0.88rem; font-weight:600; font-family:'Inter',sans-serif; cursor:pointer; transition:transform 0.15s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 14px rgba(13,148,136,0.3)'" onmouseout="this.style.transform='';this.style.boxShadow=''">&#8593; Na g&oacute;re</button>
+    </div>
     <div class="footer">FormBot &mdash; Copyright by K5 Studio 2026</div>
   </div>
 
