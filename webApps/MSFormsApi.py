@@ -2776,32 +2776,44 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                                     break
 
                 if q_type == "radio":
+                    source = "Losowe"
+                    answer = None
                     if ai_answer_for_q is not None:
                         answer = _handle_radio_ai(question_el, ai_answer_for_q)
-                    else:
+                        if answer:
+                            source = "AI"
+                    if not answer:
                         answer = _handle_radio_question(question_el, title, weights=weights)
                     result_entry["answer"] = answer
-                    source = "AI" if ai_answer_for_q is not None else "Losowe"
                     print(f"[FormBot] Selected: {answer} ({source})")
                     _emit("answer", {"num": question_num, "answer": answer, "source": source})
 
                 elif q_type == "checkbox":
+                    source = "Losowe"
+                    answers = None
                     if ai_answer_for_q is not None:
                         answers = _handle_checkbox_ai(question_el, ai_answer_for_q)
-                    else:
+                        if answers:
+                            source = "AI"
+                    if not answers:
                         answers = _handle_checkbox_question(question_el, title, weights=weights)
                     result_entry["answer"] = answers
-                    source = "AI" if ai_answer_for_q is not None else "Losowe"
                     print(f"[FormBot] Selected: {answers} ({source})")
                     _emit("answer", {"num": question_num, "answer": answers, "source": source})
 
                 elif q_type == "matrix":
+                    source = "Losowe"
+                    answers = None
                     if ai_answer_for_q is not None:
                         answers = _handle_matrix_ai(question_el, ai_answer_for_q)
-                    else:
+                        if answers:
+                            source = "AI"
+                    if not answers:
+                        # AI returned empty or no AI answer — fallback to random
+                        if ai_answer_for_q is not None:
+                            print(f"[FormBot] MATRIX AI returned empty, falling back to random")
                         answers = _handle_matrix_question(question_el, title, weights=weights)
                     result_entry["answer"] = answers
-                    source = "AI" if ai_answer_for_q is not None else "Losowe"
                     if answers:
                         for row, col in answers.items():
                             print(f"[FormBot]   {row} -> {col} ({source})")
