@@ -977,7 +977,10 @@ HOME_PAGE_HTML = r"""
           <button onclick="previewNavTo('first')" title="Pierwsze" style="padding:6px 10px; border:none; border-radius:7px; background:rgba(13,148,136,0.12); color:#0d9488; font-size:0.82rem; font-weight:700; cursor:pointer; font-family:'Inter',sans-serif; transition:background 0.15s;" onmouseover="this.style.background='rgba(13,148,136,0.22)'" onmouseout="this.style.background='rgba(13,148,136,0.12)'">&laquo; Start</button>
           <button onclick="previewNavTo('prev')" title="Poprzednie" style="padding:6px 12px; border:none; border-radius:7px; background:rgba(13,148,136,0.12); color:#0d9488; font-size:0.82rem; font-weight:700; cursor:pointer; font-family:'Inter',sans-serif; transition:background 0.15s;" onmouseover="this.style.background='rgba(13,148,136,0.22)'" onmouseout="this.style.background='rgba(13,148,136,0.12)'">&lsaquo; Poprz</button>
         </div>
-        <span id="preview-nav-counter" style="font-size:0.82rem; font-weight:600; color:#475569; min-width:50px; text-align:center;">0/0</span>
+        <div style="display:flex; flex-direction:column; align-items:center; min-width:60px;">
+          <span id="preview-nav-counter" style="font-size:0.82rem; font-weight:600; color:#475569;">0/0</span>
+          <span id="preview-nav-status" style="font-size:0.7rem; color:#0d9488; font-weight:500; max-width:200px; text-align:center; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;"></span>
+        </div>
         <div style="display:flex; gap:4px;">
           <button onclick="previewNavTo('next')" title="Nastepne" style="padding:6px 12px; border:none; border-radius:7px; background:rgba(13,148,136,0.12); color:#0d9488; font-size:0.82rem; font-weight:700; cursor:pointer; font-family:'Inter',sans-serif; transition:background 0.15s;" onmouseover="this.style.background='rgba(13,148,136,0.22)'" onmouseout="this.style.background='rgba(13,148,136,0.12)'">Nast &rsaquo;</button>
           <button onclick="previewNavTo('last')" title="Ostatnie" style="padding:6px 10px; border:none; border-radius:7px; background:rgba(13,148,136,0.12); color:#0d9488; font-size:0.82rem; font-weight:700; cursor:pointer; font-family:'Inter',sans-serif; transition:background 0.15s;" onmouseover="this.style.background='rgba(13,148,136,0.22)'" onmouseout="this.style.background='rgba(13,148,136,0.12)'">Koniec &raquo;</button>
@@ -1105,6 +1108,8 @@ HOME_PAGE_HTML = r"""
 
       evtSource.addEventListener('status', function(e) {
         document.getElementById('preview-status-text').textContent = e.data;
+        var navStatus = document.getElementById('preview-nav-status');
+        if (navStatus) navStatus.textContent = e.data;
       });
 
       evtSource.addEventListener('queue', function(e) {
@@ -1142,6 +1147,8 @@ HOME_PAGE_HTML = r"""
         previewActions.style.display = 'flex';
         previewBtn.disabled = false;
         startBtn.disabled = false;
+        var navStatus = document.getElementById('preview-nav-status');
+        if (navStatus) navStatus.textContent = '\u2705 Gotowe — ' + previewData.length + ' pytan';
       });
 
       evtSource.addEventListener('error_ev', function(e) {
