@@ -123,7 +123,30 @@ def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None, weights=None
             questions_text += "  (pytanie otwarte - napisz wlasna, unikalna odpowiedz pasujaca do Twojej postaci)\n"
 
     # Random persona seed so AI creates different people each time
-    persona_gender = random.choice(["mezczyzna", "kobieta"])
+    # Try to get gender from weights if user set preferences
+    persona_gender = None
+    if weights:
+        for q in questions_data:
+            title = q.get('title', '')
+            title_lower = title.lower()
+            if any(g in title_lower for g in ['płeć', 'plec', 'gender']):
+                q_weights = weights.get(title)
+                if isinstance(q_weights, dict) and q_weights:
+                    # Use weighted random based on slider values
+                    labels = list(q_weights.keys())
+                    w_vals = [max(0, q_weights[l]) for l in labels]
+                    total = sum(w_vals)
+                    if total > 0:
+                        chosen_label = random.choices(labels, weights=w_vals, k=1)[0]
+                        chosen_lower = chosen_label.lower()
+                        if 'kobieta' in chosen_lower or 'female' in chosen_lower:
+                            persona_gender = "kobieta"
+                        elif 'mężczyzna' in chosen_lower or 'mezczyzna' in chosen_lower or 'male' in chosen_lower:
+                            persona_gender = "mezczyzna"
+                        # else: "Inna" / "Nie chce podawać" -> keep random
+                break
+    if not persona_gender:
+        persona_gender = random.choice(["mezczyzna", "kobieta"])
     persona_age = random.choice(["18-24", "25-34", "35-44", "45-54", "55-64", "65+"])
     persona_job = random.choice(["student", "pracownik biurowy", "nauczyciel", "informatyk", "sprzedawca", "kierowca", "lekarz", "emeryt", "bezrobotny", "przedsiebiorca", "pracownik fizyczny", "freelancer"])
 
