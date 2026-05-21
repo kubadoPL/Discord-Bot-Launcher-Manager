@@ -30,7 +30,7 @@ cache = Cache(app, config={"CACHE_TYPE": "simple"})
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 ALLOW_SEND = True  # Set to True when you want to actually submit the form
-HEADLESS = True  # Set to False to open Chrome visibly (debug mode)
+HEADLESS = False  # Set to False to open Chrome visibly (debug mode)
 
 # Placeholder texts for free-text questions
 TEXT_ANSWERS = [
@@ -2508,41 +2508,59 @@ def _preview_form_questions(form_url, event_queue=None):
                 # Click ALL options to discover every conditional branch
                 if q_type == "radio":
                     try:
-                        radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
-                        for radio_opt in radios:
+                        p_q_id = question_el.get_attribute("id") or ""
+                        p_radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
+                        p_num_radios = len(p_radios)
+                        for pri in range(p_num_radios):
                             try:
-                                radio_opt.click()
+                                if p_q_id:
+                                    try:
+                                        p_fresh = driver.find_element(By.ID, p_q_id)
+                                    except Exception:
+                                        p_fresh = question_el
+                                else:
+                                    p_fresh = question_el
+                                p_fresh_radios = p_fresh.find_elements(By.CSS_SELECTOR, '[role="radio"]')
+                                if pri < len(p_fresh_radios):
+                                    try:
+                                        p_fresh_radios[pri].click()
+                                    except Exception:
+                                        try:
+                                            driver.execute_script("arguments[0].click();", p_fresh_radios[pri])
+                                        except Exception:
+                                            pass
                             except Exception:
-                                try:
-                                    driver.execute_script("arguments[0].click();", radio_opt)
-                                except Exception:
-                                    pass
-                            time.sleep(0.3)
+                                pass
+                            time.sleep(0.4)
+                            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                            time.sleep(0.2)
                             # Scan for conditional questions after each click
-                            cond_questions = driver.find_elements(By.CSS_SELECTOR, q_selector)
-                            for cq in cond_questions:
-                                cq_id = cq.get_attribute("id") or ""
-                                try:
-                                    cq_text = cq.text[:80]
-                                except Exception:
-                                    cq_text = ""
-                                cq_key = cq_id or cq_text
-                                if cq_key in answered_ids:
-                                    continue
-                                answered_ids.add(cq_key)
-                                question_num += 1
-                                ct = _get_question_title(cq)
-                                ctype = _detect_question_type(cq)
-                                copts = _get_option_labels(cq, ctype)
-                                cpd = {"num": question_num, "title": ct, "type": ctype, "options": copts}
-                                if ctype == "matrix":
-                                    cr, cc = _get_matrix_info(cq)
-                                    cpd["options"] = cc
-                                    cpd["rows"] = cr
-                                elif ctype == "text":
-                                    cpd["text_answers"] = list(TEXT_ANSWERS)
-                                _emit("question_preview", cpd)
-                                _emit("status", f"Warunkowe Q{question_num}: {ct[:40]}...")
+                            try:
+                                cond_questions = driver.find_elements(By.CSS_SELECTOR, q_selector)
+                                for cq in cond_questions:
+                                    try:
+                                        ct = _get_question_title(cq)
+                                    except Exception:
+                                        continue
+                                    cq_id = cq.get_attribute("id") or ""
+                                    cq_key = cq_id or ct
+                                    if cq_key in answered_ids or not ct or ct == "(unknown question)":
+                                        continue
+                                    answered_ids.add(cq_key)
+                                    question_num += 1
+                                    ctype = _detect_question_type(cq)
+                                    copts = _get_option_labels(cq, ctype)
+                                    cpd = {"num": question_num, "title": ct, "type": ctype, "options": copts}
+                                    if ctype == "matrix":
+                                        cr, cc = _get_matrix_info(cq)
+                                        cpd["options"] = cc
+                                        cpd["rows"] = cr
+                                    elif ctype == "text":
+                                        cpd["text_answers"] = list(TEXT_ANSWERS)
+                                    _emit("question_preview", cpd)
+                                    _emit("status", f"Warunkowe Q{question_num}: {ct[:40]}...")
+                            except Exception:
+                                pass
                     except Exception:
                         pass
                 elif q_type == "checkbox":
@@ -2626,10 +2644,9 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
 
                 # Scan all questions (click through options to find conditional ones too)
                 scanned_questions = []
-                scanned_ids = set()
+                scanned_ids = set()      # tracks DOM elements for outer loop
+                scanned_titles = set()   # tracks titles for inline dedup (all branches)
                 scan_num = 0
-
-                scanned_titles = set()  # tracks titles to avoid duplicates from inline scan
 
                 for _scan_pass in range(15):
                     questions = scan_driver.find_elements(By.CSS_SELECTOR, q_selector)
@@ -2649,38 +2666,53 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                         scanned_ids.add(q_key)
 
                         title = _get_question_title(q_el)
-                        if title in scanned_titles:
-                            continue  # already found inline
-                        scanned_titles.add(title)
-                        scan_num += 1
-
                         q_type = _detect_question_type(q_el)
                         options = _get_option_labels(q_el, q_type)
 
-                        q_data = {"num": scan_num, "title": title, "type": q_type, "options": options}
+                        # Skip if already found inline (same title, different DOM element)
+                        if title not in scanned_titles:
+                            scan_num += 1
+                            q_data = {"num": scan_num, "title": title, "type": q_type, "options": options}
+                            if q_type == "matrix":
+                                row_titles, col_names = _get_matrix_info(q_el)
+                                q_data["options"] = col_names
+                                q_data["rows"] = row_titles
+                            scanned_questions.append(q_data)
+                            scanned_titles.add(title)
+                            _emit("status", f"AI: Skanowanie Q{scan_num}: {title[:40]}...")
 
-                        if q_type == "matrix":
-                            row_titles, col_names = _get_matrix_info(q_el)
-                            q_data["options"] = col_names
-                            q_data["rows"] = row_titles
-
-                        scanned_questions.append(q_data)
-                        _emit("status", f"AI: Skanowanie Q{scan_num}: {title[:40]}...")
-
-                        # Click through EACH radio option to discover conditional questions
+                        # Click through EACH radio option to discover ALL conditional branches
                         if q_type == "radio":
                             try:
+                                q_el_id = q_el.get_attribute("id") or ""
                                 radios = q_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
-                                for r_opt in radios:
+                                num_radios = len(radios)
+                                for ri in range(num_radios):
                                     try:
-                                        r_opt.click()
+                                        # Re-find element each time to avoid stale refs
+                                        if q_el_id:
+                                            try:
+                                                q_fresh = scan_driver.find_element(By.ID, q_el_id)
+                                            except Exception:
+                                                q_fresh = q_el
+                                        else:
+                                            q_fresh = q_el
+                                        fresh_radios = q_fresh.find_elements(By.CSS_SELECTOR, '[role="radio"]')
+                                        if ri < len(fresh_radios):
+                                            try:
+                                                fresh_radios[ri].click()
+                                            except Exception:
+                                                try:
+                                                    scan_driver.execute_script("arguments[0].click();", fresh_radios[ri])
+                                                except Exception:
+                                                    pass
                                     except Exception:
-                                        try:
-                                            scan_driver.execute_script("arguments[0].click();", r_opt)
-                                        except Exception:
-                                            pass
-                                    time.sleep(0.4)
-                                    # Scan for conditional questions after each click
+                                        pass
+                                    time.sleep(0.6)
+                                    # Scroll down to reveal new questions
+                                    scan_driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                                    time.sleep(0.3)
+                                    # Scan ALL questions on page for new conditionals
                                     try:
                                         cond_questions = scan_driver.find_elements(By.CSS_SELECTOR, q_selector)
                                         for cq in cond_questions:
@@ -2688,8 +2720,9 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                                                 ct = _get_question_title(cq)
                                             except Exception:
                                                 continue
-                                            if ct in scanned_titles or ct == "(unknown question)":
+                                            if not ct or ct == "(unknown question)" or ct in scanned_titles:
                                                 continue
+                                            # Found new conditional question!
                                             scanned_titles.add(ct)
                                             scan_num += 1
                                             ctype = _detect_question_type(cq)
@@ -2701,7 +2734,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                                                 cdata["rows"] = cr
                                             scanned_questions.append(cdata)
                                             _emit("status", f"AI: Warunkowe Q{scan_num}: {ct[:40]}...")
-                                            print(f"[FormBot] AI scan: Found conditional Q{scan_num}: {ct[:60]}")
+                                            print(f"[FormBot] AI scan: conditional Q{scan_num}: {ct[:60]}")
                                     except Exception:
                                         pass
                             except Exception:
@@ -2730,7 +2763,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
 
                     if not new_found:
                         break
-                    time.sleep(0.8)
+                    time.sleep(1)
 
                 scan_driver.quit()
 
