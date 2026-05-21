@@ -2924,9 +2924,15 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     ai_answer_for_q = ai_answers.get(str(question_num))
                     # Fallback: match by title (handles conditional questions shifting numbers)
                     if ai_answer_for_q is None and scanned_questions:
+                        fill_title_norm = ' '.join(title.lower().split())
                         for sq in scanned_questions:
                             sq_title = sq.get('title', '')
-                            if sq_title and (sq_title == title or sq_title in title or title in sq_title):
+                            sq_title_norm = ' '.join(sq_title.lower().split())
+                            if sq_title and (
+                                sq_title_norm == fill_title_norm
+                                or sq_title_norm in fill_title_norm
+                                or fill_title_norm in sq_title_norm
+                            ):
                                 ai_answer_for_q = ai_answers.get(str(sq['num']))
                                 if ai_answer_for_q is not None:
                                     print(f"[FormBot] AI: Matched by title (fill Q{question_num} = scan Q{sq['num']})")
