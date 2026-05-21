@@ -209,10 +209,35 @@ UWAGA: Odpowiadaj TYLKO jako JSON, bez zadnych dodatkowych znakow! Kazda wartosc
                 _emit_fn("status", f"AI: ❌ {err_str[:60]}")
             break
 
+    # All models failed - check if it was quota-related
+    is_quota = any(s in str(last_error) for s in ["429", "RESOURCE_EXHAUSTED", "quota"])
     print(f"[FormBot] AI ERROR: {last_error}")
-    if _emit_fn:
+
+    if is_quota and _emit_fn:
+        # Ask user for new key
+        _emit_fn("need_key", "Limit API wyczerpany na wszystkich modelach. Wpisz nowy klucz API aby kontynuowac.")
+        print("[FormBot] AI: Waiting for new API key from user (max 120s)...")
+
+        # Wait for new key via global pending dict
+        import time as _time
+        request_id = id(_emit_fn)  # unique per request
+        _pending_ai_keys[request_id] = None
+        deadline = _time.time() + 120
+        while _time.time() < deadline:
+            if _pending_ai_keys.get(request_id) is not None:
+                new_key = _pending_ai_keys.pop(request_id)
+                print(f"[FormBot] AI: Received new API key, retrying...")
+                _emit_fn("status", "AI: Nowy klucz otrzymany, ponawiam...")
+                return _ask_gemini_for_answers(questions_data, new_key, _emit_fn)
+            _time.sleep(1)
+        _pending_ai_keys.pop(request_id, None)
+        _emit_fn("status", "AI: ❌ Timeout - nie otrzymano nowego klucza, uzywam losowych odpowiedzi")
+    elif _emit_fn:
         _emit_fn("status", f"AI: ❌ {str(last_error)[:80]} — uzywam losowych odpowiedzi")
     return None
+
+# Global dict for pending API key exchanges
+_pending_ai_keys = {}
 
 
 
@@ -340,6 +365,20 @@ def home():
 def queue_status():
     """Return current queue status as JSON."""
     return jsonify(browser_queue.get_status())
+
+
+@app.route("/update-ai-key", methods=["POST"])
+@cross_origin()
+def update_ai_key():
+    """Receive a new API key from user during quota exhaustion."""
+    new_key = request.json.get("key", "").strip() if request.is_json else ""
+    if not new_key:
+        return jsonify({"error": "No key provided"}), 400
+    # Set key for ALL pending requests
+    for req_id in list(_pending_ai_keys.keys()):
+        _pending_ai_keys[req_id] = new_key
+    print(f"[FormBot] Received new API key from user (starts with {new_key[:8]}...)")
+    return jsonify({"ok": True})
 
 
 HOME_PAGE_HTML = r"""
@@ -921,6 +960,19 @@ HOME_PAGE_HTML = r"""
       return (document.getElementById('gemini-api-key').value || '').trim();
     }
     function hasDefaultKey() { return _hasDefaultKey; }
+    function submitNewAiKey() {
+      var inp = document.getElementById('new-ai-key-input');
+      var key = (inp && inp.value || '').trim();
+      if (!key || key.length < 10) { alert('Wklej prawidlowy klucz API!'); return; }
+      fetch('/update-ai-key', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key:key})})
+        .then(function(r){return r.json();})
+        .then(function(d){
+          if(d.ok){
+            inp.disabled=true;
+            inp.parentElement.innerHTML='<span style="color:#059669; font-weight:600;">&#9989; Klucz wyslany! Ponawiam...</span>';
+          }
+        });
+    }
     // ─── Queue status polling ──────────────────────────────
     function pollQueueStatus() {
       fetch('queue-status')
@@ -1384,6 +1436,20 @@ HOME_PAGE_HTML = r"""
         div.className = 'event-item warn';
         div.innerHTML = '<div class="event-title">Ostrzezenie</div><div class="event-detail">' + escHtml(e.data) + '</div>';
         eventLog.appendChild(div);
+      });
+
+      evtSource.addEventListener('need_key', function(e) {
+        const div = document.createElement('div');
+        div.className = 'event-item warn';
+        div.innerHTML = '<div class="event-title">&#128274; Limit API wyczerpany</div>'
+          + '<div class="event-detail">' + escHtml(e.data) + '</div>'
+          + '<div style="margin-top:8px; display:flex; gap:6px;">'
+          + '<input type="text" id="new-ai-key-input" placeholder="Wklej nowy klucz API (AIza...)" style="flex:1; padding:8px 12px; border:1px solid rgba(245,158,11,0.4); border-radius:8px; font-size:0.85rem; font-family:Inter,sans-serif;">'
+          + '<button onclick="submitNewAiKey()" style="padding:8px 16px; background:linear-gradient(135deg,#7c3aed,#6d28d9); color:white; border:none; border-radius:8px; cursor:pointer; font-weight:600; font-size:0.85rem;">Wyslij</button>'
+          + '</div>'
+          + '<div style="font-size:0.7rem; color:#92400e; margin-top:4px;">Masz 2 min na wpisanie nowego klucza. Bez niego odpowiedzi beda losowe.</div>';
+        eventLog.appendChild(div);
+        eventLog.scrollTop = eventLog.scrollHeight;
       });
 
       evtSource.addEventListener('done', function(e) {
