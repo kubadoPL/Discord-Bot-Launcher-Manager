@@ -391,7 +391,7 @@ HOME_PAGE_HTML = r"""
       spinner.style.display = 'block';
 
       const encodedUrl = encodeURIComponent(url);
-      const evtSource = new EventSource('/stream-fill?url=' + encodedUrl);
+      const evtSource = new EventSource('stream-fill?url=' + encodedUrl);
 
       evtSource.addEventListener('status', function(e) {
         statusText.textContent = e.data;
