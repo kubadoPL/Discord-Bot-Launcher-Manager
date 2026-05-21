@@ -50,6 +50,7 @@ class BrowserQueue:
         self._semaphore = threading.Semaphore(1)  # only 1 browser at a time
         self._waiters = collections.OrderedDict()  # id -> {"user": ..., "event_queue": ...}
         self._current_user = None              # user label of whoever holds the browser
+        self._current_activity = ""            # what the active user is doing
 
     def acquire(self, user_label, waiter_id, event_queue=None):
         """Block until the browser is free.  While waiting, push queue events."""
@@ -68,6 +69,7 @@ class BrowserQueue:
         # We now hold the browser
         with self._lock:
             self._current_user = user_label
+            self._current_activity = "Uruchamianie..."
             # Remove ourselves from waiters
             self._waiters.pop(waiter_id, None)
 
@@ -78,14 +80,21 @@ class BrowserQueue:
         """Release the browser for the next waiter."""
         with self._lock:
             self._current_user = None
+            self._current_activity = ""
         self._semaphore.release()
         self._broadcast_positions()
+
+    def set_activity(self, text):
+        """Update what the active user is currently doing."""
+        with self._lock:
+            self._current_activity = text
 
     def _broadcast_positions(self):
         """Send queue position updates to all waiting users."""
         with self._lock:
             waiter_ids = list(self._waiters.keys())
             current = self._current_user
+            activity = self._current_activity
 
         for pos_idx, wid in enumerate(waiter_ids):
             with self._lock:
@@ -98,6 +107,7 @@ class BrowserQueue:
                             "position": pos_idx + 1,
                             "total_waiting": len(waiter_ids),
                             "current_user": current or "(nieznany)",
+                            "current_activity": activity or "",
                         },
                     })
                 except Exception:
@@ -109,9 +119,24 @@ class BrowserQueue:
             return self._current_user
 
     @property
+    def current_activity(self):
+        with self._lock:
+            return self._current_activity
+
+    @property
     def queue_size(self):
         with self._lock:
             return len(self._waiters)
+
+    def get_status(self):
+        """Return a snapshot of the queue state."""
+        with self._lock:
+            return {
+                "busy": self._current_user is not None,
+                "current_user": self._current_user or "",
+                "current_activity": self._current_activity or "",
+                "waiting": len(self._waiters),
+            }
 
 
 browser_queue = BrowserQueue()
@@ -120,6 +145,13 @@ browser_queue = BrowserQueue()
 @app.route("/")
 def home():
     return render_template_string(HOME_PAGE_HTML)
+
+
+@app.route("/queue-status")
+@cross_origin()
+def queue_status():
+    """Return current queue status as JSON."""
+    return jsonify(browser_queue.get_status())
 
 
 HOME_PAGE_HTML = r"""
@@ -600,6 +632,12 @@ HOME_PAGE_HTML = r"""
       <div class="input-group">
         <input type="text" id="url-input" placeholder="Wklej link do formularza (Google Forms / MS Forms)...">
       </div>
+      <div id="queue-status-bar" style="display:none; margin-top:10px; padding:12px 16px; background:linear-gradient(135deg, rgba(251,191,36,0.12), rgba(245,158,11,0.08)); border:1px solid rgba(245,158,11,0.25); border-radius:10px; font-size:0.85rem; color:#92400e;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span id="queue-status-text"></span>
+        </div>
+      </div>
       <div class="btn-group" style="margin-top: 12px;">
         <button class="btn-secondary" id="preview-btn" onclick="previewForm()">&#128269; Podglad arkusza</button>
         <button class="btn" id="start-btn" onclick="startFill()">&#9654; Start</button>
@@ -612,13 +650,25 @@ HOME_PAGE_HTML = r"""
         <h2 style="font-size:1.15rem; color:#1e293b;">&#128196; Podglad formularza</h2>
         <span class="reset-link" onclick="resetAllSliders()">Resetuj suwaki</span>
       </div>
+      <div id="preview-queue-bar" style="display:none; background:linear-gradient(135deg,#fbbf24,#f59e0b); color:#78350f; padding:12px 16px; border-radius:10px; margin-bottom:14px; font-size:0.88rem; font-weight:500; align-items:center; gap:10px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span id="preview-queue-text"></span>
+      </div>
       <div id="preview-status" class="status-bar" style="display:none;">
         <div class="spinner" id="preview-spinner"></div>
         <span class="status-text" id="preview-status-text">Wczytywanie...</span>
       </div>
       <div id="preview-questions"></div>
       <div class="preview-actions" id="preview-actions" style="display:none;">
-        <button class="btn" onclick="startFillWithWeights()">&#9654; Wypelnij z ustawieniami</button>
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <button class="btn" onclick="startFillWithWeights()">&#9654; Wypelnij z ustawieniami</button>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <label for="repeat-count" style="font-size:0.85rem; color:#64748b; white-space:nowrap;">Powtorz:</label>
+            <input type="number" id="repeat-count" min="1" max="10" value="1" style="width:52px; padding:8px 6px; border:1px solid rgba(13,148,136,0.25); border-radius:8px; font-size:0.9rem; font-family:'Inter',sans-serif; text-align:center; outline:none; background:rgba(255,255,255,0.9); color:#1e293b;">
+            <span style="font-size:0.78rem; color:#94a3b8;">max 10</span>
+          </div>
+        </div>
+        <div id="repeat-progress" style="display:none; margin-top:10px; font-size:0.85rem; color:#0d9488; font-weight:600;"></div>
       </div>
     </div>
 
@@ -648,6 +698,28 @@ HOME_PAGE_HTML = r"""
   <script>
     // Global state for preview data and weights
     let previewData = null; // Array of {num, title, type, options: [...]}
+
+    // ─── Queue status polling ──────────────────────────────
+    function pollQueueStatus() {
+      fetch('queue-status')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          const bar = document.getElementById('queue-status-bar');
+          const text = document.getElementById('queue-status-text');
+          if (d.busy) {
+            bar.style.display = 'block';
+            let msg = 'FormBot Zaj\u0119ty';
+            if (d.current_activity) msg += ' \u2014 ' + d.current_activity;
+            if (d.waiting > 0) msg += ' | W kolejce: ' + d.waiting;
+            text.textContent = msg;
+          } else {
+            bar.style.display = 'none';
+          }
+        })
+        .catch(function() {});
+    }
+    pollQueueStatus();
+    setInterval(pollQueueStatus, 3000);
 
     // ─── Preview Form ──────────────────────────────────────
     function previewForm() {
@@ -679,8 +751,17 @@ HOME_PAGE_HTML = r"""
 
       evtSource.addEventListener('queue', function(e) {
         const d = JSON.parse(e.data);
-        document.getElementById('preview-status-text').textContent =
-          'Kolejka: pozycja ' + d.position + '/' + d.total_waiting;
+        const pqBar = document.getElementById('preview-queue-bar');
+        const pqText = document.getElementById('preview-queue-text');
+        pqBar.style.display = 'flex';
+        document.getElementById('preview-status-text').textContent = 'Oczekiwanie w kolejce...';
+        let qMsg = 'Pozycja w kolejce: ' + d.position + '/' + d.total_waiting;
+        if (d.current_activity) qMsg += ' | Aktualnie: ' + d.current_activity;
+        pqText.textContent = qMsg;
+      });
+
+      evtSource.addEventListener('queue_done', function(e) {
+        document.getElementById('preview-queue-bar').style.display = 'none';
       });
 
       evtSource.addEventListener('question_preview', function(e) {
@@ -940,12 +1021,40 @@ HOME_PAGE_HTML = r"""
       return weights;
     }
 
-    // ─── Start fill with slider weights ────────────────────
+    // ─── Start fill with slider weights (supports repeat) ──
     function startFillWithWeights() {
       const url = document.getElementById('url-input').value.trim();
       if (!url) { alert('Wpisz URL formularza!'); return; }
       const weights = collectWeights();
-      _doStartFill(url, weights);
+      let repeatCount = parseInt(document.getElementById('repeat-count').value) || 1;
+      repeatCount = Math.max(1, Math.min(10, repeatCount));
+
+      if (repeatCount === 1) {
+        _doStartFill(url, weights);
+        return;
+      }
+
+      // Run multiple fills sequentially
+      const repeatProgress = document.getElementById('repeat-progress');
+      repeatProgress.style.display = 'block';
+      let currentRun = 0;
+
+      function runNext() {
+        currentRun++;
+        if (currentRun > repeatCount) {
+          repeatProgress.textContent = 'Wszystkie ' + repeatCount + ' rund zakonczone!';
+          repeatProgress.style.color = '#16a34a';
+          return;
+        }
+        repeatProgress.textContent = 'Runda ' + currentRun + '/' + repeatCount + '...';
+        repeatProgress.style.color = '#0d9488';
+        _doStartFill(url, weights, function() {
+          // Small delay between runs
+          setTimeout(runNext, 1500);
+        });
+      }
+
+      runNext();
     }
 
     // ─── Start fill without weights (quick mode) ──────────
@@ -955,7 +1064,7 @@ HOME_PAGE_HTML = r"""
       _doStartFill(url, null);
     }
 
-    function _doStartFill(url, weights) {
+    function _doStartFill(url, weights, onComplete) {
       const btn = document.getElementById('start-btn');
       const previewBtn = document.getElementById('preview-btn');
       const progArea = document.getElementById('progress-area');
@@ -979,6 +1088,12 @@ HOME_PAGE_HTML = r"""
       }
       const evtSource = new EventSource(sseUrl);
 
+      function _finish() {
+        btn.disabled = false;
+        previewBtn.disabled = false;
+        if (onComplete) onComplete();
+      }
+
       evtSource.addEventListener('status', function(e) {
         statusText.textContent = e.data;
       });
@@ -989,7 +1104,9 @@ HOME_PAGE_HTML = r"""
         const queueText = document.getElementById('queue-text');
         queueBar.style.display = 'flex';
         statusText.textContent = 'Oczekiwanie w kolejce...';
-        queueText.textContent = 'Pozycja w kolejce: ' + d.position + '/' + d.total_waiting;
+        let qMsg = 'Pozycja w kolejce: ' + d.position + '/' + d.total_waiting;
+        if (d.current_activity) qMsg += ' | Aktualnie: ' + d.current_activity;
+        queueText.textContent = qMsg;
       });
 
       evtSource.addEventListener('queue_done', function(e) {
@@ -1030,9 +1147,8 @@ HOME_PAGE_HTML = r"""
         spinner.style.display = 'none';
         statusText.textContent = 'Gotowe! (' + d.questions_filled + ' pytan)';
         statusText.className = 'status-text done';
-        btn.disabled = false;
-        previewBtn.disabled = false;
         showResults(d);
+        _finish();
       });
 
       evtSource.addEventListener('error_ev', function(e) {
@@ -1040,8 +1156,7 @@ HOME_PAGE_HTML = r"""
         spinner.style.display = 'none';
         statusText.textContent = 'Blad: ' + e.data;
         statusText.className = 'status-text error';
-        btn.disabled = false;
-        previewBtn.disabled = false;
+        _finish();
       });
 
       evtSource.onerror = function() {
@@ -1049,8 +1164,7 @@ HOME_PAGE_HTML = r"""
         spinner.style.display = 'none';
         statusText.textContent = 'Polaczenie przerwane';
         statusText.className = 'status-text error';
-        btn.disabled = false;
-        previewBtn.disabled = false;
+        _finish();
       };
     }
 
@@ -1745,10 +1859,10 @@ def _preview_form_questions(form_url, event_queue=None):
         )
         time.sleep(3)
 
-        # Dynamic scanning — same pattern as _perform_form_fill
+        # Dynamic scanning — iterate ALL radio options to discover all conditional branches
         answered_ids = set()
         question_num = 0
-        max_passes = 10
+        max_passes = 15
 
         for _pass in range(max_passes):
             questions = driver.find_elements(By.CSS_SELECTOR, q_selector)
@@ -1781,6 +1895,7 @@ def _preview_form_questions(form_url, event_queue=None):
                 q_type = _detect_question_type(question_el)
                 options = _get_option_labels(question_el, q_type)
 
+                browser_queue.set_activity(f"Podglad pytania {question_num}")
                 _emit("status", f"Pytanie {question_num}: {title[:50]}...")
 
                 preview_data = {
@@ -1799,33 +1914,52 @@ def _preview_form_questions(form_url, event_queue=None):
 
                 _emit("question_preview", preview_data)
 
-                # Click a random option to potentially reveal conditional questions
+                # Click ALL options to discover every conditional branch
                 if q_type == "radio":
                     try:
                         radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
-                        if radios:
-                            chosen = random.choice(radios)
+                        for radio_opt in radios:
                             try:
-                                chosen.click()
+                                radio_opt.click()
                             except Exception:
                                 try:
-                                    driver.execute_script("arguments[0].click();", chosen)
+                                    driver.execute_script("arguments[0].click();", radio_opt)
                                 except Exception:
+                                    pass
+                            time.sleep(0.8)
+                            # Quick scan for newly appeared questions
+                            new_qs = driver.find_elements(By.CSS_SELECTOR, q_selector)
+                            for nq in new_qs:
+                                nq_id = nq.get_attribute("id") or ""
+                                try:
+                                    nq_text = nq.text[:80]
+                                except Exception:
+                                    nq_text = ""
+                                nq_key = nq_id or nq_text
+                                if nq_key and nq_key not in answered_ids:
+                                    # New conditional question found! Process it in next pass
                                     pass
                     except Exception:
                         pass
                 elif q_type == "checkbox":
                     try:
                         checkboxes = question_el.find_elements(By.CSS_SELECTOR, '[role="checkbox"]')
-                        if checkboxes:
-                            chosen = random.choice(checkboxes)
+                        for cb_opt in checkboxes:
                             try:
-                                chosen.click()
+                                cb_opt.click()
                             except Exception:
                                 try:
-                                    driver.execute_script("arguments[0].click();", chosen)
+                                    driver.execute_script("arguments[0].click();", cb_opt)
                                 except Exception:
                                     pass
+                            time.sleep(0.5)
+                        # Uncheck all (so they don't interfere)
+                        for cb_opt in checkboxes:
+                            try:
+                                if cb_opt.get_attribute("aria-checked") == "true":
+                                    cb_opt.click()
+                            except Exception:
+                                pass
                     except Exception:
                         pass
 
@@ -1837,6 +1971,7 @@ def _preview_form_questions(form_url, event_queue=None):
             # Wait for conditional questions to appear
             time.sleep(1.5)
             _emit("status", f"Szukanie warunkowych pytan (przejscie {_pass + 1})...")
+            browser_queue.set_activity(f"Skanowanie warunkowych pytan ({_pass + 1})")
 
         _emit("preview_done", {"total": question_num})
 
@@ -1926,6 +2061,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None):
 
                 _emit("question", {"num": question_num, "title": title, "type": q_type})
                 _emit("status", f"Pytanie {question_num}: {title[:50]}...")
+                browser_queue.set_activity(f"Wypelnianie pytania {question_num}")
 
                 # DEBUG: dump inner HTML of unknown questions so we can fix selectors
                 if q_type == "unknown" or title == "(unknown question)":
