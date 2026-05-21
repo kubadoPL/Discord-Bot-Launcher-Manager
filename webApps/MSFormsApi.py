@@ -7,6 +7,7 @@ import uuid
 import collections
 from queue import Queue
 import urllib.parse
+import requests as http_requests  # renamed to avoid conflict with flask.request
 
 from flask import Flask, jsonify, request, render_template_string, Response
 from flask_cors import cross_origin
@@ -38,6 +39,107 @@ TEXT_ANSWERS = [
     "Nie wiem",
     "Trudno powiedzieć",
 ]
+
+# ─── Gemini AI Integration ────────────────────────────────────────────────────
+
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+
+
+def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None):
+    """Send all questions to Gemini and get a coherent set of answers.
+    
+    questions_data: list of dicts with keys: num, title, type, options, rows (for matrix)
+    Returns: dict mapping question number -> answer
+      - radio: index of option to select (0-based)
+      - checkbox: list of indices to select
+      - matrix: dict mapping row_title -> index of column (0-based)
+      - text: string answer
+    """
+    if _emit_fn:
+        _emit_fn("status", "AI: Przygotowywanie pytan dla Gemini...")
+
+    # Build the prompt
+    questions_text = ""
+    for q in questions_data:
+        questions_text += f"\nPytanie {q['num']} (typ: {q['type']}): {q['title']}\n"
+        if q['type'] in ('radio', 'checkbox') and q.get('options'):
+            for i, opt in enumerate(q['options']):
+                questions_text += f"  {i}: {opt}\n"
+        elif q['type'] == 'matrix' and q.get('rows') and q.get('options'):
+            questions_text += f"  Kolumny: {', '.join(f'{i}: {c}' for i, c in enumerate(q['options']))}\n"
+            questions_text += f"  Wiersze: {', '.join(q['rows'])}\n"
+        elif q['type'] == 'text':
+            questions_text += "  (pytanie otwarte - napisz wlasna, unikalna odpowiedz pasujaca do Twojej postaci)\n"
+
+    prompt = f"""Jestes prawdziwa osoba wypelniajaca ankiete. Stwórz realistyczna postac (wiek, plec, zawod, wyksztalcenie, miejsce zamieszkania itp.) i odpowiadaj SPOJNIE zgodnie z nia.
+
+WAZNE ZASADY:
+1. Odpowiedzi musza byc logicznie spojne! Np. jesli masz 20 lat, nie mozesz byc emerytem.
+2. Na pytania tekstowe (otwarte) pisz WLASNE, UNIKALNE, NATURALNE odpowiedzi - tak jak napisalby prawdziwy czlowiek. NIE pisz ogolnikow typu "Brak uwag" czy "Nie wiem". Napisz cos konkretnego, osobistego, co pasuje do Twojej postaci. 1-2 zdania wystarczy.
+3. Odpowiedzi tekstowe powinny brzmiec naturalnie, z drobnymi niedoskonalosciami jak w prawdziwej ankiecie.
+
+Oto pytania:
+{questions_text}
+
+Odpowiedz WYLACZNIE prawidlowym JSON-em (bez markdown, bez komentarzy), w formacie:
+{{
+  "1": <odpowiedz na pytanie 1>,
+  "2": <odpowiedz na pytanie 2>,
+  ...
+}}
+
+Formaty odpowiedzi:
+- radio: numer opcji (0-based), np. 2
+- checkbox: lista numerow opcji, np. [0, 2]
+- matrix: obiekt z wierszami jako klucze i numerem kolumny jako wartosc, np. {{"Wiersz1": 1, "Wiersz2": 3}}
+- text: string z unikalna odpowiedzia, np. "Moim zdaniem komunikacja w miescie mogłaby byc lepsza, szczegolnie wieczorami"
+
+UWAGA: Odpowiadaj TYLKO jako JSON, bez zadnych dodatkowych znakow!"""
+
+    if _emit_fn:
+        _emit_fn("status", "AI: Wysylanie do Gemini...")
+
+    try:
+        resp = http_requests.post(
+            f"{GEMINI_API_URL}?key={api_key}",
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.8,
+                    "maxOutputTokens": 2048,
+                },
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        # Extract text from Gemini response
+        ai_text = data["candidates"][0]["content"]["parts"][0]["text"]
+        
+        # Clean up - remove markdown code fences if present
+        ai_text = ai_text.strip()
+        if ai_text.startswith("```"):
+            # Remove first line (```json or ```)
+            ai_text = ai_text.split("\n", 1)[1] if "\n" in ai_text else ai_text[3:]
+        if ai_text.endswith("```"):
+            ai_text = ai_text[:-3]
+        ai_text = ai_text.strip()
+
+        ai_answers = json.loads(ai_text)
+        
+        if _emit_fn:
+            _emit_fn("status", f"AI: Otrzymano odpowiedzi na {len(ai_answers)} pytan")
+        
+        print(f"[FormBot] AI answers: {json.dumps(ai_answers, ensure_ascii=False, indent=2)}")
+        return ai_answers
+
+    except Exception as e:
+        print(f"[FormBot] AI ERROR: {e}")
+        if _emit_fn:
+            _emit_fn("status", f"AI: Blad - {str(e)[:80]}. Uzywam losowych odpowiedzi.")
+        return None
+
 
 # ─── Browser Queue ─────────────────────────────────────────────────────────────
 # Tracks who is waiting for the browser so we can show queue position to users.
@@ -642,6 +744,19 @@ HOME_PAGE_HTML = r"""
         <button class="btn-secondary" id="preview-btn" onclick="previewForm()">&#128269; Podglad arkusza</button>
         <button class="btn" id="start-btn" onclick="startFill()">&#9654; Start</button>
       </div>
+      <div style="margin-top:14px; padding:14px 16px; background:linear-gradient(135deg, rgba(139,92,246,0.08), rgba(109,40,217,0.04)); border:1px solid rgba(139,92,246,0.2); border-radius:12px;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.9rem; font-weight:500; color:#5b21b6;">
+            <input type="checkbox" id="ai-mode-toggle" onchange="toggleAiMode()" style="width:18px; height:18px; accent-color:#7c3aed;">
+            &#129302; Tryb AI (Gemini)
+          </label>
+          <span style="font-size:0.75rem; color:#8b5cf6; background:rgba(139,92,246,0.12); padding:2px 8px; border-radius:6px;">spojne odpowiedzi</span>
+        </div>
+        <div id="ai-key-row" style="display:none; margin-top:8px;">
+          <input type="password" id="gemini-api-key" placeholder="Wklej klucz API Gemini..." style="width:100%; padding:10px 14px; border:1px solid rgba(139,92,246,0.25); border-radius:8px; font-size:0.85rem; font-family:'Inter',sans-serif; outline:none; background:rgba(255,255,255,0.9); color:#1e293b;">
+          <div style="font-size:0.72rem; color:#8b5cf6; margin-top:4px;">Klucz mozna uzyskac na <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#7c3aed; text-decoration:underline;">aistudio.google.com/apikey</a></div>
+        </div>
+      </div>
     </div>
 
     <!-- Preview area with sliders -->
@@ -702,6 +817,19 @@ HOME_PAGE_HTML = r"""
     // Global state for preview data and weights
     let previewData = null; // Array of {num, title, type, options: [...]}
 
+    // ─── AI Mode ──────────────────────────────────────────────
+    function toggleAiMode() {
+      const on = document.getElementById('ai-mode-toggle').checked;
+      document.getElementById('ai-key-row').style.display = on ? 'block' : 'none';
+    }
+
+    function isAiMode() {
+      return document.getElementById('ai-mode-toggle').checked;
+    }
+
+    function getGeminiKey() {
+      return (document.getElementById('gemini-api-key').value || '').trim();
+    }
     // ─── Queue status polling ──────────────────────────────
     function pollQueueStatus() {
       fetch('queue-status')
@@ -1091,6 +1219,10 @@ HOME_PAGE_HTML = r"""
       if (weights && Object.keys(weights).length > 0) {
         sseUrl += '&weights=' + encodeURIComponent(JSON.stringify(weights));
       }
+      if (isAiMode() && getGeminiKey()) {
+        sseUrl += '&ai_mode=1&ai_key=' + encodeURIComponent(getGeminiKey());
+        statusText.textContent = 'AI: Przygotowywanie...';
+      }
       const evtSource = new EventSource(sseUrl);
 
       function _finish() {
@@ -1300,6 +1432,10 @@ def stream_fill():
         except (json.JSONDecodeError, ValueError):
             weights = None
 
+    # Parse optional AI mode
+    ai_mode = request.args.get("ai_mode", "") == "1"
+    ai_key = request.args.get("ai_key", "")
+
     event_queue = Queue()
     user_label = request.remote_addr or "Uzytkownik"
     waiter_id = str(uuid.uuid4())
@@ -1309,7 +1445,8 @@ def stream_fill():
         try:
             # Tell the client they left the queue
             event_queue.put({"event": "queue_done", "data": ""})
-            _perform_form_fill(form_url, event_queue=event_queue, weights=weights)
+            _perform_form_fill(form_url, event_queue=event_queue, weights=weights,
+                             ai_mode=ai_mode, ai_key=ai_key)
         finally:
             browser_queue.release()
 
@@ -1418,6 +1555,115 @@ def _weighted_choice(items_with_labels, weights_for_question):
         if r <= cumulative:
             return items_with_labels[i]
     return items_with_labels[-1]  # fallback
+
+
+# ─── AI Answer Handlers ──────────────────────────────────────────────────────
+
+def _handle_radio_ai(question_el, ai_index):
+    """Click radio by AI-selected index (0-based)."""
+    radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
+    if not radios:
+        return None
+    idx = int(ai_index) if isinstance(ai_index, (int, float, str)) else 0
+    idx = max(0, min(idx, len(radios) - 1))
+    chosen = radios[idx]
+    label = _get_input_label(question_el, chosen)
+    try:
+        chosen.click()
+    except Exception:
+        try:
+            question_el.parent.execute_script("arguments[0].click();", chosen)
+        except Exception:
+            pass
+    return label
+
+
+def _handle_checkbox_ai(question_el, ai_indices):
+    """Click checkboxes by AI-selected indices (list of 0-based)."""
+    checkboxes = question_el.find_elements(By.CSS_SELECTOR, '[role="checkbox"]')
+    if not checkboxes:
+        return []
+    if not isinstance(ai_indices, list):
+        ai_indices = [ai_indices]
+    selected = []
+    for idx in ai_indices:
+        idx = int(idx)
+        if 0 <= idx < len(checkboxes):
+            cb = checkboxes[idx]
+            label = _get_input_label(question_el, cb)
+            try:
+                cb.click()
+            except Exception:
+                try:
+                    question_el.parent.execute_script("arguments[0].click();", cb)
+                except Exception:
+                    pass
+            selected.append(label)
+    return selected
+
+
+def _handle_matrix_ai(question_el, ai_row_answers):
+    """Fill matrix by AI answers: dict of row_title -> column_index (0-based)."""
+    rows = question_el.find_elements(By.CSS_SELECTOR, '[role="radiogroup"], tr.office-form-matrix-row, tr[data-automation-id]')
+    if not rows:
+        rows = question_el.find_elements(By.CSS_SELECTOR, 'div[role="row"], div[data-automation-id*="row"]')
+    if not rows:
+        return {}
+
+    results = {}
+    if not isinstance(ai_row_answers, dict):
+        return results
+
+    for row_el in rows:
+        row_text = ""
+        try:
+            row_label = row_el.find_elements(By.CSS_SELECTOR, "td, span, div")
+            if row_label:
+                row_text = row_label[0].text.strip()
+        except Exception:
+            pass
+
+        col_idx = ai_row_answers.get(row_text)
+        if col_idx is None:
+            # Try matching by partial text
+            for key, val in ai_row_answers.items():
+                if key in row_text or row_text in key:
+                    col_idx = val
+                    break
+
+        if col_idx is not None:
+            radios = row_el.find_elements(By.CSS_SELECTOR, '[role="radio"], input[type="radio"]')
+            col_idx = int(col_idx)
+            if 0 <= col_idx < len(radios):
+                try:
+                    radios[col_idx].click()
+                except Exception:
+                    try:
+                        question_el.parent.execute_script("arguments[0].click();", radios[col_idx])
+                    except Exception:
+                        pass
+                # Get column name
+                try:
+                    col_label = radios[col_idx].get_attribute("aria-label") or str(col_idx)
+                except Exception:
+                    col_label = str(col_idx)
+                results[row_text] = col_label
+
+    return results
+
+
+def _handle_text_ai(question_el, ai_text):
+    """Type AI-generated text character-by-character like a human."""
+    inputs = question_el.find_elements(By.CSS_SELECTOR, 'input[type="text"], textarea, [role="textbox"]')
+    if not inputs:
+        inputs = question_el.find_elements(By.TAG_NAME, "input")
+    if inputs:
+        field = inputs[0]
+        field.clear()
+        for char in str(ai_text):
+            field.send_keys(char)
+            time.sleep(random.uniform(0.03, 0.09))
+    return str(ai_text)
 
 
 def _handle_radio_question(question_el, title, weights=None):
@@ -1863,7 +2109,7 @@ def _preview_form_questions(form_url, event_queue=None):
         WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, q_selector))
         )
-        time.sleep(3)
+        time.sleep(2)
 
         # Dynamic scanning — iterate ALL radio options to discover all conditional branches
         answered_ids = set()
@@ -1895,7 +2141,7 @@ def _preview_form_questions(form_url, event_queue=None):
                     "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});",
                     question_el,
                 )
-                time.sleep(0.3)
+                time.sleep(0.15)
 
                 title = _get_question_title(question_el)
                 q_type = _detect_question_type(question_el)
@@ -1932,19 +2178,7 @@ def _preview_form_questions(form_url, event_queue=None):
                                     driver.execute_script("arguments[0].click();", radio_opt)
                                 except Exception:
                                     pass
-                            time.sleep(0.8)
-                            # Quick scan for newly appeared questions
-                            new_qs = driver.find_elements(By.CSS_SELECTOR, q_selector)
-                            for nq in new_qs:
-                                nq_id = nq.get_attribute("id") or ""
-                                try:
-                                    nq_text = nq.text[:80]
-                                except Exception:
-                                    nq_text = ""
-                                nq_key = nq_id or nq_text
-                                if nq_key and nq_key not in answered_ids:
-                                    # New conditional question found! Process it in next pass
-                                    pass
+                            time.sleep(0.25)
                     except Exception:
                         pass
                 elif q_type == "checkbox":
@@ -1958,7 +2192,7 @@ def _preview_form_questions(form_url, event_queue=None):
                                     driver.execute_script("arguments[0].click();", cb_opt)
                                 except Exception:
                                     pass
-                            time.sleep(0.5)
+                            time.sleep(0.15)
                         # Uncheck all (so they don't interfere)
                         for cb_opt in checkboxes:
                             try:
@@ -1969,13 +2203,13 @@ def _preview_form_questions(form_url, event_queue=None):
                     except Exception:
                         pass
 
-                time.sleep(0.3)
+                time.sleep(0.1)
 
             if not new_questions_found:
                 break
 
             # Wait for conditional questions to appear
-            time.sleep(1.5)
+            time.sleep(0.6)
             _emit("status", f"Szukanie warunkowych pytan (przejscie {_pass + 1})...")
             browser_queue.set_activity(f"Skanowanie warunkowych pytan ({_pass + 1})")
 
@@ -1991,7 +2225,7 @@ def _preview_form_questions(form_url, event_queue=None):
             event_queue.put(None)
 
 
-def _perform_form_fill(form_url, event_queue=None, weights=None):
+def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, ai_key=""):
     """Main function: opens the form, reads questions, fills random answers."""
     driver = None
     results = []
@@ -2002,6 +2236,96 @@ def _perform_form_fill(form_url, event_queue=None, weights=None):
         if event_queue is not None:
             event_queue.put({"event": event, "data": data})
 
+    # ─── AI Mode: Pre-scan all questions, ask Gemini, then fill ───
+    ai_answers = None
+    if ai_mode and ai_key:
+        _emit("status", "AI: Skanowanie pytan...")
+        browser_queue.set_activity("AI: skanowanie pytan")
+
+        try:
+            scan_driver = _create_driver()
+            scan_driver.set_page_load_timeout(60)
+            scan_driver.get(form_url)
+
+            q_selector = QUESTION_SELECTORS.get(provider, QUESTION_SELECTORS["unknown"])
+            WebDriverWait(scan_driver, 20).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, q_selector))
+            )
+            time.sleep(3)
+
+            # Scan all questions (click through options to find conditional ones too)
+            scanned_questions = []
+            scanned_ids = set()
+            scan_num = 0
+
+            for _scan_pass in range(10):
+                questions = scan_driver.find_elements(By.CSS_SELECTOR, q_selector)
+                new_found = False
+
+                for q_el in questions:
+                    q_id = q_el.get_attribute("id") or ""
+                    try:
+                        q_text = q_el.text[:80]
+                    except Exception:
+                        q_text = ""
+                    q_key = q_id or q_text
+                    if q_key in scanned_ids:
+                        continue
+
+                    new_found = True
+                    scanned_ids.add(q_key)
+                    scan_num += 1
+
+                    title = _get_question_title(q_el)
+                    q_type = _detect_question_type(q_el)
+                    options = _get_option_labels(q_el, q_type)
+
+                    q_data = {"num": scan_num, "title": title, "type": q_type, "options": options}
+
+                    if q_type == "matrix":
+                        row_titles, col_names = _get_matrix_info(q_el)
+                        q_data["options"] = col_names
+                        q_data["rows"] = row_titles
+
+                    scanned_questions.append(q_data)
+                    _emit("status", f"AI: Skanowanie Q{scan_num}: {title[:40]}...")
+
+                    # Click through radio options to reveal conditional questions
+                    if q_type == "radio":
+                        try:
+                            radios = q_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
+                            for r_opt in radios:
+                                try:
+                                    r_opt.click()
+                                except Exception:
+                                    try:
+                                        scan_driver.execute_script("arguments[0].click();", r_opt)
+                                    except Exception:
+                                        pass
+                                time.sleep(0.5)
+                        except Exception:
+                            pass
+
+                if not new_found:
+                    break
+                time.sleep(1)
+
+            scan_driver.quit()
+
+            # Now ask Gemini
+            browser_queue.set_activity("AI: czekanie na Gemini")
+            ai_answers = _ask_gemini_for_answers(scanned_questions, ai_key, _emit_fn=_emit)
+
+            if ai_answers:
+                _emit("status", f"AI: Otrzymano {len(ai_answers)} odpowiedzi, wypelnianie...")
+            else:
+                _emit("status", "AI: Brak odpowiedzi, uzywam losowych")
+
+        except Exception as scan_err:
+            print(f"[FormBot] AI scan error: {scan_err}")
+            _emit("status", f"AI: Blad skanowania ({str(scan_err)[:60]}), uzywam losowych")
+
+    # ─── Main fill ───
     try:
         _emit("status", f"Provider: {provider}")
         print(f"[FormBot] Provider detected: {provider}")
@@ -2084,20 +2408,34 @@ def _perform_form_fill(form_url, event_queue=None, weights=None):
                     "answer": None,
                 }
 
+                # Check if AI has an answer for this question
+                ai_answer_for_q = None
+                if ai_answers:
+                    ai_answer_for_q = ai_answers.get(str(question_num))
+
                 if q_type == "radio":
-                    answer = _handle_radio_question(question_el, title, weights=weights)
+                    if ai_answer_for_q is not None:
+                        answer = _handle_radio_ai(question_el, ai_answer_for_q)
+                    else:
+                        answer = _handle_radio_question(question_el, title, weights=weights)
                     result_entry["answer"] = answer
-                    print(f"[FormBot] Selected: {answer}")
+                    print(f"[FormBot] Selected: {answer}" + (" (AI)" if ai_answer_for_q is not None else ""))
                     _emit("answer", {"num": question_num, "answer": answer})
 
                 elif q_type == "checkbox":
-                    answers = _handle_checkbox_question(question_el, title, weights=weights)
+                    if ai_answer_for_q is not None:
+                        answers = _handle_checkbox_ai(question_el, ai_answer_for_q)
+                    else:
+                        answers = _handle_checkbox_question(question_el, title, weights=weights)
                     result_entry["answer"] = answers
-                    print(f"[FormBot] Selected: {answers}")
+                    print(f"[FormBot] Selected: {answers}" + (" (AI)" if ai_answer_for_q is not None else ""))
                     _emit("answer", {"num": question_num, "answer": answers})
 
                 elif q_type == "matrix":
-                    answers = _handle_matrix_question(question_el, title, weights=weights)
+                    if ai_answer_for_q is not None:
+                        answers = _handle_matrix_ai(question_el, ai_answer_for_q)
+                    else:
+                        answers = _handle_matrix_question(question_el, title, weights=weights)
                     result_entry["answer"] = answers
                     if answers:
                         for row, col in answers.items():
@@ -2105,9 +2443,12 @@ def _perform_form_fill(form_url, event_queue=None, weights=None):
                     _emit("answer", {"num": question_num, "answer": answers})
 
                 elif q_type == "text":
-                    answer = _handle_text_question(question_el, title, weights=weights)
+                    if ai_answer_for_q is not None:
+                        answer = _handle_text_ai(question_el, str(ai_answer_for_q))
+                    else:
+                        answer = _handle_text_question(question_el, title, weights=weights)
                     result_entry["answer"] = answer
-                    print(f"[FormBot] Typed: {answer}")
+                    print(f"[FormBot] Typed: {answer}" + (" (AI)" if ai_answer_for_q is not None else ""))
                     _emit("answer", {"num": question_num, "answer": answer})
 
                 else:
