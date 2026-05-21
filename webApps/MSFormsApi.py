@@ -1072,9 +1072,11 @@ HOME_PAGE_HTML = r"""
       const eventLog = document.getElementById('event-log');
       const statusText = document.getElementById('status-text');
       const spinner = document.getElementById('spinner');
+      const previewActionBtns = document.querySelectorAll('#preview-actions button');
 
       btn.disabled = true;
       previewBtn.disabled = true;
+      previewActionBtns.forEach(function(b) { b.disabled = true; });
       progArea.classList.add('active');
       resArea.classList.remove('active');
       eventLog.innerHTML = '';
@@ -1091,6 +1093,7 @@ HOME_PAGE_HTML = r"""
       function _finish() {
         btn.disabled = false;
         previewBtn.disabled = false;
+        previewActionBtns.forEach(function(b) { b.disabled = false; });
         if (onComplete) onComplete();
       }
 
