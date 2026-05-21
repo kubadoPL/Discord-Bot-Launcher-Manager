@@ -99,45 +99,72 @@ UWAGA: Odpowiadaj TYLKO jako JSON, bez zadnych dodatkowych znakow!"""
     if _emit_fn:
         _emit_fn("status", "AI: Wysylanie do Gemini...")
 
-    try:
-        resp = http_requests.post(
-            f"{GEMINI_API_URL}?key={api_key}",
-            json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "temperature": 0.8,
-                    "maxOutputTokens": 2048,
-                },
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    request_body = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.8,
+            "maxOutputTokens": 2048,
+        },
+    }
 
-        # Extract text from Gemini response
-        ai_text = data["candidates"][0]["content"]["parts"][0]["text"]
-        
-        # Clean up - remove markdown code fences if present
-        ai_text = ai_text.strip()
-        if ai_text.startswith("```"):
-            # Remove first line (```json or ```)
-            ai_text = ai_text.split("\n", 1)[1] if "\n" in ai_text else ai_text[3:]
-        if ai_text.endswith("```"):
-            ai_text = ai_text[:-3]
-        ai_text = ai_text.strip()
+    # Retry with backoff for rate limits (429)
+    max_retries = 3
+    backoff_times = [5, 15, 30]
+    models = [
+        "gemini-2.5-flash",       # newest, highest rate limit
+        "gemini-2.0-flash",       # stable fallback
+        "gemini-2.0-flash-lite",  # lightest, highest rate limit
+    ]
 
-        ai_answers = json.loads(ai_text)
-        
-        if _emit_fn:
-            _emit_fn("status", f"AI: Otrzymano odpowiedzi na {len(ai_answers)} pytan")
-        
-        print(f"[FormBot] AI answers: {json.dumps(ai_answers, ensure_ascii=False, indent=2)}")
-        return ai_answers
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            model = models[attempt]
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            resp = http_requests.post(
+                f"{api_url}?key={api_key}",
+                json=request_body,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
 
-    except Exception as e:
-        print(f"[FormBot] AI ERROR: {e}")
-        if _emit_fn:
-            _emit_fn("status", f"AI: Blad - {str(e)[:80]}. Uzywam losowych odpowiedzi.")
+            # Extract text from Gemini response
+            ai_text = data["candidates"][0]["content"]["parts"][0]["text"]
+            
+            # Clean up - remove markdown code fences if present
+            ai_text = ai_text.strip()
+            if ai_text.startswith("```"):
+                ai_text = ai_text.split("\n", 1)[1] if "\n" in ai_text else ai_text[3:]
+            if ai_text.endswith("```"):
+                ai_text = ai_text[:-3]
+            ai_text = ai_text.strip()
+
+            ai_answers = json.loads(ai_text)
+            
+            if _emit_fn:
+                _emit_fn("status", f"AI: Otrzymano odpowiedzi na {len(ai_answers)} pytan")
+            
+            print(f"[FormBot] AI answers: {json.dumps(ai_answers, ensure_ascii=False, indent=2)}")
+            return ai_answers
+
+        except http_requests.exceptions.HTTPError as e:
+            last_error = e
+            if e.response is not None and e.response.status_code == 429 and attempt < max_retries - 1:
+                wait = backoff_times[attempt]
+                print(f"[FormBot] AI rate limited, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                if _emit_fn:
+                    _emit_fn("status", f"AI: Rate limit, czekam {wait}s... (proba {attempt + 2}/{max_retries})")
+                time.sleep(wait)
+                continue
+            break
+        except Exception as e:
+            last_error = e
+            break
+
+    print(f"[FormBot] AI ERROR: {last_error}")
+    if _emit_fn:
+        _emit_fn("status", f"AI: Blad - {str(last_error)[:80]}. Uzywam losowych odpowiedzi.")
         return None
 
 
