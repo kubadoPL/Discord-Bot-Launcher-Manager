@@ -470,6 +470,88 @@ HOME_PAGE_HTML = r"""
       font-style: italic;
       padding: 6px 0;
     }
+    .text-answers-area {
+      padding: 4px 0;
+    }
+    .text-answers-label {
+      font-size: 0.82rem;
+      color: #64748b;
+      margin-bottom: 8px;
+    }
+    .text-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .text-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      background: rgba(13, 148, 136, 0.1);
+      border: 1px solid rgba(13, 148, 136, 0.2);
+      border-radius: 20px;
+      font-size: 0.82rem;
+      color: #0d9488;
+      animation: fadeSlideIn 0.2s ease;
+    }
+    .text-chip-remove {
+      width: 16px; height: 16px;
+      border: none;
+      background: rgba(13, 148, 136, 0.2);
+      border-radius: 50%;
+      color: #0d9488;
+      font-size: 0.7rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+      padding: 0;
+      line-height: 1;
+    }
+    .text-chip-remove:hover {
+      background: rgba(220, 38, 38, 0.2);
+      color: #dc2626;
+    }
+    .text-add-row {
+      display: flex;
+      gap: 8px;
+    }
+    .text-add-row input {
+      flex: 1;
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(13, 148, 136, 0.25);
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-family: 'Inter', sans-serif;
+      color: #1e293b;
+      outline: none;
+      transition: border-color 0.3s;
+    }
+    .text-add-row input:focus {
+      border-color: #0d9488;
+    }
+    .text-add-row input::placeholder { color: #94a3b8; }
+    .text-add-btn {
+      padding: 8px 16px;
+      background: linear-gradient(135deg, #0d9488, #0891b2);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.82rem;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.2s;
+      white-space: nowrap;
+    }
+    .text-add-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 3px 12px rgba(13, 148, 136, 0.25);
+    }
     .matrix-row-group {
       margin-bottom: 12px;
       padding: 10px 14px;
@@ -679,13 +761,67 @@ HOME_PAGE_HTML = r"""
           bodyHtml += '</div>';
         });
       } else if (q.type === 'text') {
-        bodyHtml = '<div class="preview-text-note">Pytanie tekstowe &mdash; zostanie wypelnione losowa odpowiedzia</div>';
+        bodyHtml = '<div class="text-answers-area" id="text-area-q' + q.num + '">'
+          + '<div class="text-answers-label">Mozliwe odpowiedzi (losowa zostanie wybrana):</div>'
+          + '<div class="text-chips" id="text-chips-q' + q.num + '"></div>'
+          + '<div class="text-add-row">'
+          + '<input type="text" id="text-input-q' + q.num + '" placeholder="Dodaj odpowiedz..."'
+          + ' onkeydown="if(event.key===\'Enter\')addTextAnswer(' + q.num + ')">'
+          + '<button class="text-add-btn" onclick="addTextAnswer(' + q.num + ')">+ Dodaj</button>'
+          + '<button class="text-add-btn" style="background:linear-gradient(135deg,#dc2626,#ef4444);" onclick="clearTextAnswers(' + q.num + ')">Usun wszystkie</button>'
+          + '</div></div>';
       } else {
         bodyHtml = '<div class="preview-text-note">Typ: ' + escHtml(q.type) + '</div>';
       }
 
       card.innerHTML = headerHtml + bodyHtml;
       container.appendChild(card);
+
+      // For text questions, populate default chips after DOM insertion
+      if (q.type === 'text' && q.text_answers) {
+        q._answers = q.text_answers.slice(); // mutable copy
+        renderTextChips(q.num);
+      }
+    }
+
+    function renderTextChips(qNum) {
+      const q = previewData.find(function(p) { return p.num === qNum; });
+      if (!q || !q._answers) return;
+      const container = document.getElementById('text-chips-q' + qNum);
+      container.innerHTML = '';
+      q._answers.forEach(function(ans, idx) {
+        const chip = document.createElement('span');
+        chip.className = 'text-chip';
+        chip.innerHTML = escHtml(ans)
+          + '<button class="text-chip-remove" onclick="removeTextAnswer(' + qNum + ',' + idx + ')">&times;</button>';
+        container.appendChild(chip);
+      });
+    }
+
+    function addTextAnswer(qNum) {
+      const input = document.getElementById('text-input-q' + qNum);
+      const val = input.value.trim();
+      if (!val) return;
+      const q = previewData.find(function(p) { return p.num === qNum; });
+      if (!q) return;
+      if (!q._answers) q._answers = [];
+      q._answers.push(val);
+      input.value = '';
+      renderTextChips(qNum);
+    }
+
+    function removeTextAnswer(qNum, idx) {
+      const q = previewData.find(function(p) { return p.num === qNum; });
+      if (!q || !q._answers) return;
+      q._answers.splice(idx, 1);
+      renderTextChips(qNum);
+    }
+
+    function clearTextAnswers(qNum) {
+      const q = previewData.find(function(p) { return p.num === qNum; });
+      if (!q) return;
+      q._answers = [];
+      renderTextChips(qNum);
     }
 
     function balanceSliders(changedSlider) {
@@ -796,6 +932,9 @@ HOME_PAGE_HTML = r"""
             matrixWeights[row] = rowWeights;
           });
           weights[q.title] = matrixWeights;
+        } else if (q.type === 'text' && q._answers && q._answers.length > 0) {
+          // Send text answers as array
+          weights[q.title] = q._answers.slice();
         }
       });
       return weights;
@@ -1321,7 +1460,7 @@ def _handle_matrix_question(question_el, title, weights=None):
     return result
 
 
-def _handle_text_question(question_el, title):
+def _handle_text_question(question_el, title, weights=None):
     """Handle a text input question. Returns the text entered."""
     text_input = None
     try:
@@ -1351,7 +1490,13 @@ def _handle_text_question(question_el, title):
     if text_input is None:
         return None
 
-    answer = random.choice(TEXT_ANSWERS)
+    # Use custom answers from weights if provided, otherwise defaults
+    custom_answers = None
+    if weights and title in weights and isinstance(weights[title], list):
+        custom_answers = weights[title]
+
+    answers_pool = custom_answers if custom_answers else TEXT_ANSWERS
+    answer = random.choice(answers_pool)
     try:
         text_input.clear()
         text_input.send_keys(answer)
@@ -1571,7 +1716,12 @@ def _get_option_labels(question_el, q_type):
 
 
 def _preview_form_questions(form_url, event_queue=None):
-    """Opens the form, reads all questions and their options, returns preview data."""
+    """Opens the form, reads all questions (including conditional ones) and their options.
+
+    To discover conditional/branching questions that appear only after answering
+    a previous question, this function clicks through options just like the fill
+    function does, then re-scans the page for newly-revealed questions.
+    """
     driver = None
     provider = _detect_provider(form_url)
 
@@ -1595,30 +1745,100 @@ def _preview_form_questions(form_url, event_queue=None):
         )
         time.sleep(3)
 
-        questions = driver.find_elements(By.CSS_SELECTOR, q_selector)
-        _emit("status", f"Znaleziono {len(questions)} pytan")
+        # Dynamic scanning — same pattern as _perform_form_fill
+        answered_ids = set()
+        question_num = 0
+        max_passes = 10
 
-        for idx, question_el in enumerate(questions, 1):
-            title = _get_question_title(question_el)
-            q_type = _detect_question_type(question_el)
-            options = _get_option_labels(question_el, q_type)
+        for _pass in range(max_passes):
+            questions = driver.find_elements(By.CSS_SELECTOR, q_selector)
+            new_questions_found = False
 
-            preview_data = {
-                "num": idx,
-                "title": title,
-                "type": q_type,
-                "options": options,
-            }
+            for question_el in questions:
+                # Build unique key
+                q_id = question_el.get_attribute("id") or ""
+                try:
+                    q_title_preview = question_el.text[:80]
+                except Exception:
+                    q_title_preview = ""
+                q_key = q_id or q_title_preview
 
-            # For matrix questions, also extract row titles and column names
-            if q_type == "matrix":
-                row_titles, col_names = _get_matrix_info(question_el)
-                preview_data["options"] = col_names
-                preview_data["rows"] = row_titles
+                if q_key in answered_ids:
+                    continue
 
-            _emit("question_preview", preview_data)
+                new_questions_found = True
+                answered_ids.add(q_key)
+                question_num += 1
 
-        _emit("preview_done", {"total": len(questions)})
+                # Scroll into view
+                driver.execute_script(
+                    "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});",
+                    question_el,
+                )
+                time.sleep(0.3)
+
+                title = _get_question_title(question_el)
+                q_type = _detect_question_type(question_el)
+                options = _get_option_labels(question_el, q_type)
+
+                _emit("status", f"Pytanie {question_num}: {title[:50]}...")
+
+                preview_data = {
+                    "num": question_num,
+                    "title": title,
+                    "type": q_type,
+                    "options": options,
+                }
+
+                if q_type == "matrix":
+                    row_titles, col_names = _get_matrix_info(question_el)
+                    preview_data["options"] = col_names
+                    preview_data["rows"] = row_titles
+                elif q_type == "text":
+                    preview_data["text_answers"] = list(TEXT_ANSWERS)
+
+                _emit("question_preview", preview_data)
+
+                # Click a random option to potentially reveal conditional questions
+                if q_type == "radio":
+                    try:
+                        radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
+                        if radios:
+                            chosen = random.choice(radios)
+                            try:
+                                chosen.click()
+                            except Exception:
+                                try:
+                                    driver.execute_script("arguments[0].click();", chosen)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+                elif q_type == "checkbox":
+                    try:
+                        checkboxes = question_el.find_elements(By.CSS_SELECTOR, '[role="checkbox"]')
+                        if checkboxes:
+                            chosen = random.choice(checkboxes)
+                            try:
+                                chosen.click()
+                            except Exception:
+                                try:
+                                    driver.execute_script("arguments[0].click();", chosen)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+
+                time.sleep(0.3)
+
+            if not new_questions_found:
+                break
+
+            # Wait for conditional questions to appear
+            time.sleep(1.5)
+            _emit("status", f"Szukanie warunkowych pytan (przejscie {_pass + 1})...")
+
+        _emit("preview_done", {"total": question_num})
 
     except Exception as e:
         _emit("error_ev", str(e))
@@ -1743,7 +1963,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None):
                     _emit("answer", {"num": question_num, "answer": answers})
 
                 elif q_type == "text":
-                    answer = _handle_text_question(question_el, title)
+                    answer = _handle_text_question(question_el, title, weights=weights)
                     result_entry["answer"] = answer
                     print(f"[FormBot] Typed: {answer}")
                     _emit("answer", {"num": question_num, "answer": answer})
