@@ -646,6 +646,7 @@ HOME_PAGE_HTML = r"""
 
       let bodyHtml = '';
       if ((q.type === 'radio' || q.type === 'checkbox') && q.options && q.options.length > 0) {
+        const groupId = 'group-q' + q.num;
         q.options.forEach(function(opt, idx) {
           const sliderId = 'slider-q' + q.num + '-opt' + idx;
           const defaultVal = Math.round(100 / q.options.length);
@@ -653,13 +654,14 @@ HOME_PAGE_HTML = r"""
             + '<div class="slider-label">' + escHtml(opt) + '</div>'
             + '<div class="slider-control">'
             + '<input type="range" id="' + sliderId + '" min="0" max="100" value="' + defaultVal + '"'
-            + ' oninput="updateSliderValue(this)"'
-            + ' data-qnum="' + q.num + '" data-optidx="' + idx + '">'
+            + ' oninput="balanceSliders(this)"'
+            + ' data-group="' + groupId + '" data-count="' + q.options.length + '">'
             + '<span class="slider-value" id="' + sliderId + '-val">' + defaultVal + '%</span>'
             + '</div></div>';
         });
       } else if (q.type === 'matrix' && q.options && q.options.length > 0 && q.rows && q.rows.length > 0) {
         q.rows.forEach(function(row, rowIdx) {
+          const groupId = 'group-q' + q.num + '-row' + rowIdx;
           bodyHtml += '<div class="matrix-row-group">';
           bodyHtml += '<div class="matrix-row-title">' + escHtml(row) + '</div>';
           q.options.forEach(function(opt, colIdx) {
@@ -669,7 +671,8 @@ HOME_PAGE_HTML = r"""
               + '<div class="slider-label">' + escHtml(opt) + '</div>'
               + '<div class="slider-control">'
               + '<input type="range" id="' + sliderId + '" min="0" max="100" value="' + defaultVal + '"'
-              + ' oninput="updateSliderValue(this)">'
+              + ' oninput="balanceSliders(this)"'
+              + ' data-group="' + groupId + '" data-count="' + q.options.length + '">'
               + '<span class="slider-value" id="' + sliderId + '-val">' + defaultVal + '%</span>'
               + '</div></div>';
           });
@@ -685,8 +688,60 @@ HOME_PAGE_HTML = r"""
       container.appendChild(card);
     }
 
-    function updateSliderValue(slider) {
-      document.getElementById(slider.id + '-val').textContent = slider.value + '%';
+    function balanceSliders(changedSlider) {
+      const groupId = changedSlider.getAttribute('data-group');
+      const allInGroup = document.querySelectorAll('input[data-group="' + groupId + '"]');
+      const count = allInGroup.length;
+      if (count <= 1) {
+        changedSlider.value = 100;
+        document.getElementById(changedSlider.id + '-val').textContent = '100%';
+        return;
+      }
+
+      const newVal = parseInt(changedSlider.value);
+      const remaining = 100 - newVal;
+
+      // Sum of all OTHER sliders (before adjustment)
+      let othersOldSum = 0;
+      const others = [];
+      allInGroup.forEach(function(s) {
+        if (s !== changedSlider) {
+          othersOldSum += parseInt(s.value);
+          others.push(s);
+        }
+      });
+
+      // Distribute 'remaining' proportionally among others
+      if (othersOldSum === 0) {
+        // All others are 0 — distribute evenly
+        const each = Math.floor(remaining / others.length);
+        let leftover = remaining - each * others.length;
+        others.forEach(function(s) {
+          const v = each + (leftover > 0 ? 1 : 0);
+          if (leftover > 0) leftover--;
+          s.value = v;
+          document.getElementById(s.id + '-val').textContent = v + '%';
+        });
+      } else {
+        // Proportional redistribution
+        let distributed = 0;
+        others.forEach(function(s, i) {
+          const oldVal = parseInt(s.value);
+          let newOtherVal;
+          if (i === others.length - 1) {
+            // Last one gets the remainder to ensure exact 100%
+            newOtherVal = remaining - distributed;
+          } else {
+            newOtherVal = Math.round((oldVal / othersOldSum) * remaining);
+          }
+          newOtherVal = Math.max(0, Math.min(100, newOtherVal));
+          distributed += newOtherVal;
+          s.value = newOtherVal;
+          document.getElementById(s.id + '-val').textContent = newOtherVal + '%';
+        });
+      }
+
+      document.getElementById(changedSlider.id + '-val').textContent = newVal + '%';
     }
 
     function resetAllSliders() {
