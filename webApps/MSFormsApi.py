@@ -55,6 +55,9 @@ else:
 _SCAN_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ai_scan_cache.json")
 _ai_scan_cache = {}  # { form_url: [scanned_questions_list] }
 
+_PREVIEW_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "preview_cache.json")
+_preview_cache = {}  # { form_url: [preview_questions_list] }
+
 def _load_scan_cache():
     """Load scan cache from file on startup."""
     global _ai_scan_cache
@@ -74,7 +77,27 @@ def _save_scan_cache():
     except Exception as e:
         print(f"[FormBot] Could not save scan cache: {e}")
 
+def _load_preview_cache():
+    """Load preview cache from file on startup."""
+    global _preview_cache
+    try:
+        if os.path.exists(_PREVIEW_CACHE_FILE):
+            with open(_PREVIEW_CACHE_FILE, "r", encoding="utf-8") as f:
+                _preview_cache = json.loads(f.read())
+            print(f"[FormBot] Loaded preview cache: {len(_preview_cache)} form(s)")
+    except Exception as e:
+        print(f"[FormBot] Could not load preview cache: {e}")
+
+def _save_preview_cache():
+    """Save preview cache to file."""
+    try:
+        with open(_PREVIEW_CACHE_FILE, "w", encoding="utf-8") as f:
+            f.write(json.dumps(_preview_cache, ensure_ascii=False, indent=2))
+    except Exception as e:
+        print(f"[FormBot] Could not save preview cache: {e}")
+
 _load_scan_cache()
+_load_preview_cache()
 
 
 def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None, weights=None):
@@ -962,7 +985,10 @@ HOME_PAGE_HTML = r"""
     <div id="preview-area" class="card">
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;">
         <h2 style="font-size:1.15rem; color:#1e293b;">&#128196; Podglad formularza</h2>
-        <span class="reset-link" onclick="resetAllSliders()">Resetuj suwaki</span>
+        <div style="display:flex; gap:12px; align-items:center;">
+          <span class="reset-link" onclick="previewForm(true)">&#128260; Odswiez</span>
+          <span class="reset-link" onclick="resetAllSliders()">Resetuj suwaki</span>
+        </div>
       </div>
       <div id="preview-queue-bar" style="display:none; background:linear-gradient(135deg,#fbbf24,#f59e0b); color:#78350f; padding:12px 16px; border-radius:10px; margin-bottom:14px; font-size:0.88rem; font-weight:500; align-items:center; gap:10px;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -986,7 +1012,7 @@ HOME_PAGE_HTML = r"""
           <button onclick="previewNavTo('last')" title="Ostatnie" style="padding:6px 10px; border:none; border-radius:7px; background:rgba(13,148,136,0.12); color:#0d9488; font-size:0.82rem; font-weight:700; cursor:pointer; font-family:'Inter',sans-serif; transition:background 0.15s;" onmouseover="this.style.background='rgba(13,148,136,0.22)'" onmouseout="this.style.background='rgba(13,148,136,0.12)'">Koniec &raquo;</button>
         </div>
       </div>
-      <div id="preview-questions"></div>
+      <div id="preview-questions" style="max-height:70vh; overflow-y:auto; scroll-behavior:smooth;"></div>
       <div class="preview-actions" id="preview-actions" style="display:none;">
         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
           <button class="btn" onclick="startFillWithWeights()">&#9654; Wypelnij z ustawieniami</button>
@@ -1081,7 +1107,7 @@ HOME_PAGE_HTML = r"""
     setInterval(pollQueueStatus, 3000);
 
     // ─── Preview Form ──────────────────────────────────────
-    function previewForm() {
+    function previewForm(forceRefresh) {
       const url = document.getElementById('url-input').value.trim();
       if (!url) { alert('Wpisz URL formularza!'); return; }
 
@@ -1104,7 +1130,9 @@ HOME_PAGE_HTML = r"""
       document.getElementById('preview-nav').style.display = 'none';
 
       const encodedUrl = encodeURIComponent(url);
-      const evtSource = new EventSource('preview-form?url=' + encodedUrl);
+      var qs = 'preview-form?url=' + encodedUrl;
+      if (forceRefresh) qs += '&refresh=1';
+      const evtSource = new EventSource(qs);
 
       evtSource.addEventListener('status', function(e) {
         document.getElementById('preview-status-text').textContent = e.data;
@@ -1153,18 +1181,32 @@ HOME_PAGE_HTML = r"""
 
       evtSource.addEventListener('error_ev', function(e) {
         evtSource.close();
-        document.getElementById('preview-status-text').textContent = 'Blad: ' + e.data;
         document.getElementById('preview-spinner').style.display = 'none';
+        document.getElementById('preview-status').style.display = 'none';
+        var errDiv = document.createElement('div');
+        errDiv.style.cssText = 'background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(220,38,38,0.04)); border:1px solid rgba(239,68,68,0.25); border-radius:12px; padding:16px 20px; margin-bottom:14px; display:flex; align-items:center; gap:12px;';
+        errDiv.innerHTML = '<span style="font-size:1.4rem;">&#9888;&#65039;</span>'
+          + '<div><div style="font-weight:600; color:#dc2626; font-size:0.92rem;">Blad</div>'
+          + '<div style="color:#991b1b; font-size:0.82rem; margin-top:2px;">' + escHtml(e.data) + '</div></div>';
+        document.getElementById('preview-questions').prepend(errDiv);
         previewBtn.disabled = false;
         startBtn.disabled = false;
       });
 
       evtSource.onerror = function() {
         evtSource.close();
-        document.getElementById('preview-status-text').textContent = 'Polaczenie przerwane';
         document.getElementById('preview-spinner').style.display = 'none';
+        document.getElementById('preview-status').style.display = 'none';
+        var errDiv = document.createElement('div');
+        errDiv.style.cssText = 'background:linear-gradient(135deg,rgba(245,158,11,0.08),rgba(217,119,6,0.04)); border:1px solid rgba(245,158,11,0.25); border-radius:12px; padding:16px 20px; margin-bottom:14px; display:flex; align-items:center; gap:12px;';
+        errDiv.innerHTML = '<span style="font-size:1.4rem;">&#128268;</span>'
+          + '<div><div style="font-weight:600; color:#d97706; font-size:0.92rem;">Polaczenie przerwane</div>'
+          + '<div style="color:#92400e; font-size:0.82rem; margin-top:2px;">Serwer zakonczyl polaczenie. Kliknij Podglad ponownie.</div></div>';
+        document.getElementById('preview-questions').prepend(errDiv);
         previewBtn.disabled = false;
         startBtn.disabled = false;
+        var navStatus = document.getElementById('preview-nav-status');
+        if (navStatus && previewData.length > 0) navStatus.textContent = '\u26a0 Przerwano (' + previewData.length + ' pytan)';
       };
     }
 
@@ -1663,9 +1705,12 @@ HOME_PAGE_HTML = r"""
           (typeof r.answer === 'object' ? JSON.stringify(r.answer) : r.answer));
         const card = document.createElement('div');
         card.className = 'result-card';
+        const srcBadge = r.source === 'AI'
+          ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.15); color:#059669; padding:1px 5px; border-radius:4px; margin-left:6px; font-weight:600;">&#129302; AI</span>'
+          : '<span style="font-size:0.65rem; background:rgba(245,158,11,0.15); color:#d97706; padding:1px 5px; border-radius:4px; margin-left:6px; font-weight:600;">&#127922; Losowe</span>';
         card.innerHTML = '<div class="result-num">' + r.question_number + '</div>'
           + '<div class="result-body">'
-          + '<div class="result-q">' + escHtml(r.title) + '</div>'
+          + '<div class="result-q">' + escHtml(r.title) + srcBadge + '</div>'
           + '<div class="result-type">' + r.type + '</div>'
           + '<div class="result-a">' + escHtml(String(answerText)) + '</div>'
           + '</div>';
@@ -1716,14 +1761,30 @@ def fill_form(form_url):
 def preview_form():
     """SSE endpoint that reads form questions and streams them for preview."""
     form_url = request.args.get("url", "")
+    force_refresh = request.args.get("refresh", "") == "1"
     if not form_url:
         def err_gen():
             yield 'event: error_ev\ndata: Podaj URL formularza\n\n'
         return Response(err_gen(), mimetype='text/event-stream')
 
+    # Check preview cache first (unless forced refresh)
+    cached = _preview_cache.get(form_url) if not force_refresh else None
+    if cached:
+        print(f"[FormBot] Preview: using cache ({len(cached)} questions)")
+        def cached_gen():
+            yield 'event: status\ndata: Ladowanie z cache...\n\n'
+            import time as _t
+            for q in cached:
+                yield f'event: question_preview\ndata: {json.dumps(q, ensure_ascii=False)}\n\n'
+                _t.sleep(0.02)  # tiny delay for smooth rendering
+            yield f'event: status\ndata: Zaladowano {len(cached)} pytan z cache\n\n'
+            yield 'event: preview_done\ndata: ok\n\n'
+        return Response(cached_gen(), mimetype='text/event-stream')
+
     event_queue = Queue()
     user_label = request.remote_addr or "Uzytkownik"
     waiter_id = str(uuid.uuid4())
+    _preview_collected = []  # collect questions for caching
 
     def worker():
         browser_queue.acquire(user_label, waiter_id, event_queue=event_queue)
@@ -1744,8 +1805,27 @@ def preview_form():
             event_type = msg.get("event", "status")
             data = msg.get("data", "")
             if isinstance(data, dict):
+                # Collect preview questions for caching
+                if event_type == "question_preview":
+                    _preview_collected.append(data)
                 data = json.dumps(data, ensure_ascii=False)
             yield f'event: {event_type}\ndata: {data}\n\n'
+        # Save to cache after scan completes
+        if _preview_collected:
+            # Dedup before saving
+            deduped = []
+            seen = set()
+            for q in _preview_collected:
+                tkey = ' '.join(q.get('title', '').lower().split())
+                if tkey in seen:
+                    continue
+                seen.add(tkey)
+                deduped.append(q)
+            for i, q in enumerate(deduped, 1):
+                q['num'] = i
+            _preview_cache[form_url] = deduped
+            _save_preview_cache()
+            print(f"[FormBot] Preview: cached {len(deduped)} questions")
 
     return Response(generate(), mimetype='text/event-stream')
 
@@ -2922,6 +3002,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     "title": title,
                     "type": q_type,
                     "answer": None,
+                    "source": "Losowe",
                 }
 
                 # Check if AI has an answer for this question
@@ -2955,6 +3036,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     if not answer:
                         answer = _handle_radio_question(question_el, title, weights=weights)
                     result_entry["answer"] = answer
+                    result_entry["source"] = source
                     print(f"[FormBot] Selected: {answer} ({source})")
                     _emit("answer", {"num": question_num, "answer": answer, "source": source})
 
@@ -2968,6 +3050,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     if not answers:
                         answers = _handle_checkbox_question(question_el, title, weights=weights)
                     result_entry["answer"] = answers
+                    result_entry["source"] = source
                     print(f"[FormBot] Selected: {answers} ({source})")
                     _emit("answer", {"num": question_num, "answer": answers, "source": source})
 
@@ -2984,6 +3067,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                             print(f"[FormBot] MATRIX AI returned empty, falling back to random")
                         answers = _handle_matrix_question(question_el, title, weights=weights)
                     result_entry["answer"] = answers
+                    result_entry["source"] = source
                     if answers:
                         for row, col in answers.items():
                             print(f"[FormBot]   {row} -> {col} ({source})")
@@ -2992,10 +3076,12 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                 elif q_type == "text":
                     if ai_answer_for_q is not None:
                         answer = _handle_text_ai(question_el, str(ai_answer_for_q))
+                        source = "AI"
                     else:
                         answer = _handle_text_question(question_el, title, weights=weights)
+                        source = "Losowe"
                     result_entry["answer"] = answer
-                    source = "AI" if ai_answer_for_q is not None else "Losowe"
+                    result_entry["source"] = source
                     print(f"[FormBot] Typed: {answer} ({source})")
                     _emit("answer", {"num": question_num, "answer": answer, "source": source})
 
