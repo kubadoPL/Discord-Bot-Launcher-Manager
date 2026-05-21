@@ -433,6 +433,25 @@ def update_ai_key():
     return jsonify({"ok": True})
 
 
+# In-memory store for weights (to avoid URL length limits)
+import uuid
+_stored_weights = {}
+
+@app.route("/store-weights", methods=["POST"])
+@cross_origin()
+def store_weights():
+    """Store weights server-side and return a token to reference them."""
+    data = request.json if request.is_json else {}
+    weights = data.get("weights", {})
+    token = str(uuid.uuid4())[:8]
+    _stored_weights[token] = weights
+    # Clean old tokens (keep max 50)
+    if len(_stored_weights) > 50:
+        oldest = list(_stored_weights.keys())[0]
+        _stored_weights.pop(oldest, None)
+    return jsonify({"token": token})
+
+
 HOME_PAGE_HTML = r"""
 <!doctype html>
 <html lang="pl">
@@ -1411,27 +1430,55 @@ HOME_PAGE_HTML = r"""
       spinner.style.display = 'block';
 
       let sseUrl = 'stream-fill?url=' + encodeURIComponent(url);
+
+      // Helper to actually open SSE after URL is ready
+      function _openSSE() {
+        if (isAiMode()) {
+          var aiKey = getGeminiKey();
+          if (!aiKey && !hasDefaultKey()) {
+            alert('Wklej klucz API Gemini!\\nKlucz zaczyna sie od AIza... (nie URL strony)');
+            btn.disabled = false; previewBtn.disabled = false;
+            previewActionBtns.forEach(function(b) { b.disabled = false; });
+            return;
+          }
+          if (aiKey && aiKey.startsWith('http')) {
+            alert('To jest URL strony, nie klucz API!\\nWejdz na aistudio.google.com/apikey, skopiuj klucz (zaczyna sie od AIza...) i wklej go tutaj.');
+            btn.disabled = false; previewBtn.disabled = false;
+            previewActionBtns.forEach(function(b) { b.disabled = false; });
+            return;
+          }
+          sseUrl += '&ai_mode=1&ai_key=' + encodeURIComponent(aiKey);
+          statusText.textContent = 'AI: Przygotowywanie...';
+        }
+        var evtSource = new EventSource(sseUrl);
+        _attachSSEHandlers(evtSource, onComplete);
+      }
+
+      // Store weights server-side (avoids URL length limit)
       if (weights && Object.keys(weights).length > 0) {
-        sseUrl += '&weights=' + encodeURIComponent(JSON.stringify(weights));
+        fetch('store-weights', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({weights:weights})})
+          .then(function(r){return r.json();})
+          .then(function(d){
+            if(d.token) sseUrl += '&weights_token=' + d.token;
+            _openSSE();
+          })
+          .catch(function(){
+            // Fallback to inline (might fail on Heroku but works locally)
+            sseUrl += '&weights=' + encodeURIComponent(JSON.stringify(weights));
+            _openSSE();
+          });
+      } else {
+        _openSSE();
       }
-      if (isAiMode()) {
-        var aiKey = getGeminiKey();
-        if (!aiKey && !hasDefaultKey()) {
-          alert('Wklej klucz API Gemini!\\nKlucz zaczyna sie od AIza... (nie URL strony)');
-          btn.disabled = false; previewBtn.disabled = false;
-          previewActionBtns.forEach(function(b) { b.disabled = false; });
-          return;
-        }
-        if (aiKey && aiKey.startsWith('http')) {
-          alert('To jest URL strony, nie klucz API!\\nWejdz na aistudio.google.com/apikey, skopiuj klucz (zaczyna sie od AIza...) i wklej go tutaj.');
-          btn.disabled = false; previewBtn.disabled = false;
-          previewActionBtns.forEach(function(b) { b.disabled = false; });
-          return;
-        }
-        sseUrl += '&ai_mode=1&ai_key=' + encodeURIComponent(aiKey);
-        statusText.textContent = 'AI: Przygotowywanie...';
-      }
-      const evtSource = new EventSource(sseUrl);
+    }
+
+    function _attachSSEHandlers(evtSource, onComplete) {
+      const eventLog = document.getElementById('event-log');
+      const statusText = document.getElementById('status-text');
+      const spinner = document.getElementById('spinner');
+      const btn = document.getElementById('start-btn');
+      const previewBtn = document.getElementById('preview-btn');
+      const previewActionBtns = document.querySelectorAll('#preview-actions button');
 
       function _finish() {
         btn.disabled = false;
@@ -1648,14 +1695,18 @@ def stream_fill():
             yield 'event: error_ev\ndata: Podaj URL formularza\n\n'
         return Response(err_gen(), mimetype='text/event-stream')
 
-    # Parse optional weights from query string
-    weights_raw = request.args.get("weights", "")
+    # Parse optional weights - try token first (avoids URL length limit), fallback to inline
     weights = None
-    if weights_raw:
-        try:
-            weights = json.loads(weights_raw)
-        except (json.JSONDecodeError, ValueError):
-            weights = None
+    weights_token = request.args.get("weights_token", "")
+    if weights_token and weights_token in _stored_weights:
+        weights = _stored_weights.pop(weights_token)  # consume once
+    else:
+        weights_raw = request.args.get("weights", "")
+        if weights_raw:
+            try:
+                weights = json.loads(weights_raw)
+            except (json.JSONDecodeError, ValueError):
+                weights = None
 
     # Parse optional AI mode
     ai_mode = request.args.get("ai_mode", "") == "1"
