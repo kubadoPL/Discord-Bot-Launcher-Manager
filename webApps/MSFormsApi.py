@@ -23,13 +23,8 @@ app = Flask(__name__)
 cache = Cache(app, config={"CACHE_TYPE": "simple"})
 
 # ─── Config ───────────────────────────────────────────────────────────────────
-DEFAULT_FORM_URL = (
-    "https://forms.office.com/Pages/ResponsePage.aspx?"
-    "id=7xpEYw7al0O7fvnUcF6WO966JMTZ-UBDoTUEr7wXSnRUQVFXUzZBU0E1TVhKSTFCTjBWNkNWWlZQMy4u"
-)
-
 ALLOW_SEND = True  # Set to True when you want to actually submit the form
-HEADLESS = False  # Set to False to open Chrome visibly (debug mode)
+HEADLESS = True  # Set to False to open Chrome visibly (debug mode)
 
 # Placeholder texts for free-text questions
 TEXT_ANSWERS = [
@@ -62,11 +57,12 @@ def home():
 @app.route("/fill-form/<path:form_url>", methods=["GET"])
 @cross_origin()
 def fill_form(form_url):
-    target_url = form_url or DEFAULT_FORM_URL
+    if not form_url:
+        return jsonify({"error": "Podaj URL formularza, np. /fill-form/https://docs.google.com/forms/d/e/.../viewform"}), 400
+    target_url = form_url
     # Re-add query string if Flask stripped it
     if request.query_string:
         qs = request.query_string.decode("utf-8", errors="replace")
-        # Only append if the target_url doesn't already contain these params
         if "?" in target_url:
             target_url += "&" + qs
         else:
