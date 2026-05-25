@@ -100,10 +100,11 @@ _load_scan_cache()
 _load_preview_cache()
 
 
-def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None, weights=None):
+def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None, weights=None, settings=None):
     """Send all questions to Gemini and get a coherent set of answers using google-genai SDK."""
     from google import genai
     from google.genai import types
+    import re as _re
 
     if _emit_fn:
         _emit_fn("status", "AI: Przygotowywanie pytan dla Gemini...")
@@ -115,7 +116,7 @@ def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None, weights=None
         if q['type'] in ('radio', 'checkbox') and q.get('options'):
             for i, opt in enumerate(q['options']):
                 questions_text += f"  {i}: {opt}\n"
-            # Add weight hints if available
+            # Add weight hints with strength indicators
             if weights and q.get('title') in weights:
                 q_weights = weights[q['title']]
                 if isinstance(q_weights, dict):
@@ -124,10 +125,14 @@ def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None, weights=None
                     if total > 0:
                         for opt_label, w in q_weights.items():
                             pct = int(w / total * 100) if total > 0 else 0
-                            if pct > 0:
+                            if pct >= 95:
+                                hint_parts.append(f"{opt_label}: {pct}% OBOWIAZEK - MUSISZ wybrac ta opcje!")
+                            elif pct >= 70:
+                                hint_parts.append(f"{opt_label}: {pct}% PREFEROWANE")
+                            elif pct > 0:
                                 hint_parts.append(f"{opt_label}: ~{pct}%")
                         if hint_parts:
-                            questions_text += f"  WSKAZOWKA preferencji uzytkownka: {', '.join(hint_parts)}\n"
+                            questions_text += f"  >>> WAGI UZYTKOWNIKA: {', '.join(hint_parts)}\n"
         elif q['type'] == 'matrix' and q.get('rows') and q.get('options'):
             questions_text += f"  Kolumny: {', '.join(f'{i}: {c}' for i, c in enumerate(q['options']))}\n"
             questions_text += f"  Wiersze: {', '.join(q['rows'])}\n"
@@ -139,23 +144,31 @@ def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None, weights=None
                         if isinstance(row_w, dict):
                             total = sum(row_w.values())
                             if total > 0:
-                                parts = [f"{col}: ~{int(v/total*100)}%" for col, v in row_w.items() if v > 0]
+                                parts = []
+                                for col, v in row_w.items():
+                                    pct = int(v/total*100)
+                                    if pct >= 95:
+                                        parts.append(f"{col}: {pct}% OBOWIAZEK")
+                                    elif pct > 0:
+                                        parts.append(f"{col}: ~{pct}%")
                                 if parts:
-                                    questions_text += f"  WSKAZOWKA dla wiersza '{row_name}': {', '.join(parts)}\n"
+                                    questions_text += f"  >>> WAGI dla wiersza '{row_name}': {', '.join(parts)}\n"
         elif q['type'] == 'text':
             questions_text += "  (pytanie otwarte - napisz wlasna, unikalna odpowiedz pasujaca do Twojej postaci)\n"
 
-    # Random persona seed so AI creates different people each time
-    # Try to get gender from weights if user set preferences
+    # ─── Build persona based on weights ─────────────────────────────────────
     persona_gender = None
+    persona_age = None
+
     if weights:
         for q in questions_data:
             title = q.get('title', '')
             title_lower = title.lower()
-            if any(g in title_lower for g in ['płeć', 'plec', 'gender']):
+
+            # Detect gender question
+            if not persona_gender and any(g in title_lower for g in ['płeć', 'plec', 'gender']):
                 q_weights = weights.get(title)
                 if isinstance(q_weights, dict) and q_weights:
-                    # Use weighted random based on slider values
                     labels = list(q_weights.keys())
                     w_vals = [max(0, q_weights[l]) for l in labels]
                     total = sum(w_vals)
@@ -166,24 +179,60 @@ def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None, weights=None
                             persona_gender = "kobieta"
                         elif 'mężczyzna' in chosen_lower or 'mezczyzna' in chosen_lower or 'male' in chosen_lower:
                             persona_gender = "mezczyzna"
-                        # else: "Inna" / "Nie chce podawać" -> keep random
-                break
+
+            # Detect age question and pick weighted age for persona
+            if not persona_age and any(a in title_lower for a in ['wiek', 'age', 'lat', 'przedział wiekowy', 'przedzial wiekowy', 'ile masz lat']):
+                q_weights = weights.get(title)
+                if isinstance(q_weights, dict) and q_weights:
+                    labels = list(q_weights.keys())
+                    w_vals = [max(0, q_weights[l]) for l in labels]
+                    total = sum(w_vals)
+                    if total > 0:
+                        chosen_age_label = random.choices(labels, weights=w_vals, k=1)[0]
+                        nums = _re.findall(r'\d+', chosen_age_label)
+                        if nums:
+                            age_low = int(nums[0])
+                            age_high = int(nums[1]) if len(nums) > 1 else age_low + 5
+                            persona_age = f"{random.randint(age_low, min(age_high, age_low + 10))}"
+                        else:
+                            persona_age = chosen_age_label
+
     if not persona_gender:
         persona_gender = random.choice(["mezczyzna", "kobieta"])
-    persona_age = random.choice(["18-24", "25-34", "35-44", "45-54", "55-64", "65+"])
+    if not persona_age:
+        persona_age = str(random.choice([19, 22, 25, 28, 31, 35, 40, 45, 50, 55, 60]))
+
     persona_job = random.choice(["student", "pracownik biurowy", "nauczyciel", "informatyk", "sprzedawca", "kierowca", "lekarz", "emeryt", "bezrobotny", "przedsiebiorca", "pracownik fizyczny", "freelancer"])
+    # If persona is young, filter out incompatible jobs
+    try:
+        _age_num = int(persona_age.split('-')[0])
+        if _age_num < 25:
+            persona_job = random.choice(["student", "pracownik biurowy", "sprzedawca", "freelancer", "informatyk", "bezrobotny"])
+        elif _age_num >= 60:
+            persona_job = random.choice(["emeryt", "nauczyciel", "lekarz", "przedsiebiorca", "pracownik biurowy"])
+    except (ValueError, IndexError):
+        pass
 
     has_hints = weights is not None and len(weights) > 0
     hints_note = ""
     if has_hints:
-        hints_note = "\n4. Przy niektorych pytaniach sa WSKAZOWKI preferencji uzytkownika (np. '~30% opcja A'). Staraj sie kierowac tymi wskazowkami jako sugestiami statystycznymi - nie musisz ich sluchac jesli nie pasuja do Twojej postaci, ale traktuj je jako silne sugestie co uzytkownik preferuje."
+        hints_note = "\n4. WAGI UZYTKOWNIKA SA OBOWIAZKOWE! Jesli przy pytaniu jest '>>> WAGI UZYTKOWNIKA' z napisem 'OBOWIAZEK', MUSISZ wybrac te opcje bez wzgledu na postac. Jesli waga mowi 'PREFEROWANE' (70%+), wybierz ta opcje w wiekszosci przypadkow. Pozostale wagi traktuj jako sugestie statystyczne. NIGDY nie ignoruj wag 100%! Dostosuj postac do wag, NIE wagi do postaci."
+
+    # Short answers mode
+    short_answers_mode = settings.get("short_answers", False) if settings else False
+    if short_answers_mode:
+        text_instruction = "2. Na pytania tekstowe (otwarte) pisz KROTKIE odpowiedzi - jedno krotkie zdanie, bez rozpisywania sie. Pisz tak jak osoba ktora nie chce poswiecac duzo czasu na ankiete (np. 'Raczej jestem zadowolony', 'Nie mam uwag do tego tematu', 'Mogloby byc lepiej')."
+    else:
+        text_instruction = '2. Na pytania tekstowe (otwarte) pisz WLASNE, UNIKALNE, NATURALNE odpowiedzi - tak jak napisalby prawdziwy czlowiek. NIE pisz ogolnikow typu "Brak uwag" czy "Nie wiem". Napisz cos konkretnego, osobistego, co pasuje do Twojej postaci. 1-2 zdania wystarczy.'
 
     prompt = f"""Jestes prawdziwa osoba wypelniajaca ankiete. Twoja postac to: {persona_gender}, wiek {persona_age} lat, zawod: {persona_job}. Rozwin te cechy i odpowiadaj SPOJNIE.
 
 WAZNE ZASADY:
 1. Odpowiedzi musza byc logicznie spojne z Twoja postacia! Np. jesli masz 20 lat, nie mozesz byc emerytem. Jesli jestes emerytem, musisz miec 60+ lat.
-2. Na pytania tekstowe (otwarte) pisz WLASNE, UNIKALNE, NATURALNE odpowiedzi - tak jak napisalby prawdziwy czlowiek. NIE pisz ogolnikow typu "Brak uwag" czy "Nie wiem". Napisz cos konkretnego, osobistego, co pasuje do Twojej postaci. 1-2 zdania wystarczy.
+{text_instruction}
 3. Odpowiedzi tekstowe powinny brzmiec naturalnie, z drobnymi niedoskonalosciami jak w prawdziwej ankiecie.{hints_note}
+
+NAJWAZNIEJSZE: Jesli widzisz '>>> WAGI UZYTKOWNIKA' z napisem 'OBOWIAZEK' przy pytaniu, MUSISZ wybrac wskazana opcje! To nie jest sugestia, to WYMAGANIE. Twoja postac musi sie dostosowac do wag, nie odwrotnie.
 
 Oto pytania:
 {questions_text}
@@ -463,11 +512,12 @@ _stored_weights = {}
 @app.route("/store-weights", methods=["POST"])
 @cross_origin()
 def store_weights():
-    """Store weights server-side and return a token to reference them."""
+    """Store weights + settings server-side and return a token to reference them."""
     data = request.json if request.is_json else {}
     weights = data.get("weights", {})
+    settings = data.get("settings", {})
     token = str(uuid.uuid4())[:8]
-    _stored_weights[token] = weights
+    _stored_weights[token] = {"weights": weights, "settings": settings}
     # Clean old tokens (keep max 50)
     if len(_stored_weights) > 50:
         oldest = list(_stored_weights.keys())[0]
@@ -940,6 +990,185 @@ HOME_PAGE_HTML = r"""
       transition: color 0.2s;
     }
     .reset-link:hover { color: #0d9488; }
+    /* ─── Settings Panel ─────────────────────────────────── */
+    .settings-panel {
+      margin-top: 14px;
+      padding: 18px 20px;
+      background: linear-gradient(135deg, rgba(13, 148, 136, 0.06), rgba(8, 145, 178, 0.04));
+      border: 1px solid rgba(13, 148, 136, 0.18);
+      border-radius: 14px;
+    }
+    .settings-panel h3 {
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: #0d9488;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .settings-panel h3 .settings-icon {
+      font-size: 1.1rem;
+    }
+    .setting-toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(13, 148, 136, 0.08);
+    }
+    .setting-toggle-row:last-child { border-bottom: none; }
+    .setting-toggle-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .setting-toggle-label {
+      font-size: 0.88rem;
+      font-weight: 500;
+      color: #1e293b;
+    }
+    .setting-toggle-desc {
+      font-size: 0.75rem;
+      color: #64748b;
+      margin-top: 2px;
+    }
+    .toggle-switch {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+      margin-left: 12px;
+    }
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #cbd5e1;
+      border-radius: 24px;
+      transition: background 0.3s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.3s;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+    }
+    .toggle-switch input:checked + .toggle-slider {
+      background: linear-gradient(135deg, #0d9488, #0891b2);
+    }
+    .toggle-switch input:checked + .toggle-slider::before {
+      transform: translateX(20px);
+    }
+    .settings-divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(13,148,136,0.2), transparent);
+      margin: 12px 0;
+    }
+    .timing-section h4 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .timing-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(0,0,0,0.04);
+    }
+    .timing-row:last-child { border-bottom: none; }
+    .timing-label {
+      flex: 1;
+      font-size: 0.85rem;
+      color: #334155;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .timing-label .timing-type-badge {
+      font-size: 0.68rem;
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .timing-type-badge.radio-badge { background: rgba(99,102,241,0.12); color: #6366f1; }
+    .timing-type-badge.checkbox-badge { background: rgba(16,185,129,0.12); color: #10b981; }
+    .timing-type-badge.text-badge { background: rgba(245,158,11,0.12); color: #f59e0b; }
+    .timing-type-badge.matrix-badge { background: rgba(239,68,68,0.12); color: #ef4444; }
+    .timing-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .timing-controls input[type="range"] {
+      width: 90px;
+      height: 5px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: linear-gradient(90deg, #0d9488, #0891b2);
+      border-radius: 3px;
+      outline: none;
+      opacity: 0.8;
+      transition: opacity 0.2s;
+    }
+    .timing-controls input[type="range"]:hover { opacity: 1; }
+    .timing-controls input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      border: 2px solid #0d9488;
+      cursor: pointer;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+    }
+    .timing-controls input[type="range"]::-moz-range-thumb {
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      border: 2px solid #0d9488;
+      cursor: pointer;
+    }
+    .timing-val {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #0d9488;
+      min-width: 32px;
+      text-align: right;
+    }
+    .settings-collapsed .settings-body { display: none; }
+    .settings-toggle-btn {
+      background: none;
+      border: none;
+      color: #0d9488;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 6px;
+      transition: background 0.2s;
+      font-family: 'Inter', sans-serif;
+    }
+    .settings-toggle-btn:hover {
+      background: rgba(13, 148, 136, 0.1);
+    }
   </style>
 </head>
 <body>
@@ -977,6 +1206,102 @@ HOME_PAGE_HTML = r"""
             <button type="button" onclick="var k=document.getElementById('gemini-api-key'); var t=k.type==='password'?'text':'password'; k.type=t; this.textContent=t==='password'?'&#128065;':'&#128064;'" style="padding:8px 10px; border:1px solid rgba(139,92,246,0.25); border-radius:8px; background:rgba(139,92,246,0.08); cursor:pointer; font-size:1rem; line-height:1;" title="Pokaz/ukryj klucz">&#128065;</button>
           </div>
           <div style="font-size:0.72rem; color:#8b5cf6; margin-top:4px;">{{AI_KEY_HINT}}</div>
+        </div>
+      </div>
+      <!-- Settings Panel (under Start button) -->
+      <div class="settings-panel" id="settings-panel">
+        <div style="display:flex; align-items:center; justify-content:space-between;">
+          <h3><span class="settings-icon">&#9881;</span> Ustawienia wypelniania</h3>
+          <button class="settings-toggle-btn" onclick="toggleSettingsPanel()" id="settings-toggle-btn">&#9660; Rozwin</button>
+        </div>
+        <div class="settings-body" id="settings-body" style="display:none;">
+          <!-- Toggle: Empty open questions -->
+          <div class="setting-toggle-row">
+            <div class="setting-toggle-info">
+              <div class="setting-toggle-label">&#128683; Szansa na puste pytanie otwarte</div>
+              <div class="setting-toggle-desc">~20-25% szans, ze pytanie otwarte zostanie puste (jakby ktos zignorowal)</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-empty-chance" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <!-- Toggle: Short answers -->
+          <div class="setting-toggle-row">
+            <div class="setting-toggle-info">
+              <div class="setting-toggle-label">&#9999; Krotkie odpowiedzi na pytania otwarte</div>
+              <div class="setting-toggle-desc">AI pisze krotkie odpowiedzi (jedno zdanie) zamiast dlugich, rozbudowanych</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-short-answers">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <div class="settings-divider"></div>
+
+          <!-- Timing sliders per question type -->
+          <div class="timing-section">
+            <h4>&#9201; Czas odpowiadania (per typ pytania)</h4>
+            <div style="font-size:0.73rem; color:#94a3b8; margin-bottom:10px;">Bazowy czas + losowy offset (1-30s) dla naturalnych statystyk</div>
+
+            <div class="timing-row">
+              <div class="timing-label">
+                <span class="timing-type-badge radio-badge">radio</span>
+                Jednokrotny wybor
+              </div>
+              <div class="timing-controls">
+                <input type="range" id="timing-radio" min="0" max="60" value="5" oninput="updateTimingVal(this)">
+                <span class="timing-val" id="timing-radio-val">5s</span>
+              </div>
+            </div>
+
+            <div class="timing-row">
+              <div class="timing-label">
+                <span class="timing-type-badge checkbox-badge">checkbox</span>
+                Wielokrotny wybor
+              </div>
+              <div class="timing-controls">
+                <input type="range" id="timing-checkbox" min="0" max="60" value="8" oninput="updateTimingVal(this)">
+                <span class="timing-val" id="timing-checkbox-val">8s</span>
+              </div>
+            </div>
+
+            <div class="timing-row">
+              <div class="timing-label">
+                <span class="timing-type-badge text-badge">text</span>
+                Pytanie otwarte
+              </div>
+              <div class="timing-controls">
+                <input type="range" id="timing-text" min="0" max="60" value="15" oninput="updateTimingVal(this)">
+                <span class="timing-val" id="timing-text-val">15s</span>
+              </div>
+            </div>
+
+            <div class="timing-row">
+              <div class="timing-label">
+                <span class="timing-type-badge matrix-badge">matrix</span>
+                Macierz / tabela
+              </div>
+              <div class="timing-controls">
+                <input type="range" id="timing-matrix" min="0" max="60" value="10" oninput="updateTimingVal(this)">
+                <span class="timing-val" id="timing-matrix-val">10s</span>
+              </div>
+            </div>
+
+            <div style="margin-top:8px;">
+              <div class="timing-row">
+                <div class="timing-label" style="font-weight:500; color:#475569;">
+                  &#127922; Losowy offset
+                </div>
+                <div class="timing-controls">
+                  <input type="range" id="timing-offset" min="1" max="30" value="10" oninput="updateTimingVal(this)">
+                  <span class="timing-val" id="timing-offset-val">10s</span>
+                </div>
+              </div>
+              <div style="font-size:0.7rem; color:#94a3b8;">Zakres losowego odchylenia dodawanego do bazowego czasu (1-30s)</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1055,6 +1380,38 @@ HOME_PAGE_HTML = r"""
   <script>
     // Global state for preview data and weights
     let previewData = null; // Array of {num, title, type, options: [...]}
+
+    // ─── Settings Panel ──────────────────────────────────────
+    function toggleSettingsPanel() {
+      const body = document.getElementById('settings-body');
+      const btn = document.getElementById('settings-toggle-btn');
+      if (body.style.display === 'none') {
+        body.style.display = 'block';
+        btn.innerHTML = '&#9650; Zwin';
+      } else {
+        body.style.display = 'none';
+        btn.innerHTML = '&#9660; Rozwin';
+      }
+    }
+
+    function updateTimingVal(slider) {
+      var valEl = document.getElementById(slider.id + '-val');
+      if (valEl) valEl.textContent = slider.value + 's';
+    }
+
+    function collectSettings() {
+      return {
+        empty_chance: document.getElementById('setting-empty-chance').checked,
+        short_answers: document.getElementById('setting-short-answers').checked,
+        timing: {
+          radio: parseInt(document.getElementById('timing-radio').value) || 5,
+          checkbox: parseInt(document.getElementById('timing-checkbox').value) || 8,
+          text: parseInt(document.getElementById('timing-text').value) || 15,
+          matrix: parseInt(document.getElementById('timing-matrix').value) || 10,
+          offset: parseInt(document.getElementById('timing-offset').value) || 10
+        }
+      };
+    }
 
     // ─── AI Mode ──────────────────────────────────────────────
     function toggleAiMode() {
@@ -1477,11 +1834,12 @@ HOME_PAGE_HTML = r"""
       const url = document.getElementById('url-input').value.trim();
       if (!url) { alert('Wpisz URL formularza!'); return; }
       const weights = collectWeights();
+      const settings = collectSettings();
       let repeatCount = parseInt(document.getElementById('repeat-count').value) || 1;
       repeatCount = Math.max(1, Math.min(10, repeatCount));
 
       if (repeatCount === 1) {
-        _doStartFill(url, weights);
+        _doStartFill(url, weights, null, settings);
         return;
       }
 
@@ -1502,7 +1860,7 @@ HOME_PAGE_HTML = r"""
         _doStartFill(url, weights, function() {
           // Small delay between runs
           setTimeout(runNext, 1500);
-        });
+        }, settings);
       }
 
       runNext();
@@ -1512,10 +1870,11 @@ HOME_PAGE_HTML = r"""
     function startFill() {
       const url = document.getElementById('url-input').value.trim();
       if (!url) { alert('Wpisz URL formularza!'); return; }
-      _doStartFill(url, null);
+      _doStartFill(url, null, null, collectSettings());
     }
 
-    function _doStartFill(url, weights, onComplete) {
+    function _doStartFill(url, weights, onComplete, settings) {
+      if (!settings) settings = collectSettings();
       const btn = document.getElementById('start-btn');
       const previewBtn = document.getElementById('preview-btn');
       const progArea = document.getElementById('progress-area');
@@ -1560,17 +1919,22 @@ HOME_PAGE_HTML = r"""
         _attachSSEHandlers(evtSource, onComplete);
       }
 
-      // Store weights server-side (avoids URL length limit)
-      if (weights && Object.keys(weights).length > 0) {
-        fetch('store-weights', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({weights:weights})})
+      // Store weights + settings server-side (avoids URL length limit)
+      var payload = {};
+      if (weights && Object.keys(weights).length > 0) payload.weights = weights;
+      if (settings) payload.settings = settings;
+
+      if (Object.keys(payload).length > 0) {
+        fetch('store-weights', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
           .then(function(r){return r.json();})
           .then(function(d){
             if(d.token) sseUrl += '&weights_token=' + d.token;
             _openSSE();
           })
           .catch(function(){
-            // Fallback to inline (might fail on Heroku but works locally)
-            sseUrl += '&weights=' + encodeURIComponent(JSON.stringify(weights));
+            // Fallback to inline
+            if (weights && Object.keys(weights).length > 0) sseUrl += '&weights=' + encodeURIComponent(JSON.stringify(weights));
+            if (settings) sseUrl += '&settings=' + encodeURIComponent(JSON.stringify(settings));
             _openSSE();
           });
       } else {
@@ -1839,11 +2203,18 @@ def stream_fill():
             yield 'event: error_ev\ndata: Podaj URL formularza\n\n'
         return Response(err_gen(), mimetype='text/event-stream')
 
-    # Parse optional weights - try token first (avoids URL length limit), fallback to inline
+    # Parse optional weights + settings - try token first (avoids URL length limit), fallback to inline
     weights = None
+    settings = None
     weights_token = request.args.get("weights_token", "")
     if weights_token and weights_token in _stored_weights:
-        weights = _stored_weights.pop(weights_token)  # consume once
+        stored_data = _stored_weights.pop(weights_token)  # consume once
+        if isinstance(stored_data, dict) and "weights" in stored_data:
+            weights = stored_data.get("weights")
+            settings = stored_data.get("settings")
+        else:
+            # Legacy format: just weights
+            weights = stored_data
     else:
         weights_raw = request.args.get("weights", "")
         if weights_raw:
@@ -1851,6 +2222,12 @@ def stream_fill():
                 weights = json.loads(weights_raw)
             except (json.JSONDecodeError, ValueError):
                 weights = None
+        settings_raw = request.args.get("settings", "")
+        if settings_raw:
+            try:
+                settings = json.loads(settings_raw)
+            except (json.JSONDecodeError, ValueError):
+                settings = None
 
     # Parse optional AI mode
     ai_mode = request.args.get("ai_mode", "") == "1"
@@ -1866,7 +2243,7 @@ def stream_fill():
             # Tell the client they left the queue
             event_queue.put({"event": "queue_done", "data": ""})
             _perform_form_fill(form_url, event_queue=event_queue, weights=weights,
-                             ai_mode=ai_mode, ai_key=ai_key)
+                             ai_mode=ai_mode, ai_key=ai_key, settings=settings)
         finally:
             browser_queue.release()
 
@@ -2738,8 +3115,10 @@ def _preview_form_questions(form_url, event_queue=None):
             event_queue.put(None)
 
 
-def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, ai_key=""):
+def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, ai_key="", settings=None):
     """Main function: opens the form, reads questions, fills random answers."""
+    if settings is None:
+        settings = {}
     driver = None
     results = []
     provider = _detect_provider(form_url)
@@ -2914,7 +3293,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
         # Ask Gemini (whether from cache or fresh scan)
         if scanned_questions:
             browser_queue.set_activity("AI: czekanie na Gemini")
-            ai_answers = _ask_gemini_for_answers(scanned_questions, ai_key, _emit_fn=_emit, weights=weights)
+            ai_answers = _ask_gemini_for_answers(scanned_questions, ai_key, _emit_fn=_emit, weights=weights, settings=settings)
 
             if ai_answers:
                 _emit("status", f"AI: Otrzymano {len(ai_answers)} odpowiedzi, wypelnianie...")
@@ -2988,6 +3367,16 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                 _emit("question", {"num": question_num, "title": title, "type": q_type})
                 _emit("status", f"Pytanie {question_num}: {title[:50]}...")
                 browser_queue.set_activity(f"Wypelnianie pytania {question_num}")
+
+                # Apply timing delay based on question type
+                timing = settings.get("timing", {}) if settings else {}
+                base_time = timing.get(q_type, 5)  # default 5s
+                offset_max = timing.get("offset", 10)  # default offset range
+                if base_time > 0 or offset_max > 0:
+                    delay = base_time + random.uniform(0, offset_max)
+                    if delay > 0.5:
+                        _emit("status", f"Czekanie {delay:.1f}s (symulacja czytania Q{question_num})...")
+                        time.sleep(delay)
 
                 # DEBUG: dump inner HTML of unknown questions so we can fix selectors
                 if q_type == "unknown" or title == "(unknown question)":
@@ -3074,16 +3463,28 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     _emit("answer", {"num": question_num, "answer": answers, "source": source})
 
                 elif q_type == "text":
-                    if ai_answer_for_q is not None:
+                    # Check empty chance setting
+                    empty_chance = settings.get("empty_chance", False) if settings else False
+                    if empty_chance and random.random() < random.uniform(0.20, 0.25):
+                        # Skip this text question (leave empty)
+                        result_entry["answer"] = "(pominięte)"
+                        result_entry["source"] = "Puste"
+                        print(f"[FormBot] Skipped text Q{question_num} (empty chance)")
+                        _emit("answer", {"num": question_num, "answer": "(pominięte - puste)", "source": "Puste"})
+                    elif ai_answer_for_q is not None:
                         answer = _handle_text_ai(question_el, str(ai_answer_for_q))
                         source = "AI"
+                        result_entry["answer"] = answer
+                        result_entry["source"] = source
+                        print(f"[FormBot] Typed: {answer} ({source})")
+                        _emit("answer", {"num": question_num, "answer": answer, "source": source})
                     else:
                         answer = _handle_text_question(question_el, title, weights=weights)
                         source = "Losowe"
-                    result_entry["answer"] = answer
-                    result_entry["source"] = source
-                    print(f"[FormBot] Typed: {answer} ({source})")
-                    _emit("answer", {"num": question_num, "answer": answer, "source": source})
+                        result_entry["answer"] = answer
+                        result_entry["source"] = source
+                        print(f"[FormBot] Typed: {answer} ({source})")
+                        _emit("answer", {"num": question_num, "answer": answer, "source": source})
 
                 else:
                     print(f"[FormBot] [WARN] Unknown question type, skipping.")
