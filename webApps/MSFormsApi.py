@@ -1312,8 +1312,8 @@ HOME_PAGE_HTML = r"""
           <!-- Custom AI Prompt -->
           <div style="padding:10px 0;">
             <div class="setting-toggle-label" style="margin-bottom:6px;">&#128172; Dodatkowe instrukcje dla AI</div>
-            <div class="setting-toggle-desc" style="margin-bottom:8px;">Wpisz dodatkowe polecenia, np. "udawaj pijanego", "odpowiadaj sarcastycznie", "bierz pod uwage ze jestes z Warszawy". Puste = brak dodatkowych instrukcji.</div>
-            <textarea id="setting-custom-prompt" rows="3" placeholder="Np. Udawaj pijanego, pisz z bledami..." style="width:100%; padding:10px 14px; border:1px solid rgba(13,148,136,0.25); border-radius:10px; font-size:0.85rem; font-family:'Inter',sans-serif; outline:none; background:rgba(255,255,255,0.9); color:#1e293b; resize:vertical; box-sizing:border-box; transition:border-color 0.3s;" onfocus="this.style.borderColor='#0d9488'" onblur="this.style.borderColor='rgba(13,148,136,0.25)'"></textarea>
+            <div class="setting-toggle-desc" style="margin-bottom:8px;">Wpisz dodatkowe polecenia, np. "udawaj kogoś", "odpowiadaj sarcastycznie", "bierz pod uwage ze jestes z Warszawy". Puste = brak dodatkowych instrukcji.</div>
+            <textarea id="setting-custom-prompt" rows="3" placeholder="Np. Udawaj kogoś, pisz z bledami..." style="width:100%; padding:10px 14px; border:1px solid rgba(13,148,136,0.25); border-radius:10px; font-size:0.85rem; font-family:'Inter',sans-serif; outline:none; background:rgba(255,255,255,0.9); color:#1e293b; resize:vertical; box-sizing:border-box; transition:border-color 0.3s;" onfocus="this.style.borderColor='#0d9488'" onblur="this.style.borderColor='rgba(13,148,136,0.25)'"></textarea>
           </div>
 
           <div class="settings-divider"></div>
