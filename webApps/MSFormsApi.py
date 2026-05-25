@@ -230,6 +230,12 @@ def _ask_gemini_for_answers(questions_data, api_key, _emit_fn=None, weights=None
     if has_hints:
         hints_note = "\n4. WAGI UZYTKOWNIKA SA OBOWIAZKOWE! Jesli przy pytaniu jest '>>> WAGI UZYTKOWNIKA' z napisem 'OBOWIAZEK', MUSISZ wybrac te opcje bez wzgledu na postac. Jesli waga mowi 'PREFEROWANE' (70%+), wybierz ta opcje w wiekszosci przypadkow. Pozostale wagi traktuj jako sugestie statystyczne. NIGDY nie ignoruj wag 100%! Dostosuj postac do wag, NIE wagi do postaci."
 
+    # Custom prompt from user
+    custom_prompt_raw = settings.get("custom_prompt", "") if settings else ""
+    custom_prompt_section = ""
+    if custom_prompt_raw and custom_prompt_raw.strip():
+        custom_prompt_section = f"DODATKOWE INSTRUKCJE OD UZYTKOWNIKA (MUSISZ sie do nich zastosowac!):\n{custom_prompt_raw.strip()}\n\n"
+
     # Short answers mode
     short_answers_mode = settings.get("short_answers", False) if settings else False
     if short_answers_mode:
@@ -244,7 +250,7 @@ WAZNE ZASADY:
 {text_instruction}
 3. Odpowiedzi tekstowe powinny brzmiec naturalnie, z drobnymi niedoskonalosciami jak w prawdziwej ankiecie.{hints_note}
 
-NAJWAZNIEJSZE: Jesli widzisz '>>> WAGI UZYTKOWNIKA' z napisem 'OBOWIAZEK' przy pytaniu, MUSISZ wybrac wskazana opcje! To nie jest sugestia, to WYMAGANIE. Twoja postac musi sie dostosowac do wag, nie odwrotnie.
+{custom_prompt_section}NAJWAZNIEJSZE: Jesli widzisz '>>> WAGI UZYTKOWNIKA' z napisem 'OBOWIAZEK' przy pytaniu, MUSISZ wybrac wskazana opcje! To nie jest sugestia, to WYMAGANIE. Twoja postac musi sie dostosowac do wag, nie odwrotnie.
 
 Oto pytania:
 {questions_text}
@@ -1303,6 +1309,15 @@ HOME_PAGE_HTML = r"""
 
           <div class="settings-divider"></div>
 
+          <!-- Custom AI Prompt -->
+          <div style="padding:10px 0;">
+            <div class="setting-toggle-label" style="margin-bottom:6px;">&#128172; Dodatkowe instrukcje dla AI</div>
+            <div class="setting-toggle-desc" style="margin-bottom:8px;">Wpisz dodatkowe polecenia, np. "udawaj pijanego", "odpowiadaj sarcastycznie", "bierz pod uwage ze jestes z Warszawy". Puste = brak dodatkowych instrukcji.</div>
+            <textarea id="setting-custom-prompt" rows="3" placeholder="Np. Udawaj pijanego, pisz z bledami..." style="width:100%; padding:10px 14px; border:1px solid rgba(13,148,136,0.25); border-radius:10px; font-size:0.85rem; font-family:'Inter',sans-serif; outline:none; background:rgba(255,255,255,0.9); color:#1e293b; resize:vertical; box-sizing:border-box; transition:border-color 0.3s;" onfocus="this.style.borderColor='#0d9488'" onblur="this.style.borderColor='rgba(13,148,136,0.25)'"></textarea>
+          </div>
+
+          <div class="settings-divider"></div>
+
           <!-- Timing sliders per question type -->
           <div class="timing-section">
             <h4>&#9201; Czas odpowiadania (per typ pytania)</h4>
@@ -1505,11 +1520,15 @@ HOME_PAGE_HTML = r"""
     function restoreFromLocalStorage() {
       var savedUrl = _loadFromStorage('last_url');
       var savedKey = _loadFromStorage('last_api_key');
+      var savedPrompt = _loadFromStorage('custom_prompt');
       if (savedUrl) {
         document.getElementById('url-input').value = savedUrl;
       }
       if (savedKey) {
         document.getElementById('gemini-api-key').value = savedKey;
+      }
+      if (savedPrompt) {
+        document.getElementById('setting-custom-prompt').value = savedPrompt;
       }
     }
     function saveCurrentInputs() {
@@ -1517,6 +1536,8 @@ HOME_PAGE_HTML = r"""
       if (url) _saveToStorage('last_url', url);
       var key = (document.getElementById('gemini-api-key').value || '').trim();
       if (key) _saveToStorage('last_api_key', key);
+      var cp = (document.getElementById('setting-custom-prompt').value || '').trim();
+      _saveToStorage('custom_prompt', cp);
     }
     // Restore on page load
     document.addEventListener('DOMContentLoaded', restoreFromLocalStorage);
@@ -1644,6 +1665,7 @@ HOME_PAGE_HTML = r"""
       return {
         empty_chance: document.getElementById('setting-empty-chance').checked,
         short_answers: document.getElementById('setting-short-answers').checked,
+        custom_prompt: (document.getElementById('setting-custom-prompt').value || '').trim(),
         timing: {
           radio: parseInt(document.getElementById('timing-radio').value) || 5,
           checkbox: parseInt(document.getElementById('timing-checkbox').value) || 8,
