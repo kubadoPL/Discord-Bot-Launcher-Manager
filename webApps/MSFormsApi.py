@@ -3654,7 +3654,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     empty_chance = settings.get("empty_chance", False) if settings else False
                     if empty_chance and random.random() < random.uniform(0.20, 0.25):
                         # Skip this text question (leave empty)
-                        result_entry["answer"] = "(pominięte)"
+                        result_entry["answer"] = ""
                         result_entry["source"] = "Puste"
                         result_entry["tags"] = _q_tags
                         print(f"[FormBot] Skipped text Q{question_num} (empty chance)")
