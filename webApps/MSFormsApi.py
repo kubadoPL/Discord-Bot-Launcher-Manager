@@ -3546,15 +3546,25 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                 _q_tags = []
 
                 # Apply timing delay based on question type
-                timing = settings.get("timing", {}) if settings else {}
-                base_time = timing.get(q_type, 5)  # default 5s
-                offset_max = timing.get("offset", 10)  # default offset range
-                if base_time > 0 or offset_max > 0:
-                    delay = base_time + random.uniform(0, offset_max)
+                try:
+                    timing = settings.get("timing", {}) if settings else {}
+                    if isinstance(timing, dict):
+                        base_time = int(timing.get(q_type, 5))
+                        offset_max = int(timing.get("offset", 10))
+                    else:
+                        base_time = 5
+                        offset_max = 10
+                    if base_time > 0 or offset_max > 0:
+                        delay = base_time + random.uniform(0, offset_max)
+                        _q_tags.append(f"Opoznienie {delay:.1f}s")
+                        if delay > 0.5:
+                            _emit("status", f"Czekanie {delay:.1f}s (symulacja czytania Q{question_num})...")
+                            time.sleep(delay)
+                except Exception as e:
+                    print(f"[FormBot] Timing error: {e}, using defaults")
+                    delay = 5 + random.uniform(0, 10)
                     _q_tags.append(f"Opoznienie {delay:.1f}s")
-                    if delay > 0.5:
-                        _emit("status", f"Czekanie {delay:.1f}s (symulacja czytania Q{question_num})...")
-                        time.sleep(delay)
+                    time.sleep(delay)
 
                 # DEBUG: dump inner HTML of unknown questions so we can fix selectors
                 if q_type == "unknown" or title == "(unknown question)":
