@@ -3476,6 +3476,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                 offset_max = timing.get("offset", 10)  # default offset range
                 if base_time > 0 or offset_max > 0:
                     delay = base_time + random.uniform(0, offset_max)
+                    _q_tags.append(f"Opoznienie {delay:.1f}s")
                     if delay > 0.5:
                         _emit("status", f"Czekanie {delay:.1f}s (symulacja czytania Q{question_num})...")
                         time.sleep(delay)
@@ -3499,12 +3500,6 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
 
                 # Collect active settings tags for this question
                 _q_tags = []
-                if settings.get("timing"):
-                    t = settings["timing"]
-                    base = t.get(q_type, 0)
-                    off = t.get("offset", 0)
-                    if base > 0 or off > 0:
-                        _q_tags.append(f"Opoznienie {base}+{off}s")
                 if q_type == "text":
                     if settings.get("empty_chance"):
                         _q_tags.append("Szansa na puste")
