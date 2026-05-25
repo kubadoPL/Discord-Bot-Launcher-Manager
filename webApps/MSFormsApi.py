@@ -34,6 +34,7 @@ _session_stats = {
     "forms_filled": 0,
     "forms_submitted": 0,
     "forms_failed": 0,
+    "forms_previewed": 0,
     "questions_answered": 0,
     "ai_answers": 0,
     "random_answers": 0,
@@ -553,6 +554,7 @@ def api_stats():
     """Return FormBot session statistics (forms filled, questions answered, etc.)."""
     with _session_stats_lock:
         stats_copy = dict(_session_stats)
+    stats_copy["cached_forms"] = len(_preview_cache)
     return jsonify(stats_copy)
 
 
@@ -1495,6 +1497,16 @@ HOME_PAGE_HTML = r"""
           <span style="color:#64748b;">Bledy:</span>
           <strong id="stat-failed" style="color:#dc2626;">0</strong>
         </div>
+        <div class="stat-chip" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(255,255,255,0.8); border:1px solid rgba(56,189,248,0.12); border-radius:10px; font-size:0.8rem;">
+          <span style="font-size:0.95rem;">&#128269;</span>
+          <span style="color:#64748b;">Podglady:</span>
+          <strong id="stat-previewed" style="color:#0ea5e9;">0</strong>
+        </div>
+        <div class="stat-chip" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(255,255,255,0.8); border:1px solid rgba(168,85,247,0.12); border-radius:10px; font-size:0.8rem;">
+          <span style="font-size:0.95rem;">&#128451;</span>
+          <span style="color:#64748b;">W cache:</span>
+          <strong id="stat-cached" style="color:#a855f7;">0</strong>
+        </div>
       </div>
     </div>
     <div class="footer" style="display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap;">
@@ -1610,6 +1622,10 @@ HOME_PAGE_HTML = r"""
           if (el) el.textContent = d.random_answers || 0;
           el = document.getElementById('stat-failed');
           if (el) el.textContent = d.forms_failed || 0;
+          el = document.getElementById('stat-previewed');
+          if (el) el.textContent = d.forms_previewed || 0;
+          el = document.getElementById('stat-cached');
+          if (el) el.textContent = d.cached_forms || 0;
         })
         .catch(function() {});
     }
@@ -2454,6 +2470,10 @@ def preview_form():
         def err_gen():
             yield 'event: error_ev\ndata: Podaj URL formularza\n\n'
         return Response(err_gen(), mimetype='text/event-stream')
+
+    # Track preview stat
+    with _session_stats_lock:
+        _session_stats["forms_previewed"] += 1
 
     # Check preview cache first (unless forced refresh)
     cached = _preview_cache.get(form_url) if not force_refresh else None
