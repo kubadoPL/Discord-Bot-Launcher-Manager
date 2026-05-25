@@ -1,5 +1,6 @@
 import os
 import sys
+import time as _time
 
 # Set the script and parent directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -35,6 +36,9 @@ from datetime import datetime
 app = Flask(__name__, template_folder=parent_dir + "/api/templates")
 
 cache = Cache(app, config={"CACHE_TYPE": "simple"})
+
+# ─── Server Uptime ─────────────────────────────────────────────────────────────
+_server_start_time = _time.time()
 
 
 @app.route("/")
@@ -322,6 +326,30 @@ def download_any_roblox_asset():
 
     except Exception as e:
         return jsonify({"error": "Failed to fetch asset", "details": str(e)}), 500
+
+
+@app.route("/api/uptime")
+@cross_origin()
+def api_uptime():
+    """Return server uptime in seconds, formatted string, and start timestamp."""
+    uptime_sec = _time.time() - _server_start_time
+    days = int(uptime_sec // 86400)
+    hours = int((uptime_sec % 86400) // 3600)
+    minutes = int((uptime_sec % 3600) // 60)
+    secs = int(uptime_sec % 60)
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0:
+        parts.append(f"{hours}h")
+    parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    return jsonify({
+        "uptime_seconds": round(uptime_sec, 1),
+        "uptime_formatted": " ".join(parts),
+        "started_at": _server_start_time,
+        "started_at_iso": datetime.utcfromtimestamp(_server_start_time).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
 
 
 def run_api():

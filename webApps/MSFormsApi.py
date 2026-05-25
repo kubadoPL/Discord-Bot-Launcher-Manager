@@ -28,6 +28,18 @@ parent_dir = os.path.join(script_dir, "..")
 app = Flask(__name__)
 cache = Cache(app, config={"CACHE_TYPE": "simple"})
 
+# ─── Session Stats ────────────────────────────────────────────────────────────────
+_session_stats_lock = threading.Lock()
+_session_stats = {
+    "forms_filled": 0,
+    "forms_submitted": 0,
+    "forms_failed": 0,
+    "questions_answered": 0,
+    "ai_answers": 0,
+    "random_answers": 0,
+    "empty_answers": 0,
+}
+
 # ─── Config ───────────────────────────────────────────────────────────────────
 ALLOW_SEND = True  # Set to True when you want to actually submit the form
 HEADLESS = True  # Set to False to open Chrome visibly (debug mode)
@@ -527,6 +539,15 @@ def heartbeat():
 def online_count():
     """Return the number of currently online users."""
     return jsonify({"online": _get_online_count()})
+
+
+@app.route("/api/stats")
+@cross_origin()
+def api_stats():
+    """Return FormBot session statistics (forms filled, questions answered, etc.)."""
+    with _session_stats_lock:
+        stats_copy = dict(_session_stats)
+    return jsonify(stats_copy)
 
 
 @app.route("/update-ai-key", methods=["POST"])
@@ -1416,6 +1437,51 @@ HOME_PAGE_HTML = r"""
     <div style="text-align:center; margin: 20px 0 8px;">
       <button onclick="window.scrollTo({top:0,behavior:'smooth'})" style="padding:10px 28px; background:linear-gradient(135deg,#0d9488,#0891b2); border:none; border-radius:10px; color:#fff; font-size:0.88rem; font-weight:600; font-family:'Inter',sans-serif; cursor:pointer; transition:transform 0.15s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 14px rgba(13,148,136,0.3)'" onmouseout="this.style.transform='';this.style.boxShadow=''">&#8593; Na g&oacute;re</button>
     </div>
+    <!-- Server Stats Bar -->
+    <div id="server-stats-bar" class="card" style="padding:16px 22px; margin-bottom:0; background:linear-gradient(135deg, rgba(13,148,136,0.06), rgba(8,145,178,0.04)); border:1px solid rgba(13,148,136,0.15);">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:1.05rem;">&#128300;</span>
+          <span style="font-weight:600; font-size:0.85rem; color:#0d9488;">Statystyki serwera</span>
+        </div>
+        <div id="uptime-badge" style="display:inline-flex; align-items:center; gap:6px; padding:4px 12px; background:rgba(13,148,136,0.1); border:1px solid rgba(13,148,136,0.2); border-radius:20px; font-size:0.75rem; font-weight:600; color:#0d9488;">
+          <span style="font-size:0.85rem;">&#9200;</span>
+          Uptime: <span id="uptime-text">--</span>
+        </div>
+      </div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;">
+        <div class="stat-chip" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(255,255,255,0.8); border:1px solid rgba(13,148,136,0.12); border-radius:10px; font-size:0.8rem;">
+          <span style="font-size:0.95rem;">&#128196;</span>
+          <span style="color:#64748b;">Formularze:</span>
+          <strong id="stat-forms" style="color:#0d9488;">0</strong>
+        </div>
+        <div class="stat-chip" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(255,255,255,0.8); border:1px solid rgba(16,185,129,0.12); border-radius:10px; font-size:0.8rem;">
+          <span style="font-size:0.95rem;">&#9989;</span>
+          <span style="color:#64748b;">Wyslane:</span>
+          <strong id="stat-submitted" style="color:#059669;">0</strong>
+        </div>
+        <div class="stat-chip" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(255,255,255,0.8); border:1px solid rgba(99,102,241,0.12); border-radius:10px; font-size:0.8rem;">
+          <span style="font-size:0.95rem;">&#10067;</span>
+          <span style="color:#64748b;">Pytania:</span>
+          <strong id="stat-questions" style="color:#6366f1;">0</strong>
+        </div>
+        <div class="stat-chip" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(255,255,255,0.8); border:1px solid rgba(139,92,246,0.12); border-radius:10px; font-size:0.8rem;">
+          <span style="font-size:0.95rem;">&#129302;</span>
+          <span style="color:#64748b;">AI odp.:</span>
+          <strong id="stat-ai" style="color:#7c3aed;">0</strong>
+        </div>
+        <div class="stat-chip" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(255,255,255,0.8); border:1px solid rgba(245,158,11,0.12); border-radius:10px; font-size:0.8rem;">
+          <span style="font-size:0.95rem;">&#127922;</span>
+          <span style="color:#64748b;">Losowe:</span>
+          <strong id="stat-random" style="color:#d97706;">0</strong>
+        </div>
+        <div class="stat-chip" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(255,255,255,0.8); border:1px solid rgba(220,38,38,0.12); border-radius:10px; font-size:0.8rem;">
+          <span style="font-size:0.95rem;">&#10060;</span>
+          <span style="color:#64748b;">Bledy:</span>
+          <strong id="stat-failed" style="color:#dc2626;">0</strong>
+        </div>
+      </div>
+    </div>
     <div class="footer" style="display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap;">
       <span>FormBot &mdash; Copyright by K5 Studio 2026</span>
       <span id="online-badge" style="display:inline-flex; align-items:center; gap:5px; padding:3px 10px; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); border-radius:20px; font-size:0.75rem; font-weight:600; color:#059669;">
@@ -1489,6 +1555,71 @@ HOME_PAGE_HTML = r"""
     }
     sendHeartbeat();
     setInterval(sendHeartbeat, 15000);
+
+    // ─── Server Uptime & Stats ────────────────────────────────
+    var _uptimeSeconds = 0;
+    var _uptimeInterval = null;
+
+    function fetchServerUptime() {
+      // Uptime comes from K5ApiManager
+      fetch('/K5ApiManager/api/uptime')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          _uptimeSeconds = d.uptime_seconds || 0;
+          updateUptimeDisplay();
+        })
+        .catch(function() {});
+    }
+
+    function fetchFormBotStats() {
+      // FormBot-specific stats (forms filled, questions, etc.)
+      fetch('api/stats')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          var el;
+          el = document.getElementById('stat-forms');
+          if (el) el.textContent = d.forms_filled || 0;
+          el = document.getElementById('stat-submitted');
+          if (el) el.textContent = d.forms_submitted || 0;
+          el = document.getElementById('stat-questions');
+          if (el) el.textContent = d.questions_answered || 0;
+          el = document.getElementById('stat-ai');
+          if (el) el.textContent = d.ai_answers || 0;
+          el = document.getElementById('stat-random');
+          if (el) el.textContent = d.random_answers || 0;
+          el = document.getElementById('stat-failed');
+          if (el) el.textContent = d.forms_failed || 0;
+        })
+        .catch(function() {});
+    }
+
+    function formatUptime(totalSec) {
+      var d = Math.floor(totalSec / 86400);
+      var h = Math.floor((totalSec % 86400) / 3600);
+      var m = Math.floor((totalSec % 3600) / 60);
+      var s = Math.floor(totalSec % 60);
+      var parts = [];
+      if (d > 0) parts.push(d + 'd');
+      if (h > 0) parts.push(h + 'h');
+      parts.push(m + 'm');
+      parts.push(s + 's');
+      return parts.join(' ');
+    }
+
+    function updateUptimeDisplay() {
+      var el = document.getElementById('uptime-text');
+      if (el) el.textContent = formatUptime(_uptimeSeconds);
+    }
+
+    // Fetch uptime + stats on load, then poll every 10s; tick uptime locally every 1s
+    fetchServerUptime();
+    fetchFormBotStats();
+    setInterval(fetchServerUptime, 10000);
+    setInterval(fetchFormBotStats, 10000);
+    _uptimeInterval = setInterval(function() {
+      _uptimeSeconds++;
+      updateUptimeDisplay();
+    }, 1000);
 
 
     // ─── Settings Panel ──────────────────────────────────────
@@ -3805,6 +3936,24 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
             "total_time": round(total_time, 1),
             "time_per_type": time_per_type,
         }
+
+        # ─── Track session stats ──────────────────────────────
+        with _session_stats_lock:
+            _session_stats["forms_filled"] += 1
+            if submit_status == "submitted":
+                _session_stats["forms_submitted"] += 1
+            elif submit_status in ("submit_failed", "no_submit_button"):
+                _session_stats["forms_failed"] += 1
+            _session_stats["questions_answered"] += len(results)
+            for r in results:
+                src = r.get("source", "")
+                if src == "AI":
+                    _session_stats["ai_answers"] += 1
+                elif src == "Puste":
+                    _session_stats["empty_answers"] += 1
+                else:
+                    _session_stats["random_answers"] += 1
+
         _emit("done", final_data)
 
     except Exception as e:

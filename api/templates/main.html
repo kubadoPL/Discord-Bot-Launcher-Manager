@@ -237,6 +237,51 @@
             scrollbar-width: thin;
             scrollbar-color: #6366F1 #1F2937;
         }
+
+        /* Uptime bar */
+        .uptime-bar {
+            background-color: var(--card-bg);
+            border-radius: var(--border-radius);
+            padding: 14px 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .uptime-bar .uptime-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--muted-text);
+        }
+        .uptime-bar .uptime-dot {
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            display: inline-block;
+            animation: pulse-dot 2s infinite;
+        }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
+        }
+        .uptime-bar .uptime-value {
+            font-size: 15px;
+            font-weight: 600;
+            color: #10b981;
+            font-family: 'Inter', monospace;
+            letter-spacing: 0.5px;
+        }
+        .uptime-bar .uptime-started {
+            font-size: 12px;
+            color: var(--muted-text);
+        }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 
@@ -264,6 +309,18 @@
          <section>
             <p class="muted">Use the documented endpoints to interact with the system below.</p>
         </section>
+
+        <div class="uptime-bar" id="uptime-bar">
+            <div class="uptime-label">
+                <span class="uptime-dot"></span>
+                <span>Server Uptime</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:14px;">
+                <span class="uptime-value" id="uptime-value">--</span>
+                <span class="uptime-started" id="uptime-started"></span>
+            </div>
+        </div>
+
         <hr />
 
         <section>
@@ -308,6 +365,44 @@
 
         window.onload = loadRunningBots;
 
+        // ─── Server Uptime ────────────────────────────────
+        var _uptimeSec = 0;
+        var _uptimeStartedISO = '';
+
+        function fetchUptime() {
+            fetch('/K5ApiManager/api/uptime')
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    _uptimeSec = d.uptime_seconds || 0;
+                    _uptimeStartedISO = d.started_at_iso || '';
+                    renderUptime();
+                })
+                .catch(function() {});
+        }
+
+        function formatUptime(sec) {
+            var d = Math.floor(sec / 86400);
+            var h = Math.floor((sec % 86400) / 3600);
+            var m = Math.floor((sec % 3600) / 60);
+            var s = Math.floor(sec % 60);
+            var parts = [];
+            if (d > 0) parts.push(d + 'd');
+            if (h > 0) parts.push(h + 'h');
+            parts.push(m + 'm');
+            parts.push(s + 's');
+            return parts.join(' ');
+        }
+
+        function renderUptime() {
+            var el = document.getElementById('uptime-value');
+            if (el) el.textContent = formatUptime(_uptimeSec);
+            var st = document.getElementById('uptime-started');
+            if (st && _uptimeStartedISO) st.textContent = 'od ' + _uptimeStartedISO.replace('T', ' ').replace('Z', ' UTC');
+        }
+
+        fetchUptime();
+        setInterval(fetchUptime, 10000);
+        setInterval(function() { _uptimeSec++; renderUptime(); }, 1000);
 
        
     </script>
