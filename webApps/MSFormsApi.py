@@ -1337,11 +1337,11 @@ HOME_PAGE_HTML = r"""
                   &#127922; Losowy offset
                 </div>
                 <div class="timing-controls">
-                  <input type="range" id="timing-offset" min="1" max="30" value="10" oninput="updateTimingVal(this)">
+                  <input type="range" id="timing-offset" min="0" max="30" value="10" oninput="updateTimingVal(this)">
                   <span class="timing-val" id="timing-offset-val">10s</span>
                 </div>
               </div>
-              <div style="font-size:0.7rem; color:#94a3b8;">Zakres losowego odchylenia dodawanego do bazowego czasu (1-30s)</div>
+              <div style="font-size:0.7rem; color:#94a3b8;">Zakres losowego odchylenia dodawanego do bazowego czasu (0-30s)</div>
             </div>
           </div>
         </div>
