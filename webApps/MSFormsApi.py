@@ -469,6 +469,24 @@ class BrowserQueue:
 
 browser_queue = BrowserQueue()
 
+# ─── Online Users Tracking ─────────────────────────────────────────────────────
+_online_users = {}  # session_id -> last_heartbeat_timestamp
+_online_lock = threading.Lock()
+ONLINE_TIMEOUT = 30  # seconds before a user is considered offline
+
+def _cleanup_online():
+    """Remove stale sessions."""
+    now = time.time()
+    with _online_lock:
+        stale = [sid for sid, ts in _online_users.items() if now - ts > ONLINE_TIMEOUT]
+        for sid in stale:
+            del _online_users[sid]
+
+def _get_online_count():
+    _cleanup_online()
+    with _online_lock:
+        return len(_online_users)
+
 
 @app.route("/")
 def home():
@@ -489,6 +507,26 @@ def home():
 def queue_status():
     """Return current queue status as JSON."""
     return jsonify(browser_queue.get_status())
+
+
+@app.route("/heartbeat", methods=["POST"])
+@cross_origin()
+def heartbeat():
+    """Register a heartbeat from a connected client."""
+    data = request.json if request.is_json else {}
+    session_id = data.get("sid", "")
+    if not session_id:
+        return jsonify({"error": "no sid"}), 400
+    with _online_lock:
+        _online_users[session_id] = time.time()
+    return jsonify({"online": _get_online_count()})
+
+
+@app.route("/online-count")
+@cross_origin()
+def online_count():
+    """Return the number of currently online users."""
+    return jsonify({"online": _get_online_count()})
 
 
 @app.route("/update-ai-key", methods=["POST"])
@@ -708,6 +746,10 @@ HOME_PAGE_HTML = r"""
     @keyframes fadeSlideIn {
       from { opacity: 0; transform: translateY(8px); }
       to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.8); }
     }
     .event-title { color: #1e293b; font-weight: 500; }
     .event-detail { color: #64748b; margin-top: 3px; }
@@ -1374,7 +1416,13 @@ HOME_PAGE_HTML = r"""
     <div style="text-align:center; margin: 20px 0 8px;">
       <button onclick="window.scrollTo({top:0,behavior:'smooth'})" style="padding:10px 28px; background:linear-gradient(135deg,#0d9488,#0891b2); border:none; border-radius:10px; color:#fff; font-size:0.88rem; font-weight:600; font-family:'Inter',sans-serif; cursor:pointer; transition:transform 0.15s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 14px rgba(13,148,136,0.3)'" onmouseout="this.style.transform='';this.style.boxShadow=''">&#8593; Na g&oacute;re</button>
     </div>
-    <div class="footer">FormBot &mdash; Copyright by K5 Studio 2026</div>
+    <div class="footer" style="display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap;">
+      <span>FormBot &mdash; Copyright by K5 Studio 2026</span>
+      <span id="online-badge" style="display:inline-flex; align-items:center; gap:5px; padding:3px 10px; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); border-radius:20px; font-size:0.75rem; font-weight:600; color:#059669;">
+        <span style="width:7px; height:7px; background:#10b981; border-radius:50%; display:inline-block; animation:pulse-dot 2s infinite;"></span>
+        <span id="online-count-text">1</span> online
+      </span>
+    </div>
   </div>
 
   <script>
@@ -1417,6 +1465,30 @@ HOME_PAGE_HTML = r"""
         if (url) _saveToStorage('last_url', url);
       });
     });
+
+    // ─── Online Users Heartbeat ───────────────────────────────
+    var _sessionId = _loadFromStorage('session_id');
+    if (!_sessionId) {
+      _sessionId = 'fb_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+      _saveToStorage('session_id', _sessionId);
+    }
+    function sendHeartbeat() {
+      fetch('heartbeat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sid: _sessionId})
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.online !== undefined) {
+          var el = document.getElementById('online-count-text');
+          if (el) el.textContent = d.online;
+        }
+      })
+      .catch(function() {});
+    }
+    sendHeartbeat();
+    setInterval(sendHeartbeat, 15000);
 
 
     // ─── Settings Panel ──────────────────────────────────────
