@@ -1222,7 +1222,7 @@ HOME_PAGE_HTML = r"""
               <div class="setting-toggle-desc">~20-25% szans, ze pytanie otwarte zostanie puste (jakby ktos zignorowal)</div>
             </div>
             <label class="toggle-switch">
-              <input type="checkbox" id="setting-empty-chance" checked>
+              <input type="checkbox" id="setting-empty-chance">
               <span class="toggle-slider"></span>
             </label>
           </div>
@@ -1381,6 +1381,44 @@ HOME_PAGE_HTML = r"""
     // Global state for preview data and weights
     let previewData = null; // Array of {num, title, type, options: [...]}
 
+    // ─── LocalStorage Persistence ─────────────────────────────
+    function _saveToStorage(key, value) {
+      try { localStorage.setItem('formbot_' + key, value); } catch(e) {}
+    }
+    function _loadFromStorage(key) {
+      try { return localStorage.getItem('formbot_' + key) || ''; } catch(e) { return ''; }
+    }
+    function restoreFromLocalStorage() {
+      var savedUrl = _loadFromStorage('last_url');
+      var savedKey = _loadFromStorage('last_api_key');
+      if (savedUrl) {
+        document.getElementById('url-input').value = savedUrl;
+      }
+      if (savedKey) {
+        document.getElementById('gemini-api-key').value = savedKey;
+      }
+    }
+    function saveCurrentInputs() {
+      var url = (document.getElementById('url-input').value || '').trim();
+      if (url) _saveToStorage('last_url', url);
+      var key = (document.getElementById('gemini-api-key').value || '').trim();
+      if (key) _saveToStorage('last_api_key', key);
+    }
+    // Restore on page load
+    document.addEventListener('DOMContentLoaded', restoreFromLocalStorage);
+    // Auto-save API key on blur (when user leaves the field)
+    document.addEventListener('DOMContentLoaded', function() {
+      document.getElementById('gemini-api-key').addEventListener('blur', function() {
+        var key = (this.value || '').trim();
+        if (key) _saveToStorage('last_api_key', key);
+      });
+      document.getElementById('url-input').addEventListener('blur', function() {
+        var url = (this.value || '').trim();
+        if (url) _saveToStorage('last_url', url);
+      });
+    });
+
+
     // ─── Settings Panel ──────────────────────────────────────
     function toggleSettingsPanel() {
       const body = document.getElementById('settings-body');
@@ -1467,6 +1505,7 @@ HOME_PAGE_HTML = r"""
     function previewForm(forceRefresh) {
       const url = document.getElementById('url-input').value.trim();
       if (!url) { alert('Wpisz URL formularza!'); return; }
+      saveCurrentInputs();
 
       const previewBtn = document.getElementById('preview-btn');
       const startBtn = document.getElementById('start-btn');
@@ -1833,6 +1872,7 @@ HOME_PAGE_HTML = r"""
     function startFillWithWeights() {
       const url = document.getElementById('url-input').value.trim();
       if (!url) { alert('Wpisz URL formularza!'); return; }
+      saveCurrentInputs();
       const weights = collectWeights();
       const settings = collectSettings();
       let repeatCount = parseInt(document.getElementById('repeat-count').value) || 1;
@@ -1870,6 +1910,7 @@ HOME_PAGE_HTML = r"""
     function startFill() {
       const url = document.getElementById('url-input').value.trim();
       if (!url) { alert('Wpisz URL formularza!'); return; }
+      saveCurrentInputs();
       _doStartFill(url, null, null, collectSettings());
     }
 
