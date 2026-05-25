@@ -1993,8 +1993,16 @@ HOME_PAGE_HTML = r"""
         const answerText = Array.isArray(d.answer) ? d.answer.join(', ') : (typeof d.answer === 'object' && d.answer !== null ? JSON.stringify(d.answer) : d.answer);
         const srcBadge = d.source === 'AI'
           ? '<span style="font-size:0.7rem; background:rgba(16,185,129,0.15); color:#059669; padding:1px 6px; border-radius:4px; margin-left:6px;">&#129302; AI</span>'
-          : '<span style="font-size:0.7rem; background:rgba(245,158,11,0.15); color:#d97706; padding:1px 6px; border-radius:4px; margin-left:6px;">&#127922; Losowe</span>';
-        div.innerHTML = '<div class="event-title">Odpowiedz Q' + d.num + srcBadge + '</div>'
+          : (d.source === 'Puste'
+            ? '<span style="font-size:0.7rem; background:rgba(156,163,175,0.15); color:#6b7280; padding:1px 6px; border-radius:4px; margin-left:6px;">&#128683; Puste</span>'
+            : '<span style="font-size:0.7rem; background:rgba(245,158,11,0.15); color:#d97706; padding:1px 6px; border-radius:4px; margin-left:6px;">&#127922; Losowe</span>');
+        var tagsHtml = '';
+        if (d.tags && d.tags.length > 0) {
+          d.tags.forEach(function(tag) {
+            tagsHtml += '<span style="font-size:0.65rem; background:rgba(99,102,241,0.1); color:#6366f1; padding:1px 5px; border-radius:4px; margin-left:4px;">&#9881; ' + escHtml(tag) + '</span>';
+          });
+        }
+        div.innerHTML = '<div class="event-title">Odpowiedz Q' + d.num + srcBadge + tagsHtml + '</div>'
           + '<div class="event-detail">' + escHtml(String(answerText)) + '</div>';
         eventLog.appendChild(div);
         eventLog.scrollTop = eventLog.scrollHeight;
@@ -2025,7 +2033,10 @@ HOME_PAGE_HTML = r"""
         evtSource.close();
         const d = JSON.parse(e.data);
         spinner.style.display = 'none';
-        statusText.textContent = 'Gotowe! (' + d.questions_filled + ' pytan)';
+        var doneMsg = 'Gotowe! (' + d.questions_filled + ' pytan';
+        if (d.total_time) doneMsg += ', ' + d.total_time + 's laczenie';
+        doneMsg += ')';
+        statusText.textContent = doneMsg;
         statusText.className = 'status-text done';
         showResults(d);
         _finish();
@@ -2063,6 +2074,41 @@ HOME_PAGE_HTML = r"""
         badge.textContent = data.status;
       }
 
+      // Timing statistics summary
+      if (data.total_time || data.time_per_type) {
+        var statsDiv = document.createElement('div');
+        statsDiv.style.cssText = 'padding:16px 20px; margin-bottom:14px; background:linear-gradient(135deg, rgba(13,148,136,0.08), rgba(8,145,178,0.05)); border:1px solid rgba(13,148,136,0.2); border-radius:12px;';
+        var statsHtml = '<div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;"><span style="font-size:1.1rem;">&#9201;</span><span style="font-weight:600; font-size:0.92rem; color:#0d9488;">Statystyki czasowe</span></div>';
+        statsHtml += '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;">';
+        statsHtml += '<div style="padding:6px 12px; background:rgba(255,255,255,0.8); border-radius:8px; font-size:0.82rem;"><span style="color:#64748b;">Laczny czas:</span> <strong style="color:#0d9488;">' + (data.total_time || 0) + 's</strong></div>';
+        var mins = Math.floor((data.total_time || 0) / 60);
+        var secs = Math.round((data.total_time || 0) % 60);
+        if (mins > 0) {
+          statsHtml += '<div style="padding:6px 12px; background:rgba(255,255,255,0.8); border-radius:8px; font-size:0.82rem;"><span style="color:#64748b;">Czyli:</span> <strong style="color:#0d9488;">' + mins + 'min ' + secs + 's</strong></div>';
+        }
+        statsHtml += '</div>';
+        if (data.time_per_type) {
+          var typeLabels = {radio:'Jednokrotny', checkbox:'Wielokrotny', text:'Otwarte', matrix:'Macierz'};
+          var typeBadges = {radio:'radio-badge', checkbox:'checkbox-badge', text:'text-badge', matrix:'matrix-badge'};
+          statsHtml += '<div style="display:flex; flex-wrap:wrap; gap:6px;">';
+          for (var ttype in data.time_per_type) {
+            var tt = data.time_per_type[ttype];
+            var lbl = typeLabels[ttype] || ttype;
+            var badgeCls = typeBadges[ttype] || '';
+            statsHtml += '<div style="padding:6px 12px; background:rgba(255,255,255,0.8); border-radius:8px; font-size:0.78rem; display:flex; align-items:center; gap:6px;">';
+            if (badgeCls) statsHtml += '<span class="timing-type-badge ' + badgeCls + '">' + ttype + '</span>';
+            statsHtml += '<span style="color:#334155;">' + lbl + ':</span> ';
+            statsHtml += '<strong style="color:#0d9488;">' + tt.count + 'x</strong> ';
+            statsHtml += '<span style="color:#64748b;">avg ' + tt.avg + 's</span> ';
+            statsHtml += '<span style="color:#94a3b8;">(\u03a3 ' + tt.total + 's)</span>';
+            statsHtml += '</div>';
+          }
+          statsHtml += '</div>';
+        }
+        statsDiv.innerHTML = statsHtml;
+        list.appendChild(statsDiv);
+      }
+
       (data.results || []).forEach(function(r) {
         const answerText = r.answer == null ? '-' :
           (Array.isArray(r.answer) ? r.answer.join(', ') :
@@ -2071,10 +2117,22 @@ HOME_PAGE_HTML = r"""
         card.className = 'result-card';
         const srcBadge = r.source === 'AI'
           ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.15); color:#059669; padding:1px 5px; border-radius:4px; margin-left:6px; font-weight:600;">&#129302; AI</span>'
-          : '<span style="font-size:0.65rem; background:rgba(245,158,11,0.15); color:#d97706; padding:1px 5px; border-radius:4px; margin-left:6px; font-weight:600;">&#127922; Losowe</span>';
+          : (r.source === 'Puste'
+            ? '<span style="font-size:0.65rem; background:rgba(156,163,175,0.15); color:#6b7280; padding:1px 5px; border-radius:4px; margin-left:6px; font-weight:600;">&#128683; Puste</span>'
+            : '<span style="font-size:0.65rem; background:rgba(245,158,11,0.15); color:#d97706; padding:1px 5px; border-radius:4px; margin-left:6px; font-weight:600;">&#127922; Losowe</span>');
+        var timeBadge = '';
+        if (r.time_seconds != null) {
+          timeBadge = '<span style="font-size:0.65rem; background:rgba(13,148,136,0.1); color:#0d9488; padding:1px 5px; border-radius:4px; margin-left:4px; font-weight:600;">&#9201; ' + r.time_seconds + 's</span>';
+        }
+        var rTagsHtml = '';
+        if (r.tags && r.tags.length > 0) {
+          r.tags.forEach(function(tag) {
+            rTagsHtml += '<span style="font-size:0.6rem; background:rgba(99,102,241,0.1); color:#6366f1; padding:1px 5px; border-radius:4px; margin-left:3px;">&#9881; ' + escHtml(tag) + '</span>';
+          });
+        }
         card.innerHTML = '<div class="result-num">' + r.question_number + '</div>'
           + '<div class="result-body">'
-          + '<div class="result-q">' + escHtml(r.title) + srcBadge + '</div>'
+          + '<div class="result-q">' + escHtml(r.title) + srcBadge + timeBadge + rTagsHtml + '</div>'
           + '<div class="result-type">' + r.type + '</div>'
           + '<div class="result-a">' + escHtml(String(answerText)) + '</div>'
           + '</div>';
@@ -3368,6 +3426,9 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                 _emit("status", f"Pytanie {question_num}: {title[:50]}...")
                 browser_queue.set_activity(f"Wypelnianie pytania {question_num}")
 
+                # Start timing this question
+                _q_start_time = time.time()
+
                 # Apply timing delay based on question type
                 timing = settings.get("timing", {}) if settings else {}
                 base_time = timing.get(q_type, 5)  # default 5s
@@ -3392,7 +3453,23 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     "type": q_type,
                     "answer": None,
                     "source": "Losowe",
+                    "tags": [],  # settings applied to this question
                 }
+
+                # Collect active settings tags for this question
+                _q_tags = []
+                if settings.get("timing"):
+                    t = settings["timing"]
+                    base = t.get(q_type, 0)
+                    off = t.get("offset", 0)
+                    if base > 0 or off > 0:
+                        _q_tags.append(f"Opoznienie {base}+{off}s")
+                if q_type == "text":
+                    if settings.get("empty_chance"):
+                        _q_tags.append("Szansa na puste")
+                    if settings.get("short_answers"):
+                        _q_tags.append("Krotkie odp.")
+                result_entry["tags"] = _q_tags
 
                 # Check if AI has an answer for this question
                 ai_answer_for_q = None
@@ -3427,7 +3504,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     result_entry["answer"] = answer
                     result_entry["source"] = source
                     print(f"[FormBot] Selected: {answer} ({source})")
-                    _emit("answer", {"num": question_num, "answer": answer, "source": source})
+                    _emit("answer", {"num": question_num, "answer": answer, "source": source, "tags": _q_tags})
 
                 elif q_type == "checkbox":
                     source = "Losowe"
@@ -3441,7 +3518,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     result_entry["answer"] = answers
                     result_entry["source"] = source
                     print(f"[FormBot] Selected: {answers} ({source})")
-                    _emit("answer", {"num": question_num, "answer": answers, "source": source})
+                    _emit("answer", {"num": question_num, "answer": answers, "source": source, "tags": _q_tags})
 
                 elif q_type == "matrix":
                     source = "Losowe"
@@ -3460,7 +3537,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     if answers:
                         for row, col in answers.items():
                             print(f"[FormBot]   {row} -> {col} ({source})")
-                    _emit("answer", {"num": question_num, "answer": answers, "source": source})
+                    _emit("answer", {"num": question_num, "answer": answers, "source": source, "tags": _q_tags})
 
                 elif q_type == "text":
                     # Check empty chance setting
@@ -3469,28 +3546,35 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                         # Skip this text question (leave empty)
                         result_entry["answer"] = "(pominięte)"
                         result_entry["source"] = "Puste"
+                        result_entry["tags"] = _q_tags
                         print(f"[FormBot] Skipped text Q{question_num} (empty chance)")
-                        _emit("answer", {"num": question_num, "answer": "(pominięte - puste)", "source": "Puste"})
+                        _emit("answer", {"num": question_num, "answer": "(pominięte - puste)", "source": "Puste", "tags": _q_tags})
                     elif ai_answer_for_q is not None:
                         answer = _handle_text_ai(question_el, str(ai_answer_for_q))
                         source = "AI"
                         result_entry["answer"] = answer
                         result_entry["source"] = source
                         print(f"[FormBot] Typed: {answer} ({source})")
-                        _emit("answer", {"num": question_num, "answer": answer, "source": source})
+                        _emit("answer", {"num": question_num, "answer": answer, "source": source, "tags": _q_tags})
                     else:
                         answer = _handle_text_question(question_el, title, weights=weights)
                         source = "Losowe"
                         result_entry["answer"] = answer
                         result_entry["source"] = source
                         print(f"[FormBot] Typed: {answer} ({source})")
-                        _emit("answer", {"num": question_num, "answer": answer, "source": source})
+                        _emit("answer", {"num": question_num, "answer": answer, "source": source, "tags": _q_tags})
 
                 else:
                     print(f"[FormBot] [WARN] Unknown question type, skipping.")
                     _emit("warn", f"Q{question_num}: nieznany typ pytania")
 
                 results.append(result_entry)
+
+                # Record time spent on this question
+                _q_elapsed = round(time.time() - _q_start_time, 1)
+                result_entry["time_seconds"] = _q_elapsed
+                print(f"[FormBot] Q{question_num} took {_q_elapsed}s")
+
                 time.sleep(0.5)
 
             if not new_questions_found:
@@ -3580,10 +3664,26 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                 print(f"    Answer: {r['answer']}")
                 print()
 
+        # Compute timing statistics
+        total_time = sum(r.get("time_seconds", 0) for r in results)
+        time_per_type = {}
+        for r in results:
+            qt = r.get("type", "unknown")
+            if qt not in time_per_type:
+                time_per_type[qt] = {"count": 0, "total": 0}
+            time_per_type[qt]["count"] += 1
+            time_per_type[qt]["total"] += r.get("time_seconds", 0)
+        for qt in time_per_type:
+            c = time_per_type[qt]["count"]
+            time_per_type[qt]["avg"] = round(time_per_type[qt]["total"] / c, 1) if c > 0 else 0
+            time_per_type[qt]["total"] = round(time_per_type[qt]["total"], 1)
+
         final_data = {
             "status": submit_status,
             "questions_filled": len(results),
             "results": results,
+            "total_time": round(total_time, 1),
+            "time_per_type": time_per_type,
         }
         _emit("done", final_data)
 
