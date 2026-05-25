@@ -3470,6 +3470,9 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                 # Start timing this question
                 _q_start_time = time.time()
 
+                # Collect active settings tags for this question
+                _q_tags = []
+
                 # Apply timing delay based on question type
                 timing = settings.get("timing", {}) if settings else {}
                 base_time = timing.get(q_type, 5)  # default 5s
@@ -3498,8 +3501,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     "tags": [],  # settings applied to this question
                 }
 
-                # Collect active settings tags for this question
-                _q_tags = []
+                # Collect remaining settings tags for this question
                 if q_type == "text":
                     if settings.get("empty_chance"):
                         _q_tags.append("Szansa na puste")
