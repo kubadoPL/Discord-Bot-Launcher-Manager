@@ -3989,7 +3989,21 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     # Try by number first
                     ai_answer_for_q = ai_answers.get(str(question_num))
                     if ai_answer_for_q is not None and str(question_num) not in _used_ai_nums:
-                        _used_ai_nums.add(str(question_num))
+                        # Validate answer type matches question type
+                        # (duplicate questions shift numbers, causing wrong matches)
+                        type_ok = True
+                        if q_type == "matrix" and not isinstance(ai_answer_for_q, dict):
+                            type_ok = False
+                        elif q_type == "checkbox" and not isinstance(ai_answer_for_q, list):
+                            type_ok = False
+                        elif q_type == "radio" and isinstance(ai_answer_for_q, (dict, list)):
+                            type_ok = False
+
+                        if type_ok:
+                            _used_ai_nums.add(str(question_num))
+                        else:
+                            print(f"[FormBot] AI: Number match Q{question_num} type mismatch (expected {q_type}, got {type(ai_answer_for_q).__name__}), trying title match")
+                            ai_answer_for_q = None
                     elif ai_answer_for_q is not None:
                         # This number was already used, try title match instead
                         ai_answer_for_q = None
