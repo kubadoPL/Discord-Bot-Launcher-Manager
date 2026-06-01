@@ -509,6 +509,29 @@ def anonymous_heartbeat():
     return jsonify({"ok": True})
 
 
+@chat_api.route("/chat/claim-anon", methods=["POST"])
+@cross_origin(**CORS_OPTIONS)
+def claim_anonymous():
+    """Remove an anonymous listener when they log in via Discord."""
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Missing JSON body"}), 400
+
+    anon_id = data.get("anon_id", "").strip()
+    if not anon_id:
+        return jsonify({"error": "Invalid anon_id"}), 400
+
+    removed = False
+    for station_key in list(anonymous_listeners.keys()):
+        if anon_id in anonymous_listeners[station_key]:
+            del anonymous_listeners[station_key][anon_id]
+            removed = True
+            # Invalidate cache for this station
+            if station_key in online_users_cache:
+                del online_users_cache[station_key]
+
+    return jsonify({"ok": True, "removed": removed})
+
 @chat_api.route("/chat/poll/<station>")
 @cross_origin(**CORS_OPTIONS)
 def poll_messages(station):
