@@ -434,6 +434,18 @@ def _load_chat_data_from_db():
                 seen_count += 1
             conn.close()
             print(f"[DB] Loaded last_seen_at for {seen_count} users")
+
+            # Rebuild online_users from loaded data so get_online_data() can find them
+            rebuilt = 0
+            for uid, last_ts in all_user_activity.items():
+                station = user_last_station.get(uid)
+                if station and uid in user_profiles:
+                    station_key = station.upper().replace("-", "").replace(" ", "")
+                    if station_key not in online_users:
+                        online_users[station_key] = {}
+                    online_users[station_key][uid] = last_ts
+                    rebuilt += 1
+            print(f"[DB] Rebuilt online_users for {rebuilt} users")
         except Exception as e:
             print(f"[DB] Error loading last_seen: {e}")
 

@@ -70,6 +70,7 @@ def _global_stats_worker():
             )
             conn.commit()
             conn.close()
+            print(f"[MSForms GlobalStats] Saved: {stat_name} +{amount}")
         except Exception as e:
             print(f"[MSForms GlobalStats] Error saving {stat_name}: {e}")
         finally:
@@ -105,9 +106,13 @@ def _get_global_stats():
 # Create service_stats table on startup
 try:
     create_service_stats_table()
-    print("[MSForms] Global stats table ready")
+    # Test: read current global stats
+    test_stats = _get_global_stats()
+    print(f"[MSForms] Global stats table ready. Current stats: {test_stats}")
 except Exception as e:
+    import traceback
     print(f"[MSForms] Warning: Could not create stats table: {e}")
+    traceback.print_exc()
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 ALLOW_SEND = True  # Set to True when you want to actually submit the form
@@ -1606,6 +1611,14 @@ HOME_PAGE_HTML = r"""
           <span style="color:#64748b;">Bledy:</span>
           <strong id="gstat-failed" style="color:#0891b2;">0</strong>
         </div>
+        <div class="stat-chip" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(8,145,178,0.06); border:1px solid rgba(8,145,178,0.15); border-radius:10px; font-size:0.8rem;">
+          <span style="color:#64748b;">Podglady:</span>
+          <strong id="gstat-previewed" style="color:#0891b2;">0</strong>
+        </div>
+        <div class="stat-chip" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(8,145,178,0.06); border:1px solid rgba(8,145,178,0.15); border-radius:10px; font-size:0.8rem;">
+          <span style="color:#64748b;">Losowe:</span>
+          <strong id="gstat-random" style="color:#0891b2;">0</strong>
+        </div>
       </div>
     </div>
     <div class="footer" style="display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap;">
@@ -1729,6 +1742,7 @@ HOME_PAGE_HTML = r"""
           if (el) el.textContent = s.cached_forms || 0;
           // Global stats (all-time, from database)
           var g = d.global || {};
+          console.log('[FormBot Stats] Session:', s, 'Global:', g);
           el = document.getElementById('gstat-forms');
           if (el) el.textContent = Math.floor(g.forms_filled || 0);
           el = document.getElementById('gstat-submitted');
@@ -1739,6 +1753,10 @@ HOME_PAGE_HTML = r"""
           if (el) el.textContent = Math.floor(g.ai_answers || 0);
           el = document.getElementById('gstat-failed');
           if (el) el.textContent = Math.floor(g.forms_failed || 0);
+          el = document.getElementById('gstat-previewed');
+          if (el) el.textContent = Math.floor(g.forms_previewed || 0);
+          el = document.getElementById('gstat-random');
+          if (el) el.textContent = Math.floor(g.random_answers || 0);
         })
         .catch(function() {});
     }
