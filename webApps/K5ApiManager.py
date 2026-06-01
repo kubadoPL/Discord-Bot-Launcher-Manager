@@ -399,6 +399,53 @@ def api_uptime():
     })
 
 
+# ─── Discord Webhook Config (from env vars) ───────────────────────────────────
+# Env vars format: WEBHOOK_<GUILD_ID>=<webhook_url>
+# Example: WEBHOOK_637696690853511184=https://discord.com/api/webhooks/...
+
+_WEBHOOK_GUILDS = []
+for key, val in os.environ.items():
+    if key.startswith("WEBHOOK_"):
+        guild_id = key.replace("WEBHOOK_", "")
+        _WEBHOOK_GUILDS.append({"id": guild_id, "requireGuildMembership": True})
+
+
+@app.route("/api/webhooks")
+@cross_origin()
+def api_webhooks():
+    """Return list of guilds with webhooks (without exposing URLs)."""
+    return jsonify({"guilds": _WEBHOOK_GUILDS})
+
+
+@app.route("/api/share", methods=["POST"])
+@cross_origin()
+def api_share():
+    """Proxy webhook message so webhook URLs stay server-side."""
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Missing body"}), 400
+
+    guild_id = data.get("guild_id", "")
+    payload = data.get("payload")
+    if not guild_id or not payload:
+        return jsonify({"error": "Missing guild_id or payload"}), 400
+
+    webhook_url = os.environ.get(f"WEBHOOK_{guild_id}")
+    if not webhook_url:
+        return jsonify({"error": "Unknown guild"}), 404
+
+    try:
+        resp = requests.post(
+            webhook_url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+        return jsonify({"ok": True, "status": resp.status_code}), resp.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 def run_api():
     port = int(os.environ.get("PORT", 80))  # Get the port from environment variable
     print(f"[INFO] Starting API server on port {port}...")
