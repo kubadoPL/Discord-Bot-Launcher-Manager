@@ -57,6 +57,7 @@ ONLINE_THRESHOLD_SECONDS = 60
 OFFLINE_THRESHOLD_SECONDS = 86400  # 24 hours
 all_user_activity = {}  # user_id -> last_activity_timestamp (global)
 custom_emojis = []  # List of {id, name, url, creator_id}
+anonymous_listeners = {}  # station_key -> {anon_id -> last_activity_timestamp}
 
 # Cache for online users results to reduce CPU load
 online_users_cache = (
@@ -201,9 +202,22 @@ def get_online_data(station_key):
     # Sort: Online first, then by last seen
     results.sort(key=lambda x: (x["is_online"], x["last_seen"]), reverse=True)
 
+    # Count anonymous listeners for this station
+    anon_count = 0
+    if station_key in anonymous_listeners:
+        # Clean up expired anonymous listeners and count active ones
+        active_anons = {}
+        for anon_id, ts in anonymous_listeners[station_key].items():
+            if (now - ts).total_seconds() < ONLINE_THRESHOLD_SECONDS:
+                anon_count += 1
+                active_anons[anon_id] = ts
+        anonymous_listeners[station_key] = active_anons
+
+    total_online = online_count + anon_count
+
     # Store in cache
     online_users_cache[station_key] = {
-        "count": online_count,
+        "count": total_online,
         "users": results,
         "timestamp": now,
     }
@@ -448,6 +462,34 @@ def get_chat_history(station):
             "server_time": datetime.utcnow().isoformat() + "Z",
         }
     )
+
+
+@chat_api.route("/chat/heartbeat", methods=["POST"])
+@cross_origin(**CORS_OPTIONS)
+def anonymous_heartbeat():
+    """Track anonymous (not logged in) listeners per station."""
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Missing JSON body"}), 400
+
+    anon_id = data.get("anon_id", "").strip()
+    station = data.get("station", "").upper().replace("-", "").replace(" ", "")
+
+    if not anon_id or len(anon_id) > 64:
+        return jsonify({"error": "Invalid anon_id"}), 400
+    if station not in chat_messages:
+        return jsonify({"error": "Invalid station"}), 400
+
+    now = datetime.utcnow()
+    if station not in anonymous_listeners:
+        anonymous_listeners[station] = {}
+    anonymous_listeners[station][anon_id] = now
+
+    # Invalidate cache so the new count is reflected
+    if station in online_users_cache:
+        del online_users_cache[station]
+
+    return jsonify({"ok": True})
 
 
 @chat_api.route("/chat/poll/<station>")
