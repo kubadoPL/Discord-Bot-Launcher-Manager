@@ -1582,6 +1582,31 @@ HOME_PAGE_HTML = r"""
           <strong id="stat-cached" style="color:#a855f7;">0</strong>
         </div>
       </div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(13,148,136,0.1);">
+        <div style="display:flex; align-items:center; gap:6px; margin-right:4px;">
+          <span style="font-size:0.75rem; font-weight:700; color:#0891b2; text-transform:uppercase; letter-spacing:0.5px;">&#127760; All-Time</span>
+        </div>
+        <div class="stat-chip" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(8,145,178,0.06); border:1px solid rgba(8,145,178,0.15); border-radius:10px; font-size:0.8rem;">
+          <span style="color:#64748b;">Formularze:</span>
+          <strong id="gstat-forms" style="color:#0891b2;">0</strong>
+        </div>
+        <div class="stat-chip" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(8,145,178,0.06); border:1px solid rgba(8,145,178,0.15); border-radius:10px; font-size:0.8rem;">
+          <span style="color:#64748b;">Wyslane:</span>
+          <strong id="gstat-submitted" style="color:#0891b2;">0</strong>
+        </div>
+        <div class="stat-chip" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(8,145,178,0.06); border:1px solid rgba(8,145,178,0.15); border-radius:10px; font-size:0.8rem;">
+          <span style="color:#64748b;">Pytania:</span>
+          <strong id="gstat-questions" style="color:#0891b2;">0</strong>
+        </div>
+        <div class="stat-chip" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(8,145,178,0.06); border:1px solid rgba(8,145,178,0.15); border-radius:10px; font-size:0.8rem;">
+          <span style="color:#64748b;">AI odp.:</span>
+          <strong id="gstat-ai" style="color:#0891b2;">0</strong>
+        </div>
+        <div class="stat-chip" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(8,145,178,0.06); border:1px solid rgba(8,145,178,0.15); border-radius:10px; font-size:0.8rem;">
+          <span style="color:#64748b;">Bledy:</span>
+          <strong id="gstat-failed" style="color:#0891b2;">0</strong>
+        </div>
+      </div>
     </div>
     <div class="footer" style="display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap;">
       <span>FormBot &mdash; Copyright by K5 Studio 2026</span>
@@ -1683,23 +1708,37 @@ HOME_PAGE_HTML = r"""
       fetch('api/stats')
         .then(function(r) { return r.json(); })
         .then(function(d) {
+          // Session stats (this server run)
+          var s = d.session || d;
           var el;
           el = document.getElementById('stat-forms');
-          if (el) el.textContent = d.forms_filled || 0;
+          if (el) el.textContent = s.forms_filled || 0;
           el = document.getElementById('stat-submitted');
-          if (el) el.textContent = d.forms_submitted || 0;
+          if (el) el.textContent = s.forms_submitted || 0;
           el = document.getElementById('stat-questions');
-          if (el) el.textContent = d.questions_answered || 0;
+          if (el) el.textContent = s.questions_answered || 0;
           el = document.getElementById('stat-ai');
-          if (el) el.textContent = d.ai_answers || 0;
+          if (el) el.textContent = s.ai_answers || 0;
           el = document.getElementById('stat-random');
-          if (el) el.textContent = d.random_answers || 0;
+          if (el) el.textContent = s.random_answers || 0;
           el = document.getElementById('stat-failed');
-          if (el) el.textContent = d.forms_failed || 0;
+          if (el) el.textContent = s.forms_failed || 0;
           el = document.getElementById('stat-previewed');
-          if (el) el.textContent = d.forms_previewed || 0;
+          if (el) el.textContent = s.forms_previewed || 0;
           el = document.getElementById('stat-cached');
-          if (el) el.textContent = d.cached_forms || 0;
+          if (el) el.textContent = s.cached_forms || 0;
+          // Global stats (all-time, from database)
+          var g = d.global || {};
+          el = document.getElementById('gstat-forms');
+          if (el) el.textContent = Math.floor(g.forms_filled || 0);
+          el = document.getElementById('gstat-submitted');
+          if (el) el.textContent = Math.floor(g.forms_submitted || 0);
+          el = document.getElementById('gstat-questions');
+          if (el) el.textContent = Math.floor(g.questions_answered || 0);
+          el = document.getElementById('gstat-ai');
+          if (el) el.textContent = Math.floor(g.ai_answers || 0);
+          el = document.getElementById('gstat-failed');
+          if (el) el.textContent = Math.floor(g.forms_failed || 0);
         })
         .catch(function() {});
     }
@@ -2213,8 +2252,20 @@ HOME_PAGE_HTML = r"""
         repeatProgress.textContent = 'Runda ' + currentRun + '/' + repeatCount + '...';
         repeatProgress.style.color = '#0d9488';
         _doStartFill(url, weights, function() {
-          // Small delay between runs
-          setTimeout(runNext, 1500);
+          // Longer delay between runs to avoid detection/rate limits
+          var delay = Math.floor(10000 + Math.random() * 10000); // 10-20 seconds
+          var secs = Math.ceil(delay / 1000);
+          repeatProgress.textContent = 'Runda ' + currentRun + '/' + repeatCount + ' zakonczona. Czekanie ' + secs + 's...';
+          repeatProgress.style.color = '#f59e0b';
+          var countdown = setInterval(function() {
+            secs--;
+            if (secs <= 0) {
+              clearInterval(countdown);
+              runNext();
+            } else {
+              repeatProgress.textContent = 'Nastepna runda za ' + secs + 's...';
+            }
+          }, 1000);
         }, settings);
       }
 
