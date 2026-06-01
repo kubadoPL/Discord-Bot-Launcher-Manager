@@ -69,6 +69,7 @@ online_users_cache = (
     {}
 )  # station_key -> {"count": int, "users": list, "timestamp": datetime}
 CACHE_TTL_SECONDS = 10
+_last_seen_db_writes = {}  # user_id -> last DB write datetime (debounce)
 
 
 # ─── DB Write Queue (background thread) ───────────────────────────────────────
@@ -204,6 +205,26 @@ def _do_save_profile(profile):
     )
     conn.commit()
     conn.close()
+
+
+def _do_update_last_seen(user_id, last_seen_at, last_station):
+    """Update user's last_seen_at and last_station in the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE chat_user_profiles
+        SET last_seen_at = %s, last_station = %s
+        WHERE user_id = %s
+        """,
+        (last_seen_at, last_station, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _db_update_last_seen(user_id, last_seen_at, last_station):
+    _db_enqueue(_do_update_last_seen, user_id, last_seen_at, last_station)
 
 
 def _do_save_session(session_token, session_data):
@@ -397,6 +418,25 @@ def _load_chat_data_from_db():
         except Exception as e:
             print(f"[DB] Error loading sessions: {e}")
 
+        # Load last_seen_at for all users (restores "last seen X ago" after restart)
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT user_id, last_seen_at, last_station FROM chat_user_profiles WHERE last_seen_at IS NOT NULL"
+            )
+            seen_count = 0
+            for row in cursor.fetchall():
+                uid = row["user_id"]
+                all_user_activity[uid] = row["last_seen_at"]
+                if row.get("last_station"):
+                    user_last_station[uid] = row["last_station"]
+                seen_count += 1
+            conn.close()
+            print(f"[DB] Loaded last_seen_at for {seen_count} users")
+        except Exception as e:
+            print(f"[DB] Error loading last_seen: {e}")
+
     except Exception as e:
         print(f"[DB] Error loading chat data: {e}")
         print("[DB] Starting with empty in-memory chat data.")
@@ -489,11 +529,14 @@ def update_user_activity(user_id, station_key, playing_station=None):
         online_users[station_key] = {}
     online_users[station_key][user_id] = now
     all_user_activity[user_id] = now
-    if playing_station:
-        user_last_station[user_id] = playing_station
-    else:
-        # Fallback to chat channel if no header provided
-        user_last_station[user_id] = station_key
+    final_station = playing_station if playing_station else station_key
+    user_last_station[user_id] = final_station
+
+    # Persist to DB (debounced: only write every 60 seconds per user)
+    last_db_write = _last_seen_db_writes.get(user_id)
+    if last_db_write is None or (now - last_db_write).total_seconds() >= 60:
+        _last_seen_db_writes[user_id] = now
+        _db_update_last_seen(user_id, now.strftime("%Y-%m-%d %H:%M:%S"), final_station)
 
 
 def get_online_data(station_key):

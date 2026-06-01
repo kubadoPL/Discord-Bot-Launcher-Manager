@@ -203,10 +203,22 @@ def create_chat_tables():
         avatar_url TEXT,
         banner_url TEXT,
         accent_color INT,
+        last_seen_at DATETIME,
+        last_station VARCHAR(64),
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
     """
     )
+
+    # Add columns for existing installations
+    for col_sql in [
+        "ALTER TABLE chat_user_profiles ADD COLUMN last_seen_at DATETIME",
+        "ALTER TABLE chat_user_profiles ADD COLUMN last_station VARCHAR(64)",
+    ]:
+        try:
+            cursor.execute(col_sql)
+        except Exception:
+            pass  # Column already exists
 
     cursor.execute(
         """

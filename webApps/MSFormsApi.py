@@ -3685,20 +3685,18 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
 
                 scan_driver.quit()
 
-                # Final dedup — remove any duplicates by normalized title
-                deduped = []
-                seen_titles = set()
+                # Handle duplicate question titles by adding a suffix
+                # (AI needs unique titles to generate separate answers for each)
+                seen_titles = {}
                 for sq in scanned_questions:
                     t_key = ' '.join(sq['title'].lower().split())
                     if t_key in seen_titles:
-                        print(f"[FormBot] AI scan: removing duplicate: {sq['title'][:60]}")
-                        continue
-                    seen_titles.add(t_key)
-                    deduped.append(sq)
-                # Renumber
-                for i, sq in enumerate(deduped, 1):
-                    sq['num'] = i
-                scanned_questions = deduped
+                        seen_titles[t_key] += 1
+                        sq['original_title'] = sq['title']
+                        sq['title'] = f"{sq['title']} ({seen_titles[t_key]})"
+                        print(f"[FormBot] AI scan: duplicate renamed -> {sq['title'][:80]}")
+                    else:
+                        seen_titles[t_key] = 1
 
                 # Save to cache
                 _ai_scan_cache[form_url] = scanned_questions
@@ -3748,6 +3746,7 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
         answered_ids = set()  # Track which questions we already answered
         question_num = 0
         max_passes = 10  # Safety limit to prevent infinite loops
+        _used_ai_nums = set()  # Track consumed AI answer numbers (for duplicate questions)
 
         for _pass in range(max_passes):
             questions = driver.find_elements(By.CSS_SELECTOR, q_selector)
@@ -3844,19 +3843,35 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                 if ai_answers:
                     # Try by number first
                     ai_answer_for_q = ai_answers.get(str(question_num))
+                    if ai_answer_for_q is not None and str(question_num) not in _used_ai_nums:
+                        _used_ai_nums.add(str(question_num))
+                    elif ai_answer_for_q is not None:
+                        # This number was already used, try title match instead
+                        ai_answer_for_q = None
+
                     # Fallback: match by title (handles conditional questions shifting numbers)
                     if ai_answer_for_q is None and scanned_questions:
                         fill_title_norm = ' '.join(title.lower().split())
                         for sq in scanned_questions:
+                            sq_num_str = str(sq['num'])
+                            if sq_num_str in _used_ai_nums:
+                                continue  # Skip already used answers
+                            # Check both title and original_title (for renamed duplicates)
                             sq_title = sq.get('title', '')
+                            sq_orig = sq.get('original_title', sq_title)
                             sq_title_norm = ' '.join(sq_title.lower().split())
+                            sq_orig_norm = ' '.join(sq_orig.lower().split())
                             if sq_title and (
                                 sq_title_norm == fill_title_norm
+                                or sq_orig_norm == fill_title_norm
                                 or sq_title_norm in fill_title_norm
                                 or fill_title_norm in sq_title_norm
+                                or sq_orig_norm in fill_title_norm
+                                or fill_title_norm in sq_orig_norm
                             ):
-                                ai_answer_for_q = ai_answers.get(str(sq['num']))
+                                ai_answer_for_q = ai_answers.get(sq_num_str)
                                 if ai_answer_for_q is not None:
+                                    _used_ai_nums.add(sq_num_str)
                                     print(f"[FormBot] AI: Matched by title (fill Q{question_num} = scan Q{sq['num']})")
                                     break
 
