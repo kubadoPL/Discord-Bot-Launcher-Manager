@@ -1162,6 +1162,144 @@ def save_user_data():
     return jsonify({"success": True, "saved": saved_keys})
 
 
+# --- Global Ranking (aggregated from all users' listeningStats) ---
+
+_ranking_cache = {"data": None, "timestamp": None}
+RANKING_CACHE_TTL = 120  # 2 minutes
+
+
+@chat_api.route("/chat/ranking")
+@cross_origin(**CORS_OPTIONS)
+def get_ranking():
+    """Aggregate listeningStats from all users and return global rankings."""
+    now = datetime.utcnow()
+
+    # Return cached data if fresh
+    if (
+        _ranking_cache["data"]
+        and _ranking_cache["timestamp"]
+        and (now - _ranking_cache["timestamp"]).total_seconds() < RANKING_CACHE_TTL
+    ):
+        return jsonify(_ranking_cache["data"])
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        # Fetch all listeningStats from user_data
+        cursor.execute(
+            "SELECT ud.user_id, ud.data_value, up.username, up.global_name, up.avatar_url "
+            "FROM user_data ud "
+            "LEFT JOIN chat_user_profiles up ON ud.user_id = up.user_id "
+            "WHERE ud.data_key = 'listeningStats'"
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        # Aggregate data
+        user_totals = []  # [{user, totalTime, songCount}]
+        station_users = {}  # station -> [{user, time}]
+        global_songs = {}  # title -> {totalTime, totalPlays, cover, station, listeners}
+
+        for row in rows:
+            try:
+                stats = json.loads(row["data_value"]) if row["data_value"] else {}
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            total_time = stats.get("totalTime", 0)
+            songs = stats.get("songs", {})
+
+            user_info = {
+                "id": row["user_id"],
+                "username": row.get("username", "Unknown"),
+                "global_name": row.get("global_name") or row.get("username", "Unknown"),
+                "avatar_url": row.get("avatar_url", ""),
+            }
+
+            if total_time > 0:
+                user_totals.append({
+                    "user": user_info,
+                    "totalTime": total_time,
+                    "songCount": len(songs),
+                })
+
+            # Aggregate per-station listening and per-song stats
+            per_station_time = {}  # station -> time for this user
+            for title, song_data in songs.items():
+                station = song_data.get("station", "Unknown")
+                listen_time = song_data.get("listeningTime", 0)
+                play_count = song_data.get("playCount", 0)
+
+                # Per-station
+                if station not in per_station_time:
+                    per_station_time[station] = 0
+                per_station_time[station] += listen_time
+
+                # Global songs
+                if title not in global_songs:
+                    global_songs[title] = {
+                        "title": title,
+                        "totalTime": 0,
+                        "totalPlays": 0,
+                        "cover": song_data.get("cover", ""),
+                        "station": station,
+                        "listeners": 0,
+                    }
+                global_songs[title]["totalTime"] += listen_time
+                global_songs[title]["totalPlays"] += play_count
+                global_songs[title]["listeners"] += 1
+                # Update cover if we have a better one
+                if song_data.get("cover") and not global_songs[title]["cover"]:
+                    global_songs[title]["cover"] = song_data["cover"]
+
+            # Add user to station leaderboards
+            for station, time in per_station_time.items():
+                if station not in station_users:
+                    station_users[station] = []
+                station_users[station].append({
+                    "user": user_info,
+                    "time": time,
+                })
+
+        # Sort and limit results
+        user_totals.sort(key=lambda x: x["totalTime"], reverse=True)
+        top_listeners = user_totals[:15]
+
+        # Station rankings (top 10 per station)
+        station_rankings = {}
+        for station, users in station_users.items():
+            users.sort(key=lambda x: x["time"], reverse=True)
+            station_rankings[station] = users[:10]
+
+        # Top songs globally (by total listening time)
+        sorted_songs = sorted(global_songs.values(), key=lambda x: x["totalTime"], reverse=True)
+        top_songs = sorted_songs[:20]
+
+        # Top songs by play count
+        sorted_by_plays = sorted(global_songs.values(), key=lambda x: x["totalPlays"], reverse=True)
+        most_played = sorted_by_plays[:20]
+
+        result = {
+            "success": True,
+            "top_listeners": top_listeners,
+            "station_rankings": station_rankings,
+            "top_songs": top_songs,
+            "most_played": most_played,
+            "total_users": len(user_totals),
+            "generated_at": now.isoformat() + "Z",
+        }
+
+        _ranking_cache["data"] = result
+        _ranking_cache["timestamp"] = now
+
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"[RANKING] Error: {e}")
+        return jsonify({"error": "Failed to generate ranking"}), 500
+
+
 @chat_api.route("/chat/send", methods=["POST"])
 @cross_origin(**CORS_OPTIONS)
 def send_message():
