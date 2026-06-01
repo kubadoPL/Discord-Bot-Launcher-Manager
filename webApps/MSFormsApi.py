@@ -2906,6 +2906,41 @@ def _handle_matrix_ai(question_el, ai_row_answers):
         s = unicodedata.normalize("NFKC", s)
         return ' '.join(s.split()).strip()
 
+    if isinstance(ai_row_answers, list):
+        # AI returned a list like [0, 1, 0, 0] — convert to dict using row titles from DOM
+        print(f"[FormBot] MATRIX AI: Got list ({len(ai_row_answers)} items), converting to dict...")
+        # Discover row titles from radio aria-labels first
+        _radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
+        _col_headers = []
+        try:
+            for cell in question_el.find_elements(By.CSS_SELECTOR, 'div[role="columnheader"], th'):
+                t = cell.text.strip()
+                if t:
+                    _col_headers.append(t)
+        except Exception:
+            pass
+        _row_titles = []
+        if _col_headers:
+            for r in _radios:
+                aria = r.get_attribute("aria-label") or ""
+                for col in _col_headers:
+                    if aria.endswith(col):
+                        rt = aria[:-len(col)].strip()
+                        if rt and rt not in _row_titles:
+                            _row_titles.append(rt)
+                        break
+        # Map list values to row titles
+        converted = {}
+        for i, val in enumerate(ai_row_answers):
+            if i < len(_row_titles):
+                converted[_row_titles[i]] = val
+        if converted:
+            ai_row_answers = converted
+            print(f"[FormBot] MATRIX AI: Converted list to dict: {list(converted.keys())[:5]}")
+        else:
+            print(f"[FormBot] MATRIX AI: Could not convert list to dict (no row titles found)")
+            return {}
+
     if not isinstance(ai_row_answers, dict) or not ai_row_answers:
         print(f"[FormBot] MATRIX AI: Invalid ai_row_answers: {type(ai_row_answers)}")
         return {}
