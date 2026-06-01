@@ -2991,11 +2991,36 @@ def _handle_matrix_ai(question_el, ai_row_answers):
             print(f"[FormBot] MATRIX AI: No match for row '{row_title[:60]}'")
             continue
 
-        # Robust type handling - AI might return dict, string, or number
+        # Robust type handling - AI might return string number, column name, dict, or int
         if isinstance(col_idx, dict):
             # Try to extract a numeric value from the dict
             col_idx = col_idx.get("index") or col_idx.get("column") or col_idx.get("col") or col_idx.get("value") or 0
             print(f"[FormBot] MATRIX AI: Extracted col_idx from dict: {col_idx}")
+
+        if isinstance(col_idx, str):
+            # First try: is it a number string like "2"?
+            try:
+                col_idx = int(col_idx)
+            except (ValueError, TypeError):
+                # It's a column name like "Zdecydowanie tak" — find its index
+                col_idx_norm = _normalize(col_idx)
+                found_col = False
+                for ci, ch in enumerate(column_headers):
+                    if _normalize(ch) == col_idx_norm or col_idx_norm in _normalize(ch) or _normalize(ch) in col_idx_norm:
+                        col_idx = ci
+                        found_col = True
+                        break
+                if not found_col:
+                    # Try matching against radio labels in this row
+                    for ri, (radio, col_name, col_i) in enumerate(radio_list):
+                        if col_name and (_normalize(col_name) == col_idx_norm or col_idx_norm in _normalize(col_name)):
+                            col_idx = ri
+                            found_col = True
+                            break
+                if not found_col:
+                    print(f"[FormBot] MATRIX AI: Could not find column '{col_idx}' for row '{row_title[:40]}'")
+                    continue
+
         try:
             col_idx = int(col_idx)
         except (ValueError, TypeError):
