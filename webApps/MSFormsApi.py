@@ -3667,18 +3667,15 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                         q_type = _detect_question_type(q_el)
                         options = _get_option_labels(q_el, q_type)
 
-                        # Skip if already found (same title = duplicate)
-                        title_key = ' '.join(title.lower().split())
-                        if title_key not in scanned_titles:
-                            scan_num += 1
-                            q_data = {"num": scan_num, "title": title, "type": q_type, "options": options}
-                            if q_type == "matrix":
-                                row_titles, col_names = _get_matrix_info(q_el)
-                                q_data["options"] = col_names
-                                q_data["rows"] = row_titles
-                            scanned_questions.append(q_data)
-                            scanned_titles.add(title_key)
-                            _emit("status", f"AI: Skanowanie Q{scan_num}: {title[:40]}...")
+                        # Add question to scan list (even duplicates - they get renamed later for AI)
+                        scan_num += 1
+                        q_data = {"num": scan_num, "title": title, "type": q_type, "options": options}
+                        if q_type == "matrix":
+                            row_titles, col_names = _get_matrix_info(q_el)
+                            q_data["options"] = col_names
+                            q_data["rows"] = row_titles
+                        scanned_questions.append(q_data)
+                        _emit("status", f"AI: Skanowanie Q{scan_num}: {title[:40]}...")
 
                         # Click through EACH radio option to discover ALL conditional branches
                         if q_type == "radio":
