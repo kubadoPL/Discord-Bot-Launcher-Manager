@@ -637,6 +637,32 @@ def get_user():
     return jsonify({"authenticated": True, "user": user_sessions[token]})
 
 
+@chat_api.route("/discord/logout", methods=["POST"])
+@cross_origin(**CORS_OPTIONS)
+def discord_logout():
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    token = auth_header.split(" ")[1]
+
+    # Remove session from memory
+    if token in user_sessions:
+        del user_sessions[token]
+
+    # Remove session from database
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM chat_user_sessions WHERE session_token = %s", (token,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Error deleting session on logout: {e}")
+
+    return jsonify({"success": True, "message": "Logged out"})
+
+
 @chat_api.route("/discord/check-guild/<guild_id>")
 @cross_origin(**CORS_OPTIONS)
 def check_guild(guild_id):
