@@ -18,6 +18,9 @@ from flask_cors import cross_origin
 
 from flask import Flask, jsonify, render_template_string
 from flask_caching import Cache
+from api.config import RESTRICT_CORS
+
+_CORS_ORIGINS = ["https://radio-gaming.stream", "https://k5studio.dev"] if RESTRICT_CORS else "*"
 
 
 app = Flask(__name__)
@@ -47,7 +50,7 @@ scraping_lock = threading.Lock()
 
 
 @app.route("/get-sum", methods=["GET"])
-@cross_origin(origins=["https://radio-gaming.stream", "https://k5studio.dev"])
+@cross_origin(origins=_CORS_ORIGINS)
 @cache.cached(timeout=500, query_string=True)
 def get_sum():
     station = request.args.get("station")

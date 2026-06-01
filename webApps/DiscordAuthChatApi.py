@@ -13,16 +13,24 @@ if parent_dir not in sys.path:
 from flask import Flask, request, jsonify, redirect, Blueprint
 from flask_cors import cross_origin
 import requests as http_requests
+from api.config import RESTRICT_CORS
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
 
 # CORS options for all API routes
-CORS_OPTIONS = {
-    "origins": ["https://radio-gaming.stream", "https://k5studio.dev"],
-    "allow_headers": ["Authorization", "Content-Type", "X-Playing-Station"],
-    "methods": ["GET", "POST", "OPTIONS"],
-}
+if RESTRICT_CORS:
+    CORS_OPTIONS = {
+        "origins": ["https://radio-gaming.stream", "https://k5studio.dev"],
+        "allow_headers": ["Authorization", "Content-Type", "X-Playing-Station"],
+        "methods": ["GET", "POST", "OPTIONS"],
+    }
+else:
+    CORS_OPTIONS = {
+        "origins": "*",
+        "allow_headers": ["Authorization", "Content-Type", "X-Playing-Station"],
+        "methods": ["GET", "POST", "OPTIONS"],
+    }
 
 app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024  # 6MB max request size
 
