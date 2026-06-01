@@ -993,6 +993,102 @@ def poll_messages(station):
     )
 
 
+# --- User Data Sync (listening history, favorites, stats) ---
+
+# Allowed keys that can be synced to DB
+SYNCABLE_KEYS = {"songHistory", "songFavorites", "listeningStats"}
+
+
+def _do_save_user_data(user_id, data_key, data_value):
+    """Save a user data entry to the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO user_data (user_id, data_key, data_value)
+        VALUES (%s, %s, %s)
+        ON DUPLICATE KEY UPDATE data_value = VALUES(data_value)
+        """,
+        (user_id, data_key, data_value),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _db_save_user_data(user_id, data_key, data_value):
+    _db_enqueue(_do_save_user_data, user_id, data_key, data_value)
+
+
+@chat_api.route("/user/data", methods=["GET"])
+@cross_origin(**CORS_OPTIONS)
+def get_user_data():
+    """Get all synced data for the logged-in user."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    token = auth_header.split(" ")[1]
+    if token not in user_sessions:
+        return jsonify({"error": "Invalid session"}), 401
+
+    user_id = user_sessions[token]["id"]
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT data_key, data_value, updated_at FROM user_data WHERE user_id = %s",
+            (user_id,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        result = {}
+        for row in rows:
+            result[row["data_key"]] = {
+                "value": row["data_value"],
+                "updated_at": row["updated_at"].strftime("%Y-%m-%dT%H:%M:%SZ") if row["updated_at"] else None,
+            }
+
+        return jsonify({"success": True, "data": result})
+
+    except Exception as e:
+        print(f"[DB] Error loading user data: {e}")
+        return jsonify({"error": "Failed to load data"}), 500
+
+
+@chat_api.route("/user/data", methods=["POST"])
+@cross_origin(**CORS_OPTIONS)
+def save_user_data():
+    """Save one or more data keys for the logged-in user.
+    Body: {"songHistory": [...], "songFavorites": [...], "listeningStats": {...}}
+    """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    token = auth_header.split(" ")[1]
+    if token not in user_sessions:
+        return jsonify({"error": "Invalid session"}), 401
+
+    user_id = user_sessions[token]["id"]
+
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Missing JSON body"}), 400
+
+    saved_keys = []
+    for key, value in data.items():
+        if key not in SYNCABLE_KEYS:
+            continue
+        # Serialize to JSON string for DB storage
+        json_value = json.dumps(value) if not isinstance(value, str) else value
+        _db_save_user_data(user_id, key, json_value)
+        saved_keys.append(key)
+
+    return jsonify({"success": True, "saved": saved_keys})
+
+
 @chat_api.route("/chat/send", methods=["POST"])
 @cross_origin(**CORS_OPTIONS)
 def send_message():

@@ -223,6 +223,18 @@ def create_chat_tables():
     """
     )
 
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS user_data (
+        user_id VARCHAR(64) NOT NULL,
+        data_key VARCHAR(128) NOT NULL,
+        data_value LONGTEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, data_key)
+    )
+    """
+    )
+
     conn.commit()
     conn.close()
 
