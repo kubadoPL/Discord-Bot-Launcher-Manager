@@ -1281,12 +1281,53 @@ def get_ranking():
         sorted_by_plays = sorted(global_songs.values(), key=lambda x: x["totalPlays"], reverse=True)
         most_played = sorted_by_plays[:20]
 
+        # --- Aggregate songFavorites from all users ---
+        favorites_count = {}  # title -> {count, cover, station}
+        try:
+            conn2 = get_db_connection()
+            cursor2 = conn2.cursor(dictionary=True)
+            cursor2.execute(
+                "SELECT data_value FROM user_data WHERE data_key = 'songFavorites'"
+            )
+            fav_rows = cursor2.fetchall()
+            conn2.close()
+
+            for frow in fav_rows:
+                try:
+                    favs = json.loads(frow["data_value"]) if frow["data_value"] else []
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                for fav in favs:
+                    title = fav.get("title", "")
+                    if not title:
+                        continue
+                    if title not in favorites_count:
+                        favorites_count[title] = {
+                            "title": title,
+                            "count": 0,
+                            "cover": fav.get("cover", ""),
+                            "station": fav.get("station", ""),
+                        }
+                    favorites_count[title]["count"] += 1
+                    if fav.get("cover") and not favorites_count[title]["cover"]:
+                        favorites_count[title]["cover"] = fav["cover"]
+        except Exception as e:
+            print(f"[RANKING] Error aggregating favorites: {e}")
+
+        sorted_favs = sorted(favorites_count.values(), key=lambda x: x["count"], reverse=True)
+        top_favorited = sorted_favs[:20]
+
+        # Build a simple title -> count map for the frontend history view
+        fav_count_map = {t: d["count"] for t, d in favorites_count.items()}
+
         result = {
             "success": True,
             "top_listeners": top_listeners,
             "station_rankings": station_rankings,
             "top_songs": top_songs,
             "most_played": most_played,
+            "top_favorited": top_favorited,
+            "favorites_count": fav_count_map,
             "total_users": len(user_totals),
             "generated_at": now.isoformat() + "Z",
         }
