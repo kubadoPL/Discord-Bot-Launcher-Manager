@@ -202,7 +202,7 @@ def get_online_data(station_key):
     # Sort: Online first, then by last seen
     results.sort(key=lambda x: (x["is_online"], x["last_seen"]), reverse=True)
 
-    # Count anonymous listeners for this station
+    # Count anonymous listeners for this station and add to results
     anon_count = 0
     if station_key in anonymous_listeners:
         # Clean up expired anonymous listeners and count active ones
@@ -211,9 +211,26 @@ def get_online_data(station_key):
             if (now - ts).total_seconds() < ONLINE_THRESHOLD_SECONDS:
                 anon_count += 1
                 active_anons[anon_id] = ts
+                results.append(
+                    {
+                        "id": anon_id,
+                        "username": "Anonymous Listener",
+                        "global_name": "Anonymous Listener",
+                        "avatar_url": None,
+                        "banner_url": None,
+                        "accent_color": None,
+                        "current_station": STATION_NAMES.get(station_key, station_key),
+                        "last_seen": ts.isoformat() + "Z",
+                        "is_online": True,
+                        "is_anonymous": True,
+                    }
+                )
         anonymous_listeners[station_key] = active_anons
 
     total_online = online_count + anon_count
+
+    # Re-sort with anonymous users included
+    results.sort(key=lambda x: (x["is_online"], x["last_seen"]), reverse=True)
 
     # Store in cache
     online_users_cache[station_key] = {
@@ -222,7 +239,7 @@ def get_online_data(station_key):
         "timestamp": now,
     }
 
-    return online_count, results
+    return total_online, results
 
 
 def get_online_users_list(station_key):
