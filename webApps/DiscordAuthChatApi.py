@@ -197,6 +197,7 @@ def get_online_data(station_key):
             p["current_station"] = STATION_NAMES.get(station_val, station_val)
             p["last_seen"] = last_ts.isoformat() + "Z"
             p["is_online"] = is_online
+            p["is_anonymous"] = False
             results.append(p)
 
     # Sort: Online first, then by last seen
