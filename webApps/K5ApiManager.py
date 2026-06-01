@@ -328,6 +328,50 @@ def download_any_roblox_asset():
         return jsonify({"error": "Failed to fetch asset", "details": str(e)}), 500
 
 
+@app.route("/steam/workshop-stats", methods=["GET"])
+@cross_origin()
+@cache.cached(timeout=600, query_string=True)
+def steam_workshop_stats():
+    """Fetch Steam Workshop item stats (subscribers, favorites, views).
+    Usage: /steam/workshop-stats?ids=2961836726,2908364654
+    """
+    ids_param = request.args.get("ids", "")
+    file_ids = [fid.strip() for fid in ids_param.split(",") if fid.strip()]
+
+    if not file_ids:
+        return jsonify({"error": "Missing 'ids' query parameter"}), 400
+
+    # Build POST data for Steam API
+    post_data = {"itemcount": len(file_ids)}
+    for i, fid in enumerate(file_ids):
+        post_data[f"publishedfileids[{i}]"] = fid
+
+    try:
+        resp = requests.post(
+            "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/",
+            data=post_data,
+            timeout=10,
+        )
+        steam_data = resp.json()
+
+        items = []
+        for detail in steam_data.get("response", {}).get("publishedfiledetails", []):
+            items.append({
+                "publishedfileid": detail.get("publishedfileid"),
+                "title": detail.get("title"),
+                "subscriptions": detail.get("subscriptions", 0),
+                "favorited": detail.get("favorited", 0),
+                "views": detail.get("views", 0),
+                "lifetime_subscriptions": detail.get("lifetime_subscriptions", 0),
+                "lifetime_favorited": detail.get("lifetime_favorited", 0),
+            })
+
+        return jsonify({"items": items})
+
+    except Exception as e:
+        return jsonify({"error": "Failed to fetch Steam Workshop stats", "details": str(e)}), 500
+
+
 @app.route("/api/uptime")
 @cross_origin()
 def api_uptime():
