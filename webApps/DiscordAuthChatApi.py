@@ -19,7 +19,7 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
 
 # CORS options for all API routes
 CORS_OPTIONS = {
-    "origins": ["https://radio-gaming.stream"],
+    "origins": ["https://radio-gaming.stream", "https://k5studio.dev"],
     "allow_headers": ["Authorization", "Content-Type", "X-Playing-Station"],
     "methods": ["GET", "POST", "OPTIONS"],
 }

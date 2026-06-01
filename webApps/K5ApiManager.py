@@ -29,7 +29,7 @@ from functools import wraps
 import base64
 import requests
 
-from flask_cors import cross_origin
+from flask_cors import CORS, cross_origin
 from flask_caching import Cache
 from datetime import datetime
 
@@ -199,7 +199,7 @@ def update_roblox_balance():
 
 
 @app.route("/spotify/token", methods=["GET"])
-@cross_origin(origins=["https://radio-gaming.stream"])
+@cross_origin(origins=["https://radio-gaming.stream", "https://k5studio.dev"])
 @cache.cached(timeout=3000, query_string=False)
 def get_spotify_token():
     SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID")
@@ -242,7 +242,7 @@ def get_spotify_token():
 
 
 @app.route("/giphy/token", methods=["GET"])
-@cross_origin(origins=["https://radio-gaming.stream"])
+@cross_origin(origins=["https://radio-gaming.stream", "https://k5studio.dev"])
 @cache.cached(timeout=3000, query_string=False)
 def get_giphy_token():
     GIPHY_TOKEN = os.environ.get("GIPHY_TOKEN")
@@ -264,7 +264,7 @@ def get_giphy_token():
 
 
 @app.route("/youtube/token", methods=["GET"])
-@cross_origin(origins=["https://radio-gaming.stream"])
+@cross_origin(origins=["https://radio-gaming.stream", "https://k5studio.dev"])
 @cache.cached(timeout=3000, query_string=False)
 def get_youtube_token():
     YOUTUBE_DATA_TOKEN = os.environ.get("YOUTUBE_DATA_TOKEN")

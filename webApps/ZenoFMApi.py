@@ -47,7 +47,7 @@ scraping_lock = threading.Lock()
 
 
 @app.route("/get-sum", methods=["GET"])
-@cross_origin(origins=["https://radio-gaming.stream"])
+@cross_origin(origins=["https://radio-gaming.stream", "https://k5studio.dev"])
 @cache.cached(timeout=500, query_string=True)
 def get_sum():
     station = request.args.get("station")
