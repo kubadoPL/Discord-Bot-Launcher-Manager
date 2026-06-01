@@ -158,6 +158,75 @@ def createtable():
     )
     conn.commit()
 
+def create_chat_tables():
+    """Create tables for persisting chat data (messages, emojis, profiles)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS chat_messages (
+        id VARCHAR(32) PRIMARY KEY,
+        station VARCHAR(64) NOT NULL,
+        user_id VARCHAR(64) NOT NULL,
+        content TEXT,
+        image_data LONGTEXT,
+        song_data JSON,
+        reactions JSON,
+        reaction_users JSON,
+        timestamp DATETIME NOT NULL,
+        last_update DATETIME NOT NULL,
+        INDEX idx_station (station),
+        INDEX idx_timestamp (timestamp)
+    )
+    """
+    )
+
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS chat_custom_emojis (
+        id VARCHAR(64) PRIMARY KEY,
+        name VARCHAR(64) NOT NULL,
+        url LONGTEXT NOT NULL,
+        creator_id VARCHAR(64) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """
+    )
+
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS chat_user_profiles (
+        user_id VARCHAR(64) PRIMARY KEY,
+        username VARCHAR(128) NOT NULL,
+        global_name VARCHAR(128),
+        avatar_url TEXT,
+        banner_url TEXT,
+        accent_color INT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+    """
+    )
+
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS chat_user_sessions (
+        session_token VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(64) NOT NULL,
+        discord_access_token TEXT,
+        expires_at DATETIME NOT NULL,
+        via_activity TINYINT(1) DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_user_id (user_id),
+        INDEX idx_expires (expires_at)
+    )
+    """
+    )
+
+    conn.commit()
+    conn.close()
+
+
 def create_service_stats_table():
     """Create the service_stats table if it doesn't exist."""
     conn = get_db_connection()

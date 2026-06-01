@@ -13,7 +13,9 @@ if parent_dir not in sys.path:
 from flask import Flask, request, jsonify, redirect, Blueprint
 from flask_cors import cross_origin
 import requests as http_requests
+import json
 from api.config import RESTRICT_CORS
+from api.FunctionsModule import get_db_connection, create_chat_tables
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
@@ -44,13 +46,14 @@ DISCORD_REDIRECT_URI = os.environ.get(
 )
 DISCORD_API_URL = "https://discord.com/api/v10"
 
-# In-memory storage
+# In-memory storage (loaded from DB on startup)
 user_sessions = {}
 chat_messages = {"RADIOGAMING": [], "RADIOGAMINGDARK": [], "RADIOGAMINGMARONFM": []}
 user_profiles = {}  # user_id -> profile_data (safe subset)
 user_last_station = {}  # user_id -> station_key
 online_users = {}  # station_key -> {user_id -> last_activity_timestamp}
 MAX_MESSAGES_PER_CHANNEL = 100
+SAVE_EMOJIS = False  # Set to True to persist custom emojis in the database
 message_cooldowns = {}
 MESSAGE_COOLDOWN_SECONDS = 2
 ONLINE_THRESHOLD_SECONDS = 60
@@ -64,6 +67,279 @@ online_users_cache = (
     {}
 )  # station_key -> {"count": int, "users": list, "timestamp": datetime}
 CACHE_TTL_SECONDS = 10
+
+
+# ─── DB Persistence Helpers ────────────────────────────────────────────────────
+
+def _db_save_message(msg_obj):
+    """Save or update a single chat message in the database."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO chat_messages (id, station, user_id, content, image_data, song_data, reactions, reaction_users, timestamp, last_update)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                content = VALUES(content),
+                reactions = VALUES(reactions),
+                reaction_users = VALUES(reaction_users),
+                last_update = VALUES(last_update)
+            """,
+            (
+                msg_obj["id"],
+                msg_obj["station"],
+                msg_obj["user"]["id"],
+                msg_obj.get("content"),
+                msg_obj.get("image_data"),
+                json.dumps(msg_obj.get("song_data")),
+                json.dumps(msg_obj.get("reactions", {})),
+                json.dumps(msg_obj.get("reaction_users", {})),
+                msg_obj["timestamp"].replace("Z", ""),
+                msg_obj["last_update"].replace("Z", ""),
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Error saving message: {e}")
+
+
+def _db_save_emoji(emoji_obj):
+    """Save a custom emoji to the database."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO chat_custom_emojis (id, name, url, creator_id)
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE name = VALUES(name), url = VALUES(url)
+            """,
+            (emoji_obj["id"], emoji_obj["name"], emoji_obj["url"], emoji_obj["creator_id"]),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Error saving emoji: {e}")
+
+
+def _db_delete_emoji(emoji_id):
+    """Delete a custom emoji from the database."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM chat_custom_emojis WHERE id = %s", (emoji_id,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Error deleting emoji: {e}")
+
+
+def _db_save_profile(profile):
+    """Save or update a user profile in the database."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        accent = profile.get("accent_color")
+        cursor.execute(
+            """
+            INSERT INTO chat_user_profiles (user_id, username, global_name, avatar_url, banner_url, accent_color)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                username = VALUES(username),
+                global_name = VALUES(global_name),
+                avatar_url = VALUES(avatar_url),
+                banner_url = VALUES(banner_url),
+                accent_color = VALUES(accent_color)
+            """,
+            (
+                profile["id"],
+                profile["username"],
+                profile.get("global_name"),
+                profile.get("avatar_url"),
+                profile.get("banner_url"),
+                int(accent) if accent is not None else None,
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Error saving profile: {e}")
+
+
+def _db_save_session(session_token, session_data):
+    """Save or update a user session in the database."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        expires_at = session_data["expires_at"].replace("Z", "")
+        cursor.execute(
+            """
+            INSERT INTO chat_user_sessions (session_token, user_id, discord_access_token, expires_at, via_activity)
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                discord_access_token = VALUES(discord_access_token),
+                expires_at = VALUES(expires_at)
+            """,
+            (
+                session_token,
+                session_data["id"],
+                session_data.get("discord_access_token"),
+                expires_at,
+                1 if session_data.get("via_activity") else 0,
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Error saving session: {e}")
+
+
+def _db_delete_expired_sessions():
+    """Remove expired sessions from the database."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM chat_user_sessions WHERE expires_at < NOW()")
+        deleted = cursor.rowcount
+        conn.commit()
+        conn.close()
+        if deleted > 0:
+            print(f"[DB] Cleaned up {deleted} expired sessions")
+    except Exception as e:
+        print(f"[DB] Error cleaning sessions: {e}")
+
+
+def _load_chat_data_from_db():
+    """Load chat messages, custom emojis, user profiles, and sessions from the database."""
+    global chat_messages, custom_emojis, user_profiles, user_sessions
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        # Load user profiles first (needed to reconstruct message user objects)
+        cursor.execute("SELECT * FROM chat_user_profiles")
+        for row in cursor.fetchall():
+            user_profiles[row["user_id"]] = {
+                "id": row["user_id"],
+                "username": row["username"],
+                "global_name": row.get("global_name") or row["username"],
+                "avatar_url": row.get("avatar_url"),
+                "banner_url": row.get("banner_url"),
+                "accent_color": row.get("accent_color"),
+            }
+        print(f"[DB] Loaded {len(user_profiles)} user profiles")
+
+        # Load custom emojis (only if persistence is enabled)
+        if SAVE_EMOJIS:
+            cursor.execute("SELECT * FROM chat_custom_emojis ORDER BY created_at ASC")
+            custom_emojis.clear()
+            for row in cursor.fetchall():
+                custom_emojis.append({
+                    "id": row["id"],
+                    "name": row["name"],
+                    "url": row["url"],
+                    "creator_id": row["creator_id"],
+                })
+            print(f"[DB] Loaded {len(custom_emojis)} custom emojis")
+        else:
+            print("[DB] Emoji persistence disabled (SAVE_EMOJIS = False)")
+
+        # Load messages (last MAX_MESSAGES_PER_CHANNEL per station)
+        for station_key in chat_messages:
+            cursor.execute(
+                """
+                SELECT * FROM chat_messages
+                WHERE station = %s
+                ORDER BY timestamp DESC
+                LIMIT %s
+                """,
+                (station_key, MAX_MESSAGES_PER_CHANNEL),
+            )
+            rows = cursor.fetchall()
+            rows.reverse()  # oldest first
+
+            msgs = []
+            for row in rows:
+                user_id = row["user_id"]
+                user_data = user_profiles.get(user_id, {
+                    "id": user_id,
+                    "username": "Unknown",
+                    "global_name": "Unknown",
+                    "avatar_url": None,
+                    "banner_url": None,
+                    "accent_color": None,
+                })
+
+                # Parse JSON fields
+                reactions = row.get("reactions")
+                if isinstance(reactions, str):
+                    reactions = json.loads(reactions) if reactions else {}
+                elif reactions is None:
+                    reactions = {}
+
+                reaction_users = row.get("reaction_users")
+                if isinstance(reaction_users, str):
+                    reaction_users = json.loads(reaction_users) if reaction_users else {}
+                elif reaction_users is None:
+                    reaction_users = {}
+
+                song_data = row.get("song_data")
+                if isinstance(song_data, str):
+                    song_data = json.loads(song_data) if song_data else None
+
+                msgs.append({
+                    "id": row["id"],
+                    "user": user_data,
+                    "content": row.get("content", ""),
+                    "timestamp": row["timestamp"].strftime("%Y-%m-%dT%H:%M:%SZ") if row["timestamp"] else "",
+                    "last_update": row["last_update"].strftime("%Y-%m-%dT%H:%M:%SZ") if row["last_update"] else "",
+                    "station": row["station"],
+                    "song_data": song_data,
+                    "image_data": row.get("image_data"),
+                    "reactions": reactions,
+                    "reaction_users": reaction_users,
+                })
+
+            chat_messages[station_key] = msgs
+            print(f"[DB] Loaded {len(msgs)} messages for {station_key}")
+
+        conn.close()
+        print("[DB] Chat data loaded successfully from database.")
+
+        # Load user sessions (non-expired only)
+        _db_delete_expired_sessions()
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM chat_user_sessions WHERE expires_at > NOW()")
+            session_count = 0
+            for row in cursor.fetchall():
+                user_id = row["user_id"]
+                profile = user_profiles.get(user_id)
+                if profile:
+                    user_sessions[row["session_token"]] = {
+                        **profile,
+                        "discord_access_token": row.get("discord_access_token"),
+                        "expires_at": row["expires_at"].strftime("%Y-%m-%dT%H:%M:%SZ") if row["expires_at"] else "",
+                        "via_activity": bool(row.get("via_activity", 0)),
+                    }
+                    session_count += 1
+            conn.close()
+            print(f"[DB] Loaded {session_count} active user sessions")
+        except Exception as e:
+            print(f"[DB] Error loading sessions: {e}")
+
+    except Exception as e:
+        print(f"[DB] Error loading chat data: {e}")
+        print("[DB] Starting with empty in-memory chat data.")
+
+
+# Create tables and load data on startup
+create_chat_tables()
+_load_chat_data_from_db()
 
 # Station display names mapping
 STATION_NAMES = {
@@ -113,9 +389,13 @@ def upload_custom_emoji():
     }
 
     custom_emojis.append(new_emoji)
+    if SAVE_EMOJIS:
+        _db_save_emoji(new_emoji)
     # Keep only last 50 custom emojis
     if len(custom_emojis) > 50:
-        custom_emojis.pop(0)
+        removed = custom_emojis.pop(0)
+        if SAVE_EMOJIS:
+            _db_delete_emoji(removed["id"])
 
     return jsonify({"success": True, "emoji": new_emoji})
 
@@ -330,12 +610,14 @@ def discord_callback():
 
         # Store safe profile for common use
         user_profiles[user_data["id"]] = profile
+        _db_save_profile(profile)
 
         user_sessions[session_token] = {
             **profile,
             "discord_access_token": token_json["access_token"],
             "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat() + "Z",
         }
+        _db_save_session(session_token, user_sessions[session_token])
         return redirect(f"{frontend_url}?auth_token={session_token}")
     except Exception as e:
         return redirect(f"{frontend_url}?auth_error=server_error")
@@ -685,6 +967,7 @@ def send_message():
     }
 
     chat_messages[station].append(msg_obj)
+    _db_save_message(msg_obj)
     if len(chat_messages[station]) > MAX_MESSAGES_PER_CHANNEL:
         chat_messages[station].pop(0)
 
@@ -761,6 +1044,9 @@ def react_to_message():
 
     # Mark message as updated so polling picks it up
     target_msg["last_update"] = datetime.utcnow().isoformat() + "Z"
+
+    # Persist reaction changes to DB
+    _db_save_message(target_msg)
 
     return jsonify(
         {
@@ -909,6 +1195,7 @@ def discord_activity_login():
 
         # Store safe profile
         user_profiles[user_data["id"]] = profile
+        _db_save_profile(profile)
 
         # Create session token (same structure as OAuth2 callback)
         import secrets as _secrets
@@ -920,6 +1207,7 @@ def discord_activity_login():
             "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat() + "Z",
             "via_activity": True,  # Mark as Activity login for debugging
         }
+        _db_save_session(session_token, user_sessions[session_token])
 
         return jsonify(
             {
