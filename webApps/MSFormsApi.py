@@ -1961,20 +1961,49 @@ HOME_PAGE_HTML = r"""
         startBtn.disabled = false;
       });
 
+      var _prevRetries = 0;
+      var _prevMaxRetries = 3;
+      var _prevDone = false;
+
+      evtSource.addEventListener('preview_done', function() { _prevDone = true; });
+      evtSource.addEventListener('error_ev', function() { _prevDone = true; });
+
       evtSource.onerror = function() {
+        if (_prevDone) return;
         evtSource.close();
-        document.getElementById('preview-spinner').style.display = 'none';
-        document.getElementById('preview-status').style.display = 'none';
-        var errDiv = document.createElement('div');
-        errDiv.style.cssText = 'background:linear-gradient(135deg,rgba(245,158,11,0.08),rgba(217,119,6,0.04)); border:1px solid rgba(245,158,11,0.25); border-radius:12px; padding:16px 20px; margin-bottom:14px; display:flex; align-items:center; gap:12px;';
-        errDiv.innerHTML = '<span style="font-size:1.4rem;">&#128268;</span>'
-          + '<div><div style="font-weight:600; color:#d97706; font-size:0.92rem;">Polaczenie przerwane</div>'
-          + '<div style="color:#92400e; font-size:0.82rem; margin-top:2px;">Serwer zakonczyl polaczenie. Kliknij Podglad ponownie.</div></div>';
-        document.getElementById('preview-questions').prepend(errDiv);
-        previewBtn.disabled = false;
-        startBtn.disabled = false;
-        var navStatus = document.getElementById('preview-nav-status');
-        if (navStatus && previewData.length > 0) navStatus.textContent = '\u26a0 Przerwano (' + previewData.length + ' pytan)';
+
+        if (_prevRetries < _prevMaxRetries) {
+          _prevRetries++;
+          var delay = Math.pow(2, _prevRetries) * 1000;
+          document.getElementById('preview-status-text').textContent = 'Polaczenie przerwane \u2014 ponowna proba ' + _prevRetries + '/' + _prevMaxRetries + ' za ' + (delay/1000) + 's...';
+          setTimeout(function() {
+            document.getElementById('preview-status-text').textContent = 'Laczenie ponowne...';
+            try {
+              var newEvt = new EventSource(qs);
+              // Re-attach all preview handlers by re-calling openPreview logic
+              // But since we can't easily re-wire, just do a fresh preview
+              previewBtn.click();
+            } catch(e) {
+              document.getElementById('preview-spinner').style.display = 'none';
+              document.getElementById('preview-status').style.display = 'none';
+              previewBtn.disabled = false;
+              startBtn.disabled = false;
+            }
+          }, delay);
+        } else {
+          document.getElementById('preview-spinner').style.display = 'none';
+          document.getElementById('preview-status').style.display = 'none';
+          var errDiv = document.createElement('div');
+          errDiv.style.cssText = 'background:linear-gradient(135deg,rgba(245,158,11,0.08),rgba(217,119,6,0.04)); border:1px solid rgba(245,158,11,0.25); border-radius:12px; padding:16px 20px; margin-bottom:14px; display:flex; align-items:center; gap:12px;';
+          errDiv.innerHTML = '<span style="font-size:1.4rem;">&#128268;</span>'
+            + '<div><div style="font-weight:600; color:#d97706; font-size:0.92rem;">Polaczenie przerwane</div>'
+            + '<div style="color:#92400e; font-size:0.82rem; margin-top:2px;">Serwer zakonczyl polaczenie po ' + _prevMaxRetries + ' probach. Kliknij Podglad ponownie.</div></div>';
+          document.getElementById('preview-questions').prepend(errDiv);
+          previewBtn.disabled = false;
+          startBtn.disabled = false;
+          var navStatus = document.getElementById('preview-nav-status');
+          if (navStatus && previewData.length > 0) navStatus.textContent = '\u26a0 Przerwano (' + previewData.length + ' pytan)';
+        }
       };
     }
 
@@ -2475,12 +2504,44 @@ HOME_PAGE_HTML = r"""
         _finish();
       });
 
+      var _sseRetries = 0;
+      var _sseMaxRetries = 3;
+      var _sseDone = false;
+      var _sseUrl = evtSource.url || sseUrl;
+
+      // Mark as done when we receive a terminal event
+      evtSource.addEventListener('done', function() { _sseDone = true; });
+      evtSource.addEventListener('error_ev', function() { _sseDone = true; });
+
       evtSource.onerror = function() {
+        // Don't reconnect if we already received a terminal event
+        if (_sseDone) return;
+
         evtSource.close();
-        spinner.style.display = 'none';
-        statusText.textContent = 'Polaczenie przerwane';
-        statusText.className = 'status-text error';
-        _finish();
+
+        if (_sseRetries < _sseMaxRetries) {
+          _sseRetries++;
+          var delay = Math.pow(2, _sseRetries) * 1000; // 2s, 4s, 8s
+          statusText.textContent = 'Polaczenie przerwane \u2014 ponowna proba ' + _sseRetries + '/' + _sseMaxRetries + ' za ' + (delay/1000) + 's...';
+          statusText.className = 'status-text';
+          setTimeout(function() {
+            statusText.textContent = 'Laczenie ponowne...';
+            try {
+              var newEvt = new EventSource(_sseUrl);
+              _attachSSEHandlers(newEvt, onComplete);
+            } catch(e) {
+              spinner.style.display = 'none';
+              statusText.textContent = 'Polaczenie przerwane';
+              statusText.className = 'status-text error';
+              _finish();
+            }
+          }, delay);
+        } else {
+          spinner.style.display = 'none';
+          statusText.textContent = 'Polaczenie przerwane (po ' + _sseMaxRetries + ' probach)';
+          statusText.className = 'status-text error';
+          _finish();
+        }
       };
     }
 
