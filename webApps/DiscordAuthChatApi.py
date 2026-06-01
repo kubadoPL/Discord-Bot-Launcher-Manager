@@ -1165,7 +1165,7 @@ def save_user_data():
 # --- Global Ranking (aggregated from all users' listeningStats) ---
 
 _ranking_cache = {"data": None, "timestamp": None}
-RANKING_CACHE_TTL = 120  # 2 minutes
+RANKING_CACHE_TTL = 300  # 5 minutes
 
 
 @chat_api.route("/chat/ranking")
@@ -1188,7 +1188,7 @@ def get_ranking():
 
         # Fetch all listeningStats from user_data
         cursor.execute(
-            "SELECT ud.user_id, ud.data_value, up.username, up.global_name, up.avatar_url "
+            "SELECT ud.user_id, ud.data_value, up.username, up.global_name, up.avatar_url, up.banner_url "
             "FROM user_data ud "
             "LEFT JOIN chat_user_profiles up ON ud.user_id = up.user_id "
             "WHERE ud.data_key = 'listeningStats'"
@@ -1215,6 +1215,7 @@ def get_ranking():
                 "username": row.get("username", "Unknown"),
                 "global_name": row.get("global_name") or row.get("username", "Unknown"),
                 "avatar_url": row.get("avatar_url", ""),
+                "banner_url": row.get("banner_url", ""),
             }
 
             if total_time > 0:
