@@ -130,6 +130,27 @@ def _do_save_message(msg_obj):
         ),
     )
     conn.commit()
+
+    # Cleanup: keep only the newest MAX_MESSAGES_PER_CHANNEL messages per station
+    station = msg_obj["station"]
+    cursor.execute(
+        """
+        DELETE FROM chat_messages
+        WHERE station = %s AND id NOT IN (
+            SELECT id FROM (
+                SELECT id FROM chat_messages
+                WHERE station = %s
+                ORDER BY timestamp DESC
+                LIMIT %s
+            ) AS keep
+        )
+        """,
+        (station, station, MAX_MESSAGES_PER_CHANNEL),
+    )
+    if cursor.rowcount > 0:
+        conn.commit()
+        print(f"[DB] Cleaned up {cursor.rowcount} old messages from {station}")
+
     conn.close()
 
 
