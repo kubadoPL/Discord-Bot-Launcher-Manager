@@ -2849,7 +2849,12 @@ def _handle_radio_ai(question_el, ai_index):
     radios = question_el.find_elements(By.CSS_SELECTOR, '[role="radio"]')
     if not radios:
         return None
-    idx = int(ai_index) if isinstance(ai_index, (int, float, str)) else 0
+    if isinstance(ai_index, dict):
+        ai_index = ai_index.get("index") or ai_index.get("value") or 0
+    try:
+        idx = int(ai_index)
+    except (ValueError, TypeError):
+        idx = 0
     idx = max(0, min(idx, len(radios) - 1))
     chosen = radios[idx]
     label = _get_input_label(question_el, chosen)
@@ -2872,7 +2877,12 @@ def _handle_checkbox_ai(question_el, ai_indices):
         ai_indices = [ai_indices]
     selected = []
     for idx in ai_indices:
-        idx = int(idx)
+        if isinstance(idx, dict):
+            idx = idx.get("index") or idx.get("value") or 0
+        try:
+            idx = int(idx)
+        except (ValueError, TypeError):
+            continue
         if 0 <= idx < len(checkboxes):
             cb = checkboxes[idx]
             label = _get_input_label(question_el, cb)
@@ -2981,7 +2991,16 @@ def _handle_matrix_ai(question_el, ai_row_answers):
             print(f"[FormBot] MATRIX AI: No match for row '{row_title[:60]}'")
             continue
 
-        col_idx = int(col_idx)
+        # Robust type handling - AI might return dict, string, or number
+        if isinstance(col_idx, dict):
+            # Try to extract a numeric value from the dict
+            col_idx = col_idx.get("index") or col_idx.get("column") or col_idx.get("col") or col_idx.get("value") or 0
+            print(f"[FormBot] MATRIX AI: Extracted col_idx from dict: {col_idx}")
+        try:
+            col_idx = int(col_idx)
+        except (ValueError, TypeError):
+            print(f"[FormBot] MATRIX AI: Invalid col_idx '{col_idx}' for row '{row_title[:40]}', skipping")
+            continue
         if 0 <= col_idx < len(radio_list):
             radio_to_click = radio_list[col_idx][0]
             try:
