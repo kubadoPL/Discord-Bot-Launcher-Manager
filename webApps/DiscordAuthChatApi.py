@@ -2,6 +2,8 @@ import os
 import sys
 import secrets
 import re
+import threading
+import queue
 from datetime import datetime, timedelta
 
 # Set the script and parent directory
@@ -69,135 +71,179 @@ online_users_cache = (
 CACHE_TTL_SECONDS = 10
 
 
-# ─── DB Persistence Helpers ────────────────────────────────────────────────────
+# ─── DB Write Queue (background thread) ───────────────────────────────────────
+
+_db_write_queue = queue.Queue()
+
+
+def _db_worker():
+    """Background thread that processes all DB write operations."""
+    while True:
+        task = _db_write_queue.get()
+        if task is None:
+            break
+        func, args, kwargs = task
+        try:
+            func(*args, **kwargs)
+        except Exception as e:
+            print(f"[DB Worker] Error executing {func.__name__}: {e}")
+        finally:
+            _db_write_queue.task_done()
+
+
+_db_thread = threading.Thread(target=_db_worker, daemon=True, name="db-write-worker")
+_db_thread.start()
+
+
+def _db_enqueue(func, *args, **kwargs):
+    """Enqueue a DB write operation to be processed in the background thread."""
+    _db_write_queue.put((func, args, kwargs))
+
+
+# ─── DB Persistence Helpers (executed by the worker thread) ────────────────
+
+def _do_save_message(msg_obj):
+    """Save or update a single chat message in the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO chat_messages (id, station, user_id, content, image_data, song_data, reactions, reaction_users, timestamp, last_update)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            content = VALUES(content),
+            reactions = VALUES(reactions),
+            reaction_users = VALUES(reaction_users),
+            last_update = VALUES(last_update)
+        """,
+        (
+            msg_obj["id"],
+            msg_obj["station"],
+            msg_obj["user"]["id"],
+            msg_obj.get("content"),
+            msg_obj.get("image_data"),
+            json.dumps(msg_obj.get("song_data")),
+            json.dumps(msg_obj.get("reactions", {})),
+            json.dumps(msg_obj.get("reaction_users", {})),
+            msg_obj["timestamp"].replace("Z", ""),
+            msg_obj["last_update"].replace("Z", ""),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _do_save_emoji(emoji_obj):
+    """Save a custom emoji to the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO chat_custom_emojis (id, name, url, creator_id)
+        VALUES (%s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE name = VALUES(name), url = VALUES(url)
+        """,
+        (emoji_obj["id"], emoji_obj["name"], emoji_obj["url"], emoji_obj["creator_id"]),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _do_delete_emoji(emoji_id):
+    """Delete a custom emoji from the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM chat_custom_emojis WHERE id = %s", (emoji_id,))
+    conn.commit()
+    conn.close()
+
+
+def _do_save_profile(profile):
+    """Save or update a user profile in the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    accent = profile.get("accent_color")
+    cursor.execute(
+        """
+        INSERT INTO chat_user_profiles (user_id, username, global_name, avatar_url, banner_url, accent_color)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            username = VALUES(username),
+            global_name = VALUES(global_name),
+            avatar_url = VALUES(avatar_url),
+            banner_url = VALUES(banner_url),
+            accent_color = VALUES(accent_color)
+        """,
+        (
+            profile["id"],
+            profile["username"],
+            profile.get("global_name"),
+            profile.get("avatar_url"),
+            profile.get("banner_url"),
+            int(accent) if accent is not None else None,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _do_save_session(session_token, session_data):
+    """Save or update a user session in the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    expires_at = session_data["expires_at"].replace("Z", "")
+    cursor.execute(
+        """
+        INSERT INTO chat_user_sessions (session_token, user_id, discord_access_token, expires_at, via_activity)
+        VALUES (%s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            discord_access_token = VALUES(discord_access_token),
+            expires_at = VALUES(expires_at)
+        """,
+        (
+            session_token,
+            session_data["id"],
+            session_data.get("discord_access_token"),
+            expires_at,
+            1 if session_data.get("via_activity") else 0,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _do_delete_session(session_token):
+    """Delete a session from the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM chat_user_sessions WHERE session_token = %s", (session_token,))
+    conn.commit()
+    conn.close()
+
+
+# --- Public API (enqueue wrappers) ---
 
 def _db_save_message(msg_obj):
-    """Save or update a single chat message in the database."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO chat_messages (id, station, user_id, content, image_data, song_data, reactions, reaction_users, timestamp, last_update)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-                content = VALUES(content),
-                reactions = VALUES(reactions),
-                reaction_users = VALUES(reaction_users),
-                last_update = VALUES(last_update)
-            """,
-            (
-                msg_obj["id"],
-                msg_obj["station"],
-                msg_obj["user"]["id"],
-                msg_obj.get("content"),
-                msg_obj.get("image_data"),
-                json.dumps(msg_obj.get("song_data")),
-                json.dumps(msg_obj.get("reactions", {})),
-                json.dumps(msg_obj.get("reaction_users", {})),
-                msg_obj["timestamp"].replace("Z", ""),
-                msg_obj["last_update"].replace("Z", ""),
-            ),
-        )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"[DB] Error saving message: {e}")
-
+    _db_enqueue(_do_save_message, msg_obj)
 
 def _db_save_emoji(emoji_obj):
-    """Save a custom emoji to the database."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO chat_custom_emojis (id, name, url, creator_id)
-            VALUES (%s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE name = VALUES(name), url = VALUES(url)
-            """,
-            (emoji_obj["id"], emoji_obj["name"], emoji_obj["url"], emoji_obj["creator_id"]),
-        )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"[DB] Error saving emoji: {e}")
-
+    _db_enqueue(_do_save_emoji, emoji_obj)
 
 def _db_delete_emoji(emoji_id):
-    """Delete a custom emoji from the database."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM chat_custom_emojis WHERE id = %s", (emoji_id,))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"[DB] Error deleting emoji: {e}")
-
+    _db_enqueue(_do_delete_emoji, emoji_id)
 
 def _db_save_profile(profile):
-    """Save or update a user profile in the database."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        accent = profile.get("accent_color")
-        cursor.execute(
-            """
-            INSERT INTO chat_user_profiles (user_id, username, global_name, avatar_url, banner_url, accent_color)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-                username = VALUES(username),
-                global_name = VALUES(global_name),
-                avatar_url = VALUES(avatar_url),
-                banner_url = VALUES(banner_url),
-                accent_color = VALUES(accent_color)
-            """,
-            (
-                profile["id"],
-                profile["username"],
-                profile.get("global_name"),
-                profile.get("avatar_url"),
-                profile.get("banner_url"),
-                int(accent) if accent is not None else None,
-            ),
-        )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"[DB] Error saving profile: {e}")
-
+    _db_enqueue(_do_save_profile, profile)
 
 def _db_save_session(session_token, session_data):
-    """Save or update a user session in the database."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        expires_at = session_data["expires_at"].replace("Z", "")
-        cursor.execute(
-            """
-            INSERT INTO chat_user_sessions (session_token, user_id, discord_access_token, expires_at, via_activity)
-            VALUES (%s, %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-                discord_access_token = VALUES(discord_access_token),
-                expires_at = VALUES(expires_at)
-            """,
-            (
-                session_token,
-                session_data["id"],
-                session_data.get("discord_access_token"),
-                expires_at,
-                1 if session_data.get("via_activity") else 0,
-            ),
-        )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"[DB] Error saving session: {e}")
+    _db_enqueue(_do_save_session, session_token, session_data)
+
+def _db_delete_session(session_token):
+    _db_enqueue(_do_delete_session, session_token)
 
 
 def _db_delete_expired_sessions():
-    """Remove expired sessions from the database."""
+    """Remove expired sessions from the database (runs synchronously at startup)."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -650,15 +696,8 @@ def discord_logout():
     if token in user_sessions:
         del user_sessions[token]
 
-    # Remove session from database
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM chat_user_sessions WHERE session_token = %s", (token,))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"[DB] Error deleting session on logout: {e}")
+    # Remove session from database (async via worker thread)
+    _db_delete_session(token)
 
     return jsonify({"success": True, "message": "Logged out"})
 
