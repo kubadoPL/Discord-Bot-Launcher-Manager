@@ -2270,8 +2270,8 @@ HOME_PAGE_HTML = r"""
         repeatProgress.textContent = 'Runda ' + currentRun + '/' + repeatCount + '...';
         repeatProgress.style.color = '#0d9488';
         _doStartFill(url, weights, function() {
-          // Longer delay between runs to avoid detection/rate limits
-          var delay = Math.floor(10000 + Math.random() * 10000); // 10-20 seconds
+          // Longer delay between runs to ensure submission completes
+          var delay = Math.floor(20000 + Math.random() * 15000); // 20-35 seconds
           var secs = Math.ceil(delay / 1000);
           repeatProgress.textContent = 'Runda ' + currentRun + '/' + repeatCount + ' zakonczona. Czekanie ' + secs + 's...';
           repeatProgress.style.color = '#f59e0b';
@@ -4181,17 +4181,17 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                         EC.element_to_be_clickable(submit_btn)
                     )
                     submit_btn.click()
-                    print("[FormBot] [OK] Form submitted!")
+                    print("[FormBot] [OK] Form submitted! Waiting for confirmation...")
                     submit_status = "submitted"
-                    time.sleep(3)
+                    time.sleep(8)
                 except Exception as click_err:
                     # Fallback: JS click
                     print(f"[FormBot] Normal click failed ({click_err}), trying JS click...")
                     try:
                         driver.execute_script("arguments[0].click();", submit_btn)
-                        print("[FormBot] [OK] Form submitted via JS click!")
+                        print("[FormBot] [OK] Form submitted via JS click! Waiting for confirmation...")
                         submit_status = "submitted"
-                        time.sleep(3)
+                        time.sleep(8)
                     except Exception as js_err:
                         print(f"[FormBot] [FAIL] JS click also failed: {js_err}")
                         submit_status = "submit_failed"
