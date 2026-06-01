@@ -36,7 +36,7 @@ else:
         "methods": ["GET", "POST", "OPTIONS"],
     }
 
-app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024  # 6MB max request size
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2MB max request size
 
 chat_api = Blueprint("chat_api", __name__)
 
@@ -131,25 +131,23 @@ def _do_save_message(msg_obj):
     )
     conn.commit()
 
-    # Cleanup: keep only the newest MAX_MESSAGES_PER_CHANNEL messages per station
-    station = msg_obj["station"]
+    # Cleanup: keep only the newest MAX_MESSAGES_PER_CHANNEL messages globally (all stations)
     cursor.execute(
         """
         DELETE FROM chat_messages
-        WHERE station = %s AND id NOT IN (
+        WHERE id NOT IN (
             SELECT id FROM (
                 SELECT id FROM chat_messages
-                WHERE station = %s
                 ORDER BY timestamp DESC
                 LIMIT %s
             ) AS keep
         )
         """,
-        (station, station, MAX_MESSAGES_PER_CHANNEL),
+        (MAX_MESSAGES_PER_CHANNEL,),
     )
     if cursor.rowcount > 0:
         conn.commit()
-        print(f"[DB] Cleaned up {cursor.rowcount} old messages from {station}")
+        print(f"[DB] Cleaned up {cursor.rowcount} old messages globally")
 
     conn.close()
 
@@ -1016,8 +1014,8 @@ def send_message():
         if not isinstance(image_data, str) or not image_data.startswith("data:image/"):
             return jsonify({"error": "Invalid image format"}), 400
         # Check base64 size (~2.8MB for 2MB file)
-        if len(image_data) > 6.8 * 1024 * 1024:
-            return jsonify({"error": "Image too large (max 6MB)"}), 400
+        if len(image_data) > 2.8 * 1024 * 1024:
+            return jsonify({"error": "Image too large (max 2MB)"}), 400
 
     # Content or image required
     if not content and not image_data:
