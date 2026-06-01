@@ -1173,10 +1173,12 @@ RANKING_CACHE_TTL = 300  # 5 minutes
 def get_ranking():
     """Aggregate listeningStats from all users and return global rankings."""
     now = datetime.utcnow()
+    force = request.args.get("force", "0") == "1"
 
-    # Return cached data if fresh
+    # Return cached data if fresh (unless force refresh)
     if (
-        _ranking_cache["data"]
+        not force
+        and _ranking_cache["data"]
         and _ranking_cache["timestamp"]
         and (now - _ranking_cache["timestamp"]).total_seconds() < RANKING_CACHE_TTL
     ):
