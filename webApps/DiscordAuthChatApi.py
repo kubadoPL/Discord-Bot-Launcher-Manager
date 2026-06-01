@@ -454,9 +454,15 @@ def _load_chat_data_from_db():
         print("[DB] Starting with empty in-memory chat data.")
 
 
-# Create tables and load data on startup
-create_chat_tables()
-_load_chat_data_from_db()
+# Create tables and load data on startup (in background to avoid blocking gunicorn)
+def _init_chat_db():
+    try:
+        create_chat_tables()
+        _load_chat_data_from_db()
+    except Exception as e:
+        print(f"[DB] Error during startup init: {e}")
+
+threading.Thread(target=_init_chat_db, daemon=True, name="chat-db-init").start()
 
 # Station display names mapping
 STATION_NAMES = {
