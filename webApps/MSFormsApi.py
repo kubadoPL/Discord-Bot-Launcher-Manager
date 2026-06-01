@@ -3990,28 +3990,78 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                     # (duplicate questions shift numbering, making number-based matching unreliable)
                     if scanned_questions:
                         fill_title_norm = ' '.join(title.lower().split())
+                        # Strip trailing " (N)" from fill title for comparison
+                        import re as _re_match
+                        fill_title_stripped = _re_match.sub(r'\s*\(\d+\)\s*$', '', fill_title_norm)
+
+                        # Pass 1: EXACT match on title or original_title (highest priority)
                         for sq in scanned_questions:
                             sq_num_str = str(sq['num'])
                             if sq_num_str in _used_ai_nums:
-                                continue  # Skip already used answers
-                            # Check both title and original_title (for renamed duplicates)
+                                continue
                             sq_title = sq.get('title', '')
                             sq_orig = sq.get('original_title', sq_title)
                             sq_title_norm = ' '.join(sq_title.lower().split())
                             sq_orig_norm = ' '.join(sq_orig.lower().split())
-                            if sq_title and (
-                                sq_title_norm == fill_title_norm
-                                or sq_orig_norm == fill_title_norm
-                                or sq_title_norm in fill_title_norm
-                                or fill_title_norm in sq_title_norm
-                                or sq_orig_norm in fill_title_norm
-                                or fill_title_norm in sq_orig_norm
-                            ):
+                            if sq_title_norm == fill_title_norm or sq_orig_norm == fill_title_norm:
                                 ai_answer_for_q = ai_answers.get(sq_num_str)
                                 if ai_answer_for_q is not None:
                                     _used_ai_nums.add(sq_num_str)
-                                    print(f"[FormBot] AI: Matched by title (fill Q{question_num} = scan Q{sq['num']})")
+                                    print(f"[FormBot] AI: EXACT match (fill Q{question_num} = scan Q{sq['num']})")
                                     break
+
+                        # Pass 2: Match by stripped title (e.g. form shows "Pytanie X" and cache has "Pytanie X (2)")
+                        if ai_answer_for_q is None:
+                            for sq in scanned_questions:
+                                sq_num_str = str(sq['num'])
+                                if sq_num_str in _used_ai_nums:
+                                    continue
+                                sq_title = sq.get('title', '')
+                                sq_orig = sq.get('original_title', sq_title)
+                                sq_title_norm = ' '.join(sq_title.lower().split())
+                                sq_orig_norm = ' '.join(sq_orig.lower().split())
+                                sq_title_stripped = _re_match.sub(r'\s*\(\d+\)\s*$', '', sq_title_norm)
+                                sq_orig_stripped = _re_match.sub(r'\s*\(\d+\)\s*$', '', sq_orig_norm)
+                                # Match stripped versions AND validate question type matches
+                                sq_type = sq.get('type', '')
+                                type_ok = (not sq_type) or (sq_type == q_type)
+                                if type_ok and (
+                                    fill_title_stripped == sq_title_stripped
+                                    or fill_title_stripped == sq_orig_stripped
+                                    or fill_title_norm == sq_orig_stripped
+                                ):
+                                    ai_answer_for_q = ai_answers.get(sq_num_str)
+                                    if ai_answer_for_q is not None:
+                                        _used_ai_nums.add(sq_num_str)
+                                        print(f"[FormBot] AI: STRIPPED match (fill Q{question_num} = scan Q{sq['num']})")
+                                        break
+
+                        # Pass 3: Substring match with type validation (lowest priority)
+                        if ai_answer_for_q is None:
+                            for sq in scanned_questions:
+                                sq_num_str = str(sq['num'])
+                                if sq_num_str in _used_ai_nums:
+                                    continue
+                                sq_title = sq.get('title', '')
+                                sq_orig = sq.get('original_title', sq_title)
+                                sq_title_norm = ' '.join(sq_title.lower().split())
+                                sq_orig_norm = ' '.join(sq_orig.lower().split())
+                                sq_type = sq.get('type', '')
+                                type_ok = (not sq_type) or (sq_type == q_type)
+                                if type_ok and sq_title and (
+                                    sq_title_norm in fill_title_norm
+                                    or fill_title_norm in sq_title_norm
+                                    or sq_orig_norm in fill_title_norm
+                                    or fill_title_norm in sq_orig_norm
+                                ):
+                                    ai_answer_for_q = ai_answers.get(sq_num_str)
+                                    if ai_answer_for_q is not None:
+                                        _used_ai_nums.add(sq_num_str)
+                                        print(f"[FormBot] AI: SUBSTRING match (fill Q{question_num} = scan Q{sq['num']})")
+                                        break
+
+                        if ai_answer_for_q is None:
+                            print(f"[FormBot] AI: NO MATCH for fill Q{question_num} ({q_type}): '{title[:60]}'...")
 
                     # Fallback: match by number (only when no scan data, e.g. cached AI answers)
                     if ai_answer_for_q is None and not scanned_questions:
