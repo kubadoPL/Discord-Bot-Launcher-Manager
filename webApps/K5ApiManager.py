@@ -399,6 +399,26 @@ def api_uptime():
     })
 
 
+# ─── Roblox Game Stats Proxy ──────────────────────────────────────────────────
+
+@app.route("/api/game-stats")
+@cross_origin(origins=_CORS_ORIGINS)
+@cache.cached(timeout=60, query_string=True)
+def api_game_stats():
+    """Proxy Roblox games API to avoid CORS. Accepts ?universeIds=id1,id2,..."""
+    universe_ids = request.args.get("universeIds", "").strip()
+    if not universe_ids:
+        return jsonify({"error": "Missing universeIds"}), 400
+
+    try:
+        resp = requests.get(
+            f"https://games.roblox.com/v1/games?universeIds={universe_ids}",
+            timeout=10,
+        )
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # ─── Discord Webhook Config (from env vars) ───────────────────────────────────
 # Env vars format: WEBHOOK_<GUILD_ID>=<webhook_url>
 # Example: WEBHOOK_637696690853511184=https://discord.com/api/webhooks/...
