@@ -103,16 +103,16 @@ def _get_global_stats():
         return {}
 
 
-# Create service_stats table on startup
-try:
-    create_service_stats_table()
-    # Test: read current global stats
-    test_stats = _get_global_stats()
-    print(f"[MSForms] Global stats table ready. Current stats: {test_stats}")
-except Exception as e:
-    import traceback
-    print(f"[MSForms] Warning: Could not create stats table: {e}")
-    traceback.print_exc()
+# Create service_stats table on startup (in background to avoid blocking gunicorn)
+def _init_global_stats_table():
+    try:
+        create_service_stats_table()
+        test_stats = _get_global_stats()
+        print(f"[MSForms] Global stats table ready. Current stats: {test_stats}")
+    except Exception as e:
+        print(f"[MSForms] Warning: Could not create stats table: {e}")
+
+threading.Thread(target=_init_global_stats_table, daemon=True, name="msforms-stats-init").start()
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 ALLOW_SEND = True  # Set to True when you want to actually submit the form
