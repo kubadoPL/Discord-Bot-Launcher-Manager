@@ -25,6 +25,10 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.join(script_dir, "..")
 # os.chdir(parent_dir)  # Handled by launcher
 
+import sys
+sys.path.insert(0, os.path.join(parent_dir, "api"))
+from FunctionsModule import get_db_connection, create_service_stats_table
+
 app = Flask(__name__)
 cache = Cache(app, config={"CACHE_TYPE": "simple"})
 
@@ -40,6 +44,70 @@ _session_stats = {
     "random_answers": 0,
     "empty_answers": 0,
 }
+
+# ─── Global Persistent Stats (saved to DB) ─────────────────────────────────────
+FORMS_SERVICE_NAME = "msforms"
+_global_stats_queue = Queue()
+
+
+def _global_stats_worker():
+    """Background thread that increments stats in the database."""
+    while True:
+        task = _global_stats_queue.get()
+        if task is None:
+            break
+        stat_name, amount = task
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO service_stats (service_name, stat_name, value)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE value = value + %s
+                """,
+                (FORMS_SERVICE_NAME, stat_name, amount, amount),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"[MSForms GlobalStats] Error saving {stat_name}: {e}")
+        finally:
+            _global_stats_queue.task_done()
+
+
+_global_stats_thread = threading.Thread(target=_global_stats_worker, daemon=True, name="msforms-global-stats")
+_global_stats_thread.start()
+
+
+def _increment_global_stat(stat_name, amount=1):
+    """Enqueue a global stat increment to be processed in the background."""
+    _global_stats_queue.put((stat_name, amount))
+
+
+def _get_global_stats():
+    """Fetch all global stats from the database."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT stat_name, value FROM service_stats WHERE service_name = %s",
+            (FORMS_SERVICE_NAME,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return {row["stat_name"]: row["value"] for row in rows}
+    except Exception as e:
+        print(f"[MSForms GlobalStats] Error loading: {e}")
+        return {}
+
+
+# Create service_stats table on startup
+try:
+    create_service_stats_table()
+    print("[MSForms] Global stats table ready")
+except Exception as e:
+    print(f"[MSForms] Warning: Could not create stats table: {e}")
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 ALLOW_SEND = True  # Set to True when you want to actually submit the form
@@ -551,11 +619,17 @@ def online_count():
 @app.route("/api/stats")
 @cross_origin()
 def api_stats():
-    """Return FormBot session statistics (forms filled, questions answered, etc.)."""
+    """Return FormBot session (daily) and global (all-time) statistics."""
     with _session_stats_lock:
         stats_copy = dict(_session_stats)
     stats_copy["cached_forms"] = len(_preview_cache)
-    return jsonify(stats_copy)
+
+    global_stats = _get_global_stats()
+
+    return jsonify({
+        "session": stats_copy,
+        "global": global_stats,
+    })
 
 
 @app.route("/update-ai-key", methods=["POST"])
@@ -2474,6 +2548,7 @@ def preview_form():
     # Track preview stat
     with _session_stats_lock:
         _session_stats["forms_previewed"] += 1
+    _increment_global_stat("forms_previewed")
 
     # Check preview cache first (unless forced refresh)
     cached = _preview_cache.get(form_url) if not force_refresh else None
@@ -3982,19 +4057,26 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
         # ─── Track session stats ──────────────────────────────
         with _session_stats_lock:
             _session_stats["forms_filled"] += 1
+            _increment_global_stat("forms_filled")
             if submit_status == "submitted":
                 _session_stats["forms_submitted"] += 1
+                _increment_global_stat("forms_submitted")
             elif submit_status in ("submit_failed", "no_submit_button"):
                 _session_stats["forms_failed"] += 1
+                _increment_global_stat("forms_failed")
             _session_stats["questions_answered"] += len(results)
+            _increment_global_stat("questions_answered", len(results))
             for r in results:
                 src = r.get("source", "")
                 if src == "AI":
                     _session_stats["ai_answers"] += 1
+                    _increment_global_stat("ai_answers")
                 elif src == "Puste":
                     _session_stats["empty_answers"] += 1
+                    _increment_global_stat("empty_answers")
                 else:
                     _session_stats["random_answers"] += 1
+                    _increment_global_stat("random_answers")
 
         _emit("done", final_data)
 
