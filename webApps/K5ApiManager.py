@@ -411,14 +411,14 @@ for key, val in os.environ.items():
 
 
 @app.route("/api/webhooks")
-@cross_origin()
+@cross_origin(origins=_CORS_ORIGINS)
 def api_webhooks():
     """Return list of guilds with webhooks (without exposing URLs)."""
     return jsonify({"guilds": _WEBHOOK_GUILDS})
 
 
 @app.route("/api/share", methods=["POST"])
-@cross_origin()
+@cross_origin(origins=_CORS_ORIGINS)
 def api_share():
     """Proxy webhook message so webhook URLs stay server-side."""
     data = request.get_json(silent=True)
