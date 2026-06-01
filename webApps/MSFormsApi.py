@@ -634,6 +634,7 @@ def api_stats():
     return jsonify({
         "session": stats_copy,
         "global": global_stats,
+        "online": _get_online_count(),
     })
 
 
