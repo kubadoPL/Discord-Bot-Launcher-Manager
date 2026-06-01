@@ -153,6 +153,15 @@ def _do_save_message(msg_obj):
     conn.close()
 
 
+def _do_delete_message(msg_id):
+    """Delete a single chat message from the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM chat_messages WHERE id = %s", (msg_id,))
+    conn.commit()
+    conn.close()
+
+
 def _do_save_emoji(emoji_obj):
     """Save a custom emoji to the database."""
     conn = get_db_connection()
@@ -265,6 +274,9 @@ def _do_delete_session(session_token):
 
 def _db_save_message(msg_obj):
     _db_enqueue(_do_save_message, msg_obj)
+
+def _db_delete_message(msg_id):
+    _db_enqueue(_do_delete_message, msg_id)
 
 def _db_save_emoji(emoji_obj):
     _db_enqueue(_do_save_emoji, emoji_obj)
@@ -1213,6 +1225,39 @@ def send_message():
         chat_messages[station].pop(0)
 
     return jsonify({"success": True, "message": msg_obj})
+
+
+@chat_api.route("/chat/delete", methods=["POST"])
+@cross_origin(**CORS_OPTIONS)
+def delete_message():
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    token = auth_header.split(" ")[1]
+    if token not in user_sessions:
+        return jsonify({"error": "Invalid session"}), 401
+
+    data = request.json
+    message_id = data.get("message_id", "")
+    if not message_id:
+        return jsonify({"error": "Missing message_id"}), 400
+
+    user = user_sessions[token]
+    user_id = user["id"]
+
+    # Find and remove the message across all stations
+    for station_key, msgs in chat_messages.items():
+        for i, msg in enumerate(msgs):
+            if msg["id"] == message_id:
+                # Only the author can delete their own message
+                if msg["user"]["id"] != user_id:
+                    return jsonify({"error": "You can only delete your own messages"}), 403
+                msgs.pop(i)
+                _db_delete_message(message_id)
+                return jsonify({"success": True, "deleted_id": message_id})
+
+    return jsonify({"error": "Message not found"}), 404
 
 
 @chat_api.route("/chat/react", methods=["POST"])
