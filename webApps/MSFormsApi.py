@@ -1809,16 +1809,17 @@ HOME_PAGE_HTML = r"""
     }
 
     function collectSettings() {
+      function _tv(id, def) { var v = parseInt(document.getElementById(id).value); return isNaN(v) ? def : v; }
       return {
         empty_chance: document.getElementById('setting-empty-chance').checked,
         short_answers: document.getElementById('setting-short-answers').checked,
         custom_prompt: (document.getElementById('setting-custom-prompt').value || '').trim(),
         timing: {
-          radio: parseInt(document.getElementById('timing-radio').value) || 5,
-          checkbox: parseInt(document.getElementById('timing-checkbox').value) || 8,
-          text: parseInt(document.getElementById('timing-text').value) || 15,
-          matrix: parseInt(document.getElementById('timing-matrix').value) || 10,
-          offset: parseInt(document.getElementById('timing-offset').value) || 10
+          radio: _tv('timing-radio', 5),
+          checkbox: _tv('timing-checkbox', 8),
+          text: _tv('timing-text', 15),
+          matrix: _tv('timing-matrix', 10),
+          offset: _tv('timing-offset', 10)
         }
       };
     }
