@@ -3986,30 +3986,9 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                 # Check if AI has an answer for this question
                 ai_answer_for_q = None
                 if ai_answers:
-                    # Try by number first
-                    ai_answer_for_q = ai_answers.get(str(question_num))
-                    if ai_answer_for_q is not None and str(question_num) not in _used_ai_nums:
-                        # Validate answer type matches question type
-                        # (duplicate questions shift numbers, causing wrong matches)
-                        type_ok = True
-                        if q_type == "matrix" and not isinstance(ai_answer_for_q, dict):
-                            type_ok = False
-                        elif q_type == "checkbox" and not isinstance(ai_answer_for_q, list):
-                            type_ok = False
-                        elif q_type == "radio" and isinstance(ai_answer_for_q, (dict, list)):
-                            type_ok = False
-
-                        if type_ok:
-                            _used_ai_nums.add(str(question_num))
-                        else:
-                            print(f"[FormBot] AI: Number match Q{question_num} type mismatch (expected {q_type}, got {type(ai_answer_for_q).__name__}), trying title match")
-                            ai_answer_for_q = None
-                    elif ai_answer_for_q is not None:
-                        # This number was already used, try title match instead
-                        ai_answer_for_q = None
-
-                    # Fallback: match by title (handles conditional questions shifting numbers)
-                    if ai_answer_for_q is None and scanned_questions:
+                    # When scanned_questions exist, ALWAYS use title matching first
+                    # (duplicate questions shift numbering, making number-based matching unreliable)
+                    if scanned_questions:
                         fill_title_norm = ' '.join(title.lower().split())
                         for sq in scanned_questions:
                             sq_num_str = str(sq['num'])
@@ -4033,6 +4012,14 @@ def _perform_form_fill(form_url, event_queue=None, weights=None, ai_mode=False, 
                                     _used_ai_nums.add(sq_num_str)
                                     print(f"[FormBot] AI: Matched by title (fill Q{question_num} = scan Q{sq['num']})")
                                     break
+
+                    # Fallback: match by number (only when no scan data, e.g. cached AI answers)
+                    if ai_answer_for_q is None and not scanned_questions:
+                        ai_answer_for_q = ai_answers.get(str(question_num))
+                        if ai_answer_for_q is not None and str(question_num) not in _used_ai_nums:
+                            _used_ai_nums.add(str(question_num))
+                        elif ai_answer_for_q is not None:
+                            ai_answer_for_q = None
 
                 if q_type == "radio":
                     source = "Losowe"
