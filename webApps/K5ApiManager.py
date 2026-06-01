@@ -19,6 +19,7 @@ from api.FunctionsModule import (
     get_roblox_avatar,
     get_db_connection,
     require_api_key,
+    create_service_stats_table,
 )
 
 from flask import render_template
@@ -464,6 +465,165 @@ def api_share():
         return jsonify({"ok": True, "status": resp.status_code}), resp.status_code
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ─── Global Service Stats ──────────────────────────────────────────────────────
+# Ensures the service_stats table exists on startup
+create_service_stats_table()
+
+
+@app.route("/stats/<service_name>", methods=["GET"])
+@cross_origin()
+def get_all_service_stats(service_name):
+    """Return all stats for a given service.
+    Usage: GET /stats/k5portfolio
+    """
+    service_name = service_name.lower().strip()
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT stat_name, value, updated_at, created_at FROM service_stats WHERE service_name = %s",
+        (service_name,),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        return jsonify({"service": service_name, "stats": {}, "message": "No stats found for this service"})
+
+    stats = {}
+    for row in rows:
+        stats[row["stat_name"]] = {
+            "value": row["value"],
+            "updated_at": row["updated_at"].strftime("%Y-%m-%dT%H:%M:%SZ") if row["updated_at"] else None,
+            "created_at": row["created_at"].strftime("%Y-%m-%dT%H:%M:%SZ") if row["created_at"] else None,
+        }
+
+    return jsonify({"service": service_name, "stats": stats})
+
+
+@app.route("/stats/<service_name>/<stat_name>", methods=["GET"])
+@cross_origin()
+def get_service_stat(service_name, stat_name):
+    """Return a single stat for a service.
+    Usage: GET /stats/k5portfolio/totalvisits
+    """
+    service_name = service_name.lower().strip()
+    stat_name = stat_name.lower().strip()
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT value, updated_at, created_at FROM service_stats WHERE service_name = %s AND stat_name = %s",
+        (service_name, stat_name),
+    )
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+        return jsonify({
+            "service": service_name,
+            "stat": stat_name,
+            "value": row["value"],
+            "updated_at": row["updated_at"].strftime("%Y-%m-%dT%H:%M:%SZ") if row["updated_at"] else None,
+            "created_at": row["created_at"].strftime("%Y-%m-%dT%H:%M:%SZ") if row["created_at"] else None,
+        })
+    else:
+        return jsonify({"error": "Stat not found", "service": service_name, "stat": stat_name}), 404
+
+
+@app.route("/stats/<service_name>/<stat_name>", methods=["POST"])
+@require_api_key
+def update_service_stat(service_name, stat_name):
+    """Create or update a stat for a service.
+    Usage: POST /stats/k5portfolio/totalvisits
+    Body JSON:
+      {"value": 100}          -> sets the stat to exactly 100
+      {"increment": 1}        -> adds 1 to the current value (creates with 1 if new)
+      {"increment": -5}       -> subtracts 5 from the current value
+    """
+    service_name = service_name.lower().strip()
+    stat_name = stat_name.lower().strip()
+
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Missing or invalid JSON body"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    if "value" in data:
+        # Absolute set
+        new_value = float(data["value"])
+        cursor.execute(
+            """
+            INSERT INTO service_stats (service_name, stat_name, value)
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE value = %s
+            """,
+            (service_name, stat_name, new_value, new_value),
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({"service": service_name, "stat": stat_name, "value": new_value, "action": "set"})
+
+    elif "increment" in data:
+        # Relative increment (or decrement if negative)
+        increment = float(data["increment"])
+        cursor.execute(
+            """
+            INSERT INTO service_stats (service_name, stat_name, value)
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE value = value + %s
+            """,
+            (service_name, stat_name, increment, increment),
+        )
+        conn.commit()
+
+        # Fetch the new value to return
+        cursor.execute(
+            "SELECT value FROM service_stats WHERE service_name = %s AND stat_name = %s",
+            (service_name, stat_name),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return jsonify({
+            "service": service_name,
+            "stat": stat_name,
+            "value": row["value"] if row else increment,
+            "action": "increment",
+            "increment": increment,
+        })
+
+    else:
+        conn.close()
+        return jsonify({"error": "Body must contain 'value' or 'increment'"}), 400
+
+
+@app.route("/stats/<service_name>/<stat_name>", methods=["DELETE"])
+@require_api_key
+def delete_service_stat(service_name, stat_name):
+    """Delete a specific stat for a service.
+    Usage: DELETE /stats/k5portfolio/totalvisits
+    """
+    service_name = service_name.lower().strip()
+    stat_name = stat_name.lower().strip()
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM service_stats WHERE service_name = %s AND stat_name = %s",
+        (service_name, stat_name),
+    )
+    affected = cursor.rowcount
+    conn.commit()
+    conn.close()
+
+    if affected > 0:
+        return jsonify({"message": "Stat deleted", "service": service_name, "stat": stat_name})
+    else:
+        return jsonify({"error": "Stat not found"}), 404
 
 
 def run_api():

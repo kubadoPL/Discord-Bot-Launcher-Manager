@@ -158,6 +158,26 @@ def createtable():
     )
     conn.commit()
 
+def create_service_stats_table():
+    """Create the service_stats table if it doesn't exist."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS service_stats (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        service_name VARCHAR(128) NOT NULL,
+        stat_name VARCHAR(128) NOT NULL,
+        value DOUBLE NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_service_stat (service_name, stat_name)
+    )
+    """
+    )
+    conn.commit()
+    conn.close()
+
 def get_running_bots():
     """Get a list of currently running bot names."""
     BOTS = load_bots() 
