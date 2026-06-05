@@ -149,6 +149,18 @@
             color: var(--text-color);
         }
 
+        .service-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #6366F1, #818cf8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            flex-shrink: 0;
+        }
+
         .muted {
             color: var(--muted-text);
         }
@@ -348,6 +360,13 @@
                 <p class="muted">Loading...</p>
             </div>
         </section>
+
+        <section>
+            <h2>Currently Running Web Services</h2>
+            <div id="service-list">
+                <p class="muted">Loading...</p>
+            </div>
+        </section>
     </main>
 
 
@@ -390,7 +409,43 @@
             }
         }
 
-        window.onload = loadRunningBots;
+        window.onload = function() {
+            loadRunningBots();
+            loadWebServices();
+        };
+
+        async function loadWebServices() {
+            try {
+                const response = await fetch('/K5ApiManager/api/running-services');
+                const data = await response.json();
+                const container = document.getElementById('service-list');
+                container.innerHTML = '';
+
+                if (!data.web_services || data.web_services.length === 0) {
+                    container.innerHTML = '<p class="muted">No web services running.</p>';
+                    return;
+                }
+
+                data.web_services.forEach(service => {
+                    const div = document.createElement('div');
+                    div.className = 'bot-profile';
+
+                    const icon = document.createElement('div');
+                    icon.className = 'service-icon';
+                    icon.innerHTML = '🌐';
+
+                    const name = document.createElement('span');
+                    name.textContent = service;
+
+                    div.appendChild(icon);
+                    div.appendChild(name);
+                    container.appendChild(div);
+                });
+            } catch (err) {
+                console.error('Failed to load web services:', err);
+                document.getElementById('service-list').innerHTML = '<p class="muted">Error loading services.</p>';
+            }
+        }
 
         // ─── Server Uptime ────────────────────────────────
         var _uptimeSec = 0;
