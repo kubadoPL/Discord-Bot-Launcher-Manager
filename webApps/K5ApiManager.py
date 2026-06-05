@@ -400,6 +400,23 @@ def api_uptime():
     })
 
 
+@app.route("/api/running-services")
+@cross_origin()
+@cache.cached(timeout=30)
+def api_running_services():
+    """Return the count of currently running Discord bots and web services."""
+    bots = get_running_bots()
+    # Count web service .py files in the webApps directory
+    webapps_dir = os.path.join(script_dir)
+    web_services = [f for f in os.listdir(webapps_dir) if f.endswith(".py")]
+    return jsonify({
+        "bots_count": len(bots),
+        "web_services_count": len(web_services),
+        "bots": [b.get("username", "unknown") for b in bots],
+        "web_services": [f.replace(".py", "") for f in web_services],
+    })
+
+
 # ─── Roblox Game Stats Proxy ──────────────────────────────────────────────────
 
 @app.route("/api/game-stats")
