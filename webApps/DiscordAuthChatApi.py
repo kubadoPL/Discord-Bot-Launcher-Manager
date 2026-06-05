@@ -906,6 +906,16 @@ def get_chat_history(station):
 
     online_count, online_users_list = get_online_data(station_key)
 
+    # If only stats are needed (e.g. portfolio), skip messages and user list
+    stats_only = request.args.get("stats_only") == "1"
+    if stats_only:
+        return jsonify({
+            "station": station_key,
+            "online_count": online_count,
+            "online_users": online_users_list,
+            "server_time": datetime.utcnow().isoformat() + "Z",
+        })
+
     # Only return user list if specifically requested via ?full_users=1
     # This reduces payload size for every poll/history load
     include_full_users = request.args.get("full_users") == "1"
