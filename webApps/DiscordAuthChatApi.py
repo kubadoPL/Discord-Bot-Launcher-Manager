@@ -1344,6 +1344,96 @@ def get_ranking():
         return jsonify({"error": "Failed to generate ranking"}), 500
 
 
+@chat_api.route("/chat/radio-stats")
+@cross_origin(**CORS_OPTIONS)
+def get_radio_stats():
+    """Return lightweight stats for the K5 Studio portfolio page.
+    Returns: total_registered_users, top_listener_time_seconds,
+             unique_songs_tracked, total_listening_time_seconds.
+    """
+    now = datetime.utcnow()
+
+    # Try to use ranking cache if fresh
+    if (
+        _ranking_cache["data"]
+        and _ranking_cache["timestamp"]
+        and (now - _ranking_cache["timestamp"]).total_seconds() < RANKING_CACHE_TTL
+    ):
+        cached = _ranking_cache["data"]
+        top_time = 0
+        if cached.get("top_listeners") and len(cached["top_listeners"]) > 0:
+            top_time = cached["top_listeners"][0].get("totalTime", 0)
+
+        # Count unique songs from top_songs list length (already aggregated)
+        unique_songs = len(cached.get("top_songs", []))
+
+        # Total listening time = sum of all user totals
+        total_time = sum(u.get("totalTime", 0) for u in cached.get("top_listeners", []))
+
+        # Registered users: count from DB
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM chat_user_profiles")
+            reg_users = cursor.fetchone()[0]
+            conn.close()
+        except Exception:
+            reg_users = cached.get("total_users", 0)
+
+        return jsonify({
+            "total_registered_users": reg_users,
+            "top_listener_time_seconds": top_time,
+            "unique_songs_tracked": unique_songs,
+            "total_listening_time_seconds": total_time,
+        })
+
+    # No cache — do a direct lightweight query
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        # Total registered users
+        cursor.execute("SELECT COUNT(*) AS cnt FROM chat_user_profiles")
+        reg_users = cursor.fetchone()["cnt"]
+
+        # Fetch all listeningStats
+        cursor.execute(
+            "SELECT data_value FROM user_data WHERE data_key = 'listeningStats'"
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        top_time = 0
+        total_time = 0
+        all_song_titles = set()
+
+        for row in rows:
+            try:
+                stats = json.loads(row["data_value"]) if row["data_value"] else {}
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            user_total = stats.get("totalTime", 0)
+            total_time += user_total
+            if user_total > top_time:
+                top_time = user_total
+
+            for title in stats.get("songs", {}).keys():
+                all_song_titles.add(title)
+
+        return jsonify({
+            "total_registered_users": reg_users,
+            "top_listener_time_seconds": top_time,
+            "unique_songs_tracked": len(all_song_titles),
+            "total_listening_time_seconds": total_time,
+        })
+
+    except Exception as e:
+        print(f"[RADIO-STATS] Error: {e}")
+        return jsonify({"error": "Failed to fetch radio stats"}), 500
+
+
+
 @chat_api.route("/chat/send", methods=["POST"])
 @cross_origin(**CORS_OPTIONS)
 def send_message():
