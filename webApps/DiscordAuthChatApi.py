@@ -1331,6 +1331,7 @@ def get_ranking():
             "top_favorited": top_favorited,
             "favorites_count": fav_count_map,
             "total_users": len(user_totals),
+            "total_unique_songs": len(global_songs),
             "generated_at": now.isoformat() + "Z",
         }
 
@@ -1364,8 +1365,8 @@ def get_radio_stats():
         if cached.get("top_listeners") and len(cached["top_listeners"]) > 0:
             top_time = cached["top_listeners"][0].get("totalTime", 0)
 
-        # Count unique songs from top_songs list length (already aggregated)
-        unique_songs = len(cached.get("top_songs", []))
+        # Count unique songs (full count stored in ranking cache)
+        unique_songs = cached.get("total_unique_songs", 0)
 
         # Total listening time = sum of all user totals
         total_time = sum(u.get("totalTime", 0) for u in cached.get("top_listeners", []))
