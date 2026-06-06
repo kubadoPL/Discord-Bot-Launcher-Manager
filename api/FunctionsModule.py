@@ -139,6 +139,7 @@ def get_db_connection():
         database=config.DATABASE,
         port=config.PORT,
         autocommit=True,
+        connection_timeout=10,
     )
     print("[INFO] Database connection established.")
     return conn
