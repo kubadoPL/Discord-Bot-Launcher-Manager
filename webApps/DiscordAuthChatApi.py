@@ -1172,6 +1172,194 @@ def save_user_data():
     return jsonify({"success": True, "saved": saved_keys})
 
 
+# --- Public User Profile (for viewing other users) ---
+
+
+@chat_api.route("/user/profile/<user_id>")
+@cross_origin(**CORS_OPTIONS)
+def get_user_profile(user_id):
+    """Get public profile data for a specific user (stats, favorites, history)."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        # Get user profile info
+        cursor.execute(
+            "SELECT user_id, username, global_name, avatar_url, banner_url FROM chat_user_profiles WHERE user_id = %s",
+            (user_id,),
+        )
+        profile_row = cursor.fetchone()
+        if not profile_row:
+            if user_id in user_profiles:
+                profile_row = user_profiles[user_id]
+            else:
+                conn.close()
+                return jsonify({"error": "User not found"}), 404
+
+        # Get user data (listening stats, favorites, song history)
+        cursor.execute(
+            "SELECT data_key, data_value FROM user_data WHERE user_id = %s",
+            (user_id,),
+        )
+        data_rows = cursor.fetchall()
+        conn.close()
+
+        user_data = {}
+        for row in data_rows:
+            try:
+                user_data[row["data_key"]] = json.loads(row["data_value"]) if row["data_value"] else None
+            except (json.JSONDecodeError, TypeError):
+                user_data[row["data_key"]] = None
+
+        # Parse listening stats (safely handle None)
+        listening_stats = user_data.get("listeningStats") or {}
+        if not isinstance(listening_stats, dict):
+            listening_stats = {}
+        total_time = listening_stats.get("totalTime", 0)
+        songs = listening_stats.get("songs", {})
+        if not isinstance(songs, dict):
+            songs = {}
+
+        # Station breakdown
+        station_breakdown = {}
+        top_tracks = []
+        for title, song_data in songs.items():
+            if not isinstance(song_data, dict):
+                continue
+            station = song_data.get("station", "Unknown")
+            listen_time = song_data.get("listeningTime", 0)
+            play_count = song_data.get("playCount", 0)
+            cover = song_data.get("cover", "")
+
+            if station not in station_breakdown:
+                station_breakdown[station] = {"time": 0, "songs": 0}
+            station_breakdown[station]["time"] += listen_time
+            station_breakdown[station]["songs"] += 1
+
+            top_tracks.append({
+                "title": title,
+                "playCount": play_count,
+                "listeningTime": listen_time,
+                "cover": cover,
+                "station": station,
+            })
+
+        top_tracks.sort(key=lambda x: (x.get("playCount", 0), x.get("listeningTime", 0)), reverse=True)
+        sorted_stations = sorted(station_breakdown.items(), key=lambda x: x[1]["time"], reverse=True)
+
+        # Get favorites (limit to 10)
+        favorites = user_data.get("songFavorites") or []
+        if not isinstance(favorites, list):
+            favorites = []
+        favorites = favorites[:10]
+
+        # Get song history (last 10)
+        history = user_data.get("songHistory") or []
+        if not isinstance(history, list):
+            history = []
+        history = history[:10]
+
+        # Find ranking position (safe access to _ranking_cache defined below)
+        ranking_pos = None
+        try:
+            if _ranking_cache.get("data") and _ranking_cache["data"].get("top_listeners"):
+                for i, entry in enumerate(_ranking_cache["data"]["top_listeners"]):
+                    if entry.get("user", {}).get("id") == user_id:
+                        ranking_pos = i + 1
+                        break
+        except Exception:
+            pass
+
+        # Check online status
+        is_online = False
+        current_station = None
+        last_seen = None
+        if user_id in all_user_activity:
+            last_ts = all_user_activity[user_id]
+            diff = (datetime.utcnow() - last_ts).total_seconds()
+            is_online = diff < ONLINE_THRESHOLD_SECONDS
+            last_seen = last_ts.isoformat() + "Z"
+            raw_station = user_last_station.get(user_id, "")
+            current_station = STATION_NAMES.get(raw_station, raw_station) if raw_station else None
+
+        return jsonify({
+            "success": True,
+            "user": {
+                "id": profile_row.get("user_id", profile_row.get("id", user_id)),
+                "username": profile_row.get("username", "Unknown"),
+                "global_name": profile_row.get("global_name") or profile_row.get("username", "Unknown"),
+                "avatar_url": profile_row.get("avatar_url", ""),
+                "banner_url": profile_row.get("banner_url", ""),
+            },
+            "stats": {
+                "total_time": total_time,
+                "song_count": len(songs),
+                "station_breakdown": [
+                    {"station": name, "time": data["time"], "songs": data["songs"]}
+                    for name, data in sorted_stations
+                ],
+                "top_tracks": top_tracks[:10],
+                "ranking_position": ranking_pos,
+            },
+            "favorites": favorites,
+            "history": history,
+            "guilds": [],
+            "online": {
+                "is_online": is_online,
+                "current_station": current_station,
+                "last_seen": last_seen,
+            },
+        })
+
+    except Exception as e:
+        print(f"[UserProfile] Error: {e}")
+        return jsonify({"error": "Failed to load user profile"}), 500
+
+
+@chat_api.route("/user/guild-check/<user_id>/<guild_id>")
+@cross_origin(**CORS_OPTIONS)
+def check_user_guild(user_id, guild_id):
+    """Check if a user is a member of a specific guild (via bot token)."""
+    bot_token = os.environ.get("DISCORD_BOT_TOKEN")
+    if not bot_token:
+        return jsonify({"guild_id": guild_id, "is_member": False, "guild_name": None, "guild_icon": None})
+
+    try:
+        resp = http_requests.get(
+            f"{DISCORD_API_URL}/guilds/{guild_id}/members/{user_id}",
+            headers={"Authorization": f"Bot {bot_token}"},
+            timeout=4,
+        )
+        is_member = resp.status_code == 200
+
+        guild_name = f"Server {guild_id}"
+        guild_icon = None
+        try:
+            guild_resp = http_requests.get(
+                f"{DISCORD_API_URL}/guilds/{guild_id}",
+                headers={"Authorization": f"Bot {bot_token}"},
+                timeout=4,
+            )
+            if guild_resp.status_code == 200:
+                guild_info = guild_resp.json()
+                guild_name = guild_info.get("name", guild_name)
+                icon_hash = guild_info.get("icon")
+                if icon_hash:
+                    guild_icon = f"https://cdn.discordapp.com/icons/{guild_id}/{icon_hash}.png?size=128"
+        except Exception:
+            pass
+
+        return jsonify({
+            "guild_id": guild_id,
+            "is_member": is_member,
+            "guild_name": guild_name,
+            "guild_icon": guild_icon,
+        })
+    except Exception as e:
+        print(f"[GuildCheck] Error: {e}")
+        return jsonify({"guild_id": guild_id, "is_member": False, "guild_name": None, "guild_icon": None})
+
+
 # --- Global Ranking (aggregated from all users' listeningStats) ---
 
 _ranking_cache = {"data": None, "timestamp": None}
