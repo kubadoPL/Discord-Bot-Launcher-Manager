@@ -64,6 +64,12 @@ all_user_activity = {}  # user_id -> last_activity_timestamp (global)
 custom_emojis = []  # List of {id, name, url, creator_id}
 anonymous_listeners = {}  # station_key -> {anon_id -> last_activity_timestamp}
 
+# Guild list for profile guild checks (built from WEBHOOK_ env vars, same as K5ApiManager)
+WEBHOOK_GUILDS = []
+for _env_key in os.environ:
+    if _env_key.startswith("WEBHOOK_"):
+        WEBHOOK_GUILDS.append({"id": _env_key.replace("WEBHOOK_", "")})
+
 # Cache for online users results to reduce CPU load
 online_users_cache = (
     {}
@@ -1170,6 +1176,197 @@ def save_user_data():
         saved_keys.append(key)
 
     return jsonify({"success": True, "saved": saved_keys})
+
+
+# --- Public User Profile (for viewing other users) ---
+
+
+@chat_api.route("/user/profile/<user_id>")
+@cross_origin(**CORS_OPTIONS)
+def get_user_profile(user_id):
+    """Get public profile data for a specific user (stats, favorites, history, guilds)."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        # Get user profile info
+        cursor.execute(
+            "SELECT user_id, username, global_name, avatar_url, banner_url FROM chat_user_profiles WHERE user_id = %s",
+            (user_id,),
+        )
+        profile_row = cursor.fetchone()
+        if not profile_row:
+            # Try in-memory profiles
+            if user_id in user_profiles:
+                profile_row = user_profiles[user_id]
+            else:
+                conn.close()
+                return jsonify({"error": "User not found"}), 404
+
+        # Get user data (listening stats, favorites, song history)
+        cursor.execute(
+            "SELECT data_key, data_value FROM user_data WHERE user_id = %s",
+            (user_id,),
+        )
+        data_rows = cursor.fetchall()
+        conn.close()
+
+        user_data = {}
+        for row in data_rows:
+            try:
+                user_data[row["data_key"]] = json.loads(row["data_value"]) if row["data_value"] else None
+            except (json.JSONDecodeError, TypeError):
+                user_data[row["data_key"]] = None
+
+        # Parse listening stats
+        listening_stats = user_data.get("listeningStats", {})
+        total_time = listening_stats.get("totalTime", 0)
+        songs = listening_stats.get("songs", {})
+
+        # Station breakdown
+        station_breakdown = {}
+        top_tracks = []
+        for title, song_data in songs.items():
+            station = song_data.get("station", "Unknown")
+            listen_time = song_data.get("listeningTime", 0)
+            play_count = song_data.get("playCount", 0)
+            cover = song_data.get("cover", "")
+
+            if station not in station_breakdown:
+                station_breakdown[station] = {"time": 0, "songs": 0}
+            station_breakdown[station]["time"] += listen_time
+            station_breakdown[station]["songs"] += 1
+
+            top_tracks.append({
+                "title": title,
+                "playCount": play_count,
+                "listeningTime": listen_time,
+                "cover": cover,
+                "station": station,
+            })
+
+        # Sort top tracks by play count then listening time
+        top_tracks.sort(key=lambda x: (x["playCount"], x["listeningTime"]), reverse=True)
+
+        # Sort station breakdown by time
+        sorted_stations = sorted(station_breakdown.items(), key=lambda x: x[1]["time"], reverse=True)
+
+        # Get favorites (just titles and covers, limit to 10)
+        favorites = user_data.get("songFavorites", [])
+        if isinstance(favorites, list):
+            favorites = favorites[:10]
+        else:
+            favorites = []
+
+        # Get song history (last 10)
+        history = user_data.get("songHistory", [])
+        if isinstance(history, list):
+            history = history[:10]
+        else:
+            history = []
+
+        # Find ranking position from ranking cache if available
+        ranking_pos = None
+        if _ranking_cache["data"] and _ranking_cache["data"].get("top_listeners"):
+            for i, entry in enumerate(_ranking_cache["data"]["top_listeners"]):
+                if entry["user"]["id"] == user_id:
+                    ranking_pos = i + 1
+                    break
+
+        # Check guild memberships using bot token (server-side check)
+        guild_memberships = []
+        bot_token = os.environ.get("DISCORD_BOT_TOKEN")
+        if bot_token:
+            for guild in WEBHOOK_GUILDS:
+                guild_id = guild.get("id", "")
+                try:
+                    resp = http_requests.get(
+                        f"{DISCORD_API_URL}/guilds/{guild_id}/members/{user_id}",
+                        headers={"Authorization": f"Bot {bot_token}"},
+                        timeout=5,
+                    )
+                    if resp.status_code == 200:
+                        # User is a member
+                        # Get guild info for icon
+                        guild_resp = http_requests.get(
+                            f"{DISCORD_API_URL}/guilds/{guild_id}",
+                            headers={"Authorization": f"Bot {bot_token}"},
+                            timeout=5,
+                        )
+                        guild_info = guild_resp.json() if guild_resp.status_code == 200 else {}
+                        icon_hash = guild_info.get("icon")
+                        icon_url = (
+                            f"https://cdn.discordapp.com/icons/{guild_id}/{icon_hash}.png?size=128"
+                            if icon_hash else None
+                        )
+                        guild_memberships.append({
+                            "guild_id": guild_id,
+                            "guild_name": guild_info.get("name", f"Server {guild_id}"),
+                            "guild_icon": icon_url,
+                            "is_member": True,
+                        })
+                    else:
+                        guild_memberships.append({
+                            "guild_id": guild_id,
+                            "guild_name": f"Server {guild_id}",
+                            "guild_icon": None,
+                            "is_member": False,
+                        })
+                except Exception as e:
+                    print(f"[UserProfile] Error checking guild {guild_id}: {e}")
+                    guild_memberships.append({
+                        "guild_id": guild_id,
+                        "guild_name": f"Server {guild_id}",
+                        "guild_icon": None,
+                        "is_member": False,
+                    })
+
+        # Check online status
+        is_online = False
+        current_station = None
+        last_seen = None
+        if user_id in all_user_activity:
+            last_ts = all_user_activity[user_id]
+            diff = (datetime.utcnow() - last_ts).total_seconds()
+            is_online = diff < ONLINE_THRESHOLD_SECONDS
+            last_seen = last_ts.isoformat() + "Z"
+            raw_station = user_last_station.get(user_id, "")
+            current_station = STATION_NAMES.get(raw_station, raw_station) if raw_station else None
+
+        result = {
+            "success": True,
+            "user": {
+                "id": profile_row.get("user_id", profile_row.get("id", user_id)),
+                "username": profile_row.get("username", "Unknown"),
+                "global_name": profile_row.get("global_name") or profile_row.get("username", "Unknown"),
+                "avatar_url": profile_row.get("avatar_url", ""),
+                "banner_url": profile_row.get("banner_url", ""),
+            },
+            "stats": {
+                "total_time": total_time,
+                "song_count": len(songs),
+                "station_breakdown": [
+                    {"station": name, "time": data["time"], "songs": data["songs"]}
+                    for name, data in sorted_stations
+                ],
+                "top_tracks": top_tracks[:10],
+                "ranking_position": ranking_pos,
+            },
+            "favorites": favorites,
+            "history": history,
+            "guilds": guild_memberships,
+            "online": {
+                "is_online": is_online,
+                "current_station": current_station,
+                "last_seen": last_seen,
+            },
+        }
+
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"[UserProfile] Error: {e}")
+        return jsonify({"error": "Failed to load user profile"}), 500
 
 
 # --- Global Ranking (aggregated from all users' listeningStats) ---
