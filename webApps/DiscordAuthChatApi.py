@@ -1321,8 +1321,9 @@ def get_user_profile(user_id):
 @cross_origin(**CORS_OPTIONS)
 def check_user_guild(user_id, guild_id):
     """Check if a user is a member of a specific guild (via bot token)."""
-    bot_token = os.environ.get("DISCORD_BOT_TOKEN")
+    bot_token = os.environ.get("DISCORD_BOT_TOKEN") or os.environ.get("SOCIALCREDITBOT_TOKEN")
     if not bot_token:
+        print("[GuildCheck] No bot token available (DISCORD_BOT_TOKEN / SOCIALCREDITBOT_TOKEN)")
         return jsonify({"guild_id": guild_id, "is_member": False, "guild_name": None, "guild_icon": None})
 
     try:
