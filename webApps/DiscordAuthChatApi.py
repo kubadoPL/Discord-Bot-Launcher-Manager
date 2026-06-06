@@ -1326,12 +1326,18 @@ def check_user_guild(user_id, guild_id):
         return jsonify({"guild_id": guild_id, "is_member": False, "guild_name": None, "guild_icon": None})
 
     try:
+        member_url = f"{DISCORD_API_URL}/guilds/{guild_id}/members/{user_id}"
         resp = http_requests.get(
-            f"{DISCORD_API_URL}/guilds/{guild_id}/members/{user_id}",
+            member_url,
             headers={"Authorization": f"Bot {bot_token}"},
             timeout=4,
         )
         is_member = resp.status_code == 200
+
+        if not is_member:
+            print(f"[GuildCheck] User {user_id} NOT member of guild {guild_id}: status={resp.status_code}, body={resp.text[:300]}")
+        else:
+            print(f"[GuildCheck] User {user_id} IS member of guild {guild_id}")
 
         guild_name = f"Server {guild_id}"
         guild_icon = None
@@ -1347,6 +1353,8 @@ def check_user_guild(user_id, guild_id):
                 icon_hash = guild_info.get("icon")
                 if icon_hash:
                     guild_icon = f"https://cdn.discordapp.com/icons/{guild_id}/{icon_hash}.png?size=128"
+            else:
+                print(f"[GuildCheck] Guild info fetch failed for {guild_id}: status={guild_resp.status_code}, body={guild_resp.text[:200]}")
         except Exception:
             pass
 
