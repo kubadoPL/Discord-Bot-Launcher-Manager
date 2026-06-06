@@ -64,12 +64,6 @@ all_user_activity = {}  # user_id -> last_activity_timestamp (global)
 custom_emojis = []  # List of {id, name, url, creator_id}
 anonymous_listeners = {}  # station_key -> {anon_id -> last_activity_timestamp}
 
-# Guild list for profile guild checks (built from WEBHOOK_ env vars, same as K5ApiManager)
-WEBHOOK_GUILDS = []
-for _env_key in os.environ:
-    if _env_key.startswith("WEBHOOK_"):
-        WEBHOOK_GUILDS.append({"id": _env_key.replace("WEBHOOK_", "")})
-
 # Cache for online users results to reduce CPU load
 online_users_cache = (
     {}
@@ -1184,7 +1178,7 @@ def save_user_data():
 @chat_api.route("/user/profile/<user_id>")
 @cross_origin(**CORS_OPTIONS)
 def get_user_profile(user_id):
-    """Get public profile data for a specific user (stats, favorites, history, guilds)."""
+    """Get public profile data for a specific user (stats, favorites, history)."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
@@ -1218,15 +1212,19 @@ def get_user_profile(user_id):
             except (json.JSONDecodeError, TypeError):
                 user_data[row["data_key"]] = None
 
-        # Parse listening stats
-        listening_stats = user_data.get("listeningStats", {})
-        total_time = listening_stats.get("totalTime", 0)
-        songs = listening_stats.get("songs", {})
+        # Parse listening stats (safely handle None)
+        listening_stats = user_data.get("listeningStats") or {}
+        total_time = listening_stats.get("totalTime", 0) if isinstance(listening_stats, dict) else 0
+        songs = listening_stats.get("songs", {}) if isinstance(listening_stats, dict) else {}
+        if not isinstance(songs, dict):
+            songs = {}
 
         # Station breakdown
         station_breakdown = {}
         top_tracks = []
         for title, song_data in songs.items():
+            if not isinstance(song_data, dict):
+                continue
             station = song_data.get("station", "Unknown")
             listen_time = song_data.get("listeningTime", 0)
             play_count = song_data.get("playCount", 0)
@@ -1246,20 +1244,20 @@ def get_user_profile(user_id):
             })
 
         # Sort top tracks by play count then listening time
-        top_tracks.sort(key=lambda x: (x["playCount"], x["listeningTime"]), reverse=True)
+        top_tracks.sort(key=lambda x: (x.get("playCount", 0), x.get("listeningTime", 0)), reverse=True)
 
         # Sort station breakdown by time
         sorted_stations = sorted(station_breakdown.items(), key=lambda x: x[1]["time"], reverse=True)
 
         # Get favorites (just titles and covers, limit to 10)
-        favorites = user_data.get("songFavorites", [])
+        favorites = user_data.get("songFavorites") or []
         if isinstance(favorites, list):
             favorites = favorites[:10]
         else:
             favorites = []
 
         # Get song history (last 10)
-        history = user_data.get("songHistory", [])
+        history = user_data.get("songHistory") or []
         if isinstance(history, list):
             history = history[:10]
         else:
@@ -1267,59 +1265,14 @@ def get_user_profile(user_id):
 
         # Find ranking position from ranking cache if available
         ranking_pos = None
-        if _ranking_cache["data"] and _ranking_cache["data"].get("top_listeners"):
-            for i, entry in enumerate(_ranking_cache["data"]["top_listeners"]):
-                if entry["user"]["id"] == user_id:
-                    ranking_pos = i + 1
-                    break
-
-        # Check guild memberships using bot token (server-side check)
-        guild_memberships = []
-        bot_token = os.environ.get("DISCORD_BOT_TOKEN")
-        if bot_token:
-            for guild in WEBHOOK_GUILDS:
-                guild_id = guild.get("id", "")
-                try:
-                    resp = http_requests.get(
-                        f"{DISCORD_API_URL}/guilds/{guild_id}/members/{user_id}",
-                        headers={"Authorization": f"Bot {bot_token}"},
-                        timeout=5,
-                    )
-                    if resp.status_code == 200:
-                        # User is a member
-                        # Get guild info for icon
-                        guild_resp = http_requests.get(
-                            f"{DISCORD_API_URL}/guilds/{guild_id}",
-                            headers={"Authorization": f"Bot {bot_token}"},
-                            timeout=5,
-                        )
-                        guild_info = guild_resp.json() if guild_resp.status_code == 200 else {}
-                        icon_hash = guild_info.get("icon")
-                        icon_url = (
-                            f"https://cdn.discordapp.com/icons/{guild_id}/{icon_hash}.png?size=128"
-                            if icon_hash else None
-                        )
-                        guild_memberships.append({
-                            "guild_id": guild_id,
-                            "guild_name": guild_info.get("name", f"Server {guild_id}"),
-                            "guild_icon": icon_url,
-                            "is_member": True,
-                        })
-                    else:
-                        guild_memberships.append({
-                            "guild_id": guild_id,
-                            "guild_name": f"Server {guild_id}",
-                            "guild_icon": None,
-                            "is_member": False,
-                        })
-                except Exception as e:
-                    print(f"[UserProfile] Error checking guild {guild_id}: {e}")
-                    guild_memberships.append({
-                        "guild_id": guild_id,
-                        "guild_name": f"Server {guild_id}",
-                        "guild_icon": None,
-                        "is_member": False,
-                    })
+        try:
+            if _ranking_cache.get("data") and _ranking_cache["data"].get("top_listeners"):
+                for i, entry in enumerate(_ranking_cache["data"]["top_listeners"]):
+                    if entry.get("user", {}).get("id") == user_id:
+                        ranking_pos = i + 1
+                        break
+        except Exception:
+            pass
 
         # Check online status
         is_online = False
@@ -1354,7 +1307,7 @@ def get_user_profile(user_id):
             },
             "favorites": favorites,
             "history": history,
-            "guilds": guild_memberships,
+            "guilds": [],
             "online": {
                 "is_online": is_online,
                 "current_station": current_station,
