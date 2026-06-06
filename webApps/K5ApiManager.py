@@ -486,7 +486,10 @@ def api_share():
 
 # ─── Global Service Stats ──────────────────────────────────────────────────────
 # Ensures the service_stats table exists on startup
-create_service_stats_table()
+try:
+    create_service_stats_table()
+except Exception as _e:
+    print(f"[K5ApiManager] WARNING: Could not create service_stats table on startup: {_e}")
 
 
 @app.route("/stats/<service_name>", methods=["GET"])
