@@ -1185,7 +1185,7 @@ def get_user_profile(user_id):
 
         # Get user profile info
         cursor.execute(
-            "SELECT user_id, username, global_name, avatar_url, banner_url FROM chat_user_profiles WHERE user_id = %s",
+            "SELECT user_id, username, global_name, avatar_url, banner_url, accent_color FROM chat_user_profiles WHERE user_id = %s",
             (user_id,),
         )
         profile_row = cursor.fetchone()
@@ -1290,6 +1290,7 @@ def get_user_profile(user_id):
                 "global_name": profile_row.get("global_name") or profile_row.get("username", "Unknown"),
                 "avatar_url": profile_row.get("avatar_url", ""),
                 "banner_url": profile_row.get("banner_url", ""),
+                "accent_color": profile_row.get("accent_color"),
             },
             "stats": {
                 "total_time": total_time,
