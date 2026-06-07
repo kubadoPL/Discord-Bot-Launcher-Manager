@@ -1,0 +1,205 @@
+{
+  "1": 1,
+  "2": 1,
+  "3": 0,
+  "4": 5,
+  "5": 2,
+  "6": 0,
+  "7": 0,
+  "8": {
+    "Samochód prywatny": 0,
+    "Komunikacja miejska (autobus, tramwaj, kolej aglomeracyjna)": 0,
+    "Rower własny": 1,
+    "Hulajnoga elektryczna własna": 2,
+    "Hulajnoga elektryczna na minuty": 1,
+    "Carsharing (krótkoterminowy wynajem samochodów)": 2,
+    "Carpooling (wspólne przejazdy samochodem z innymi pasażerami)": 3,
+    "Motocykl / skuter / Motorower": 3,
+    "Chodzę pieszo": 0
+  },
+  "9": {
+    "Hulajnoga elektryczna": 0,
+    "Rower publiczny": 0,
+    "Samochód w ramach carsharingu": 0,
+    "Skuter miejski elektryczny": 0
+  },
+  "10": [0, 2, 4],
+  "11": {
+    "Hulajnoga elektryczna": 0,
+    "Rower publiczny": 0,
+    "Samochód w ramach carsharingu": 1,
+    "Skuter miejski elektryczny": 1
+  },
+  "12": {
+    "Skutery miejskie elektryczne na minuty": 1,
+    "Deskorolki elektryczne na minuty": 2,
+    "Rowery elektryczne na minuty": 0,
+    "Mikrosamochody na minuty": 1
+  },
+  "13": {
+    "Hulajnogi elektryczne na minuty": 0,
+    "Rower publiczny": 0
+  },
+  "14": 0,
+  "15": "Miasto powinno zainwestować w więcej bezpiecznych dróg rowerowych i parkingów, a także zadbać o edukację użytkowników i lepsze rozmieszczenie pojazdów.",
+  "16": "Lepsza infrastruktura i bezpieczeństwo to podstawa. Ważne są też niższe ceny wypożyczeń i więcej stacji przesiadkowych z komunikacją miejską.",
+  "17": {
+    "Drogi rowerowe": 2,
+    "Parkingi i miejsca parkingowe": 2,
+    "Stojaki do przypięcia pojazdów": 2,
+    "Podpórki na skrzyżowaniach": 3,
+    "Stacje do samodzielnych napraw": 3
+  },
+  "18": {
+    "Drogi rowerowe": 2,
+    "Parkingi i miejsca parkingowe": 2,
+    "Stojaki do przypięcia pojazdów": 2,
+    "Podpórki na skrzyżowaniach": 3,
+    "Stacje do samodzielnych napraw": 3
+  },
+  "19": 0,
+  "20": 0,
+  "21": 5,
+  "22": 2,
+  "23": 0,
+  "24": 0,
+  "25": {
+    "Samochód prywatny": 0,
+    "Komunikacja miejska (autobus, tramwaj, kolej aglomeracyjna)": 0,
+    "Rower własny": 1,
+    "Hulajnoga elektryczna własna": 2,
+    "Hulajnoga elektryczna na minuty": 1,
+    "Carsharing (krótkoterminowy wynajem samochodów)": 2,
+    "Carpooling (wspólne przejazdy samochodem z innymi pasażerami)": 3,
+    "Motocykl / skuter / Motorower": 3,
+    "Chodzę pieszo": 0
+  },
+  "26": {
+    "Hulajnoga elektryczna": 0,
+    "Rower publiczny": 0,
+    "Samochód w ramach carsharingu": 0,
+    "Skuter miejski elektryczny": 0
+  },
+  "27": [0, 2, 4],
+  "28": {
+    "Hulajnoga elektryczna": 0,
+    "Rower publiczny": 0,
+    "Samochód w ramach carsharingu": 1,
+    "Skuter miejski elektryczny": 1
+  },
+  "29": {
+    "Skutery miejskie elektryczne na minuty": 1,
+    "Deskorolki elektryczne na minuty": 2,
+    "Rowery elektryczne na minuty": 0,
+    "Mikrosamochody na minuty": 1
+  },
+  "30": {
+    "Hulajnogi elektryczne na minuty": 0,
+    "Rower publiczny": 0
+  },
+  "31": 0,
+  "32": "Trzeba poprawić stan dróg dla rowerów i hulajnóg, a także zainwestować w inteligentne parkowanie i punkty przesiadkowe, żeby zachęcić do korzystania.",
+  "33": "Uczynić mikromobilność bardziej konkurencyjną cenowo, zapewnić bezpieczeństwo na drogach i zadbać o to, żeby pojazdy były zawsze dostępne tam, gdzie są potrzebne.",
+  "34": {
+    "Drogi rowerowe": 2,
+    "Parkingi i miejsca parkingowe": 2,
+    "Stojaki do przypięcia pojazdów": 2,
+    "Podpórki na skrzyżowaniach": 3,
+    "Stacje do samodzielnych napraw": 3
+  },
+  "35": {
+    "Drogi rowerowe": 2,
+    "Parkingi i miejsca parkingowe": 2,
+    "Stojaki do przypięcia pojazdów": 2,
+    "Podpórki na skrzyżowaniach": 3,
+    "Stacje do samodzielnych napraw": 3
+  },
+  "36": 0,
+  "37": [0, 1, 3],
+  "38": 2,
+  "39": {
+    "Pieszych": 0,
+    "Rowerzystów": 1,
+    "Osób o ograniczonej mobilności poruszających się np. na wózkach / o kulach": 0,
+    "Kierowców pojazdów silnikowych (samochodów, motocyklów itp.)": 2,
+    "Innych użytkowników hulajnóg elektrycznych": 2,
+    "Kierowców pojazdów transportu zbiorowego (autobusów, tramwajów)": 2
+  },
+  "40": 0,
+  "41": 1,
+  "42": 0,
+  "43": 2,
+  "44": {
+    "Pieszych": 0,
+    "Rowerzystów": 1,
+    "Osób o ograniczonej mobilności poruszających się np. na wózkach / o kulach": 0,
+    "Kierowców pojazdów silnikowych (samochodów, motocyklów itp.)": 2,
+    "Innych użytkowników hulajnóg elektrycznych": 2,
+    "Kierowców pojazdów transportu zbiorowego (autobusów, tramwajów)": 2
+  },
+  "45": 0,
+  "46": 1,
+  "47": 0,
+  "48": 0,
+  "49": [3, 5, 6],
+  "50": {
+    "Niższe ceny": 0,
+    "Lepsza dostępność pojazdów w mojej okolicy": 1,
+    "Więcej dróg rowerowych w Łodzi": 0,
+    "Większe bezpieczeństwo podczas jazdy (np. wolniejsza prędkość poruszania się hulajnóg, lepsze wyposażenie hulajnóg w hamulce, dzwonek, kierunkowskazy itp.)": 0,
+    "Łatwiejszy sposób wypożyczenia hulajnóg": 2,
+    "Większa dostępność pojazdów do wypożyczenia i możliwość zwrotu pojazdów przy przystankach komunikacji miejskiej": 0,
+    "Atrakcyjne promocje cenowe i abonamenty na przejazdy (np. niższe ceny w określonych godzinach, tańsze pakiety minut)": 0
+  },
+  "51": 0,
+  "52": 2,
+  "53": {
+    "Pieszych": 1,
+    "Innych rowerzystów": 2,
+    "Osób o ograniczonej mobilności poruszających się np. na wózkach / o kulach": 1,
+    "Kierowców pojazdów silnikowych (samochodów, motocyklów, itp.)": 2,
+    "Użytkowników hulajnóg elektrycznych": 2,
+    "Kierowców pojazdów transportu zbiorowego (autobusów, tramwajów)": 2
+  },
+  "54": 0,
+  "55": 0,
+  "56": [3, 5, 6],
+  "57": {
+    "Niższe ceny": 0,
+    "Lepsza dostępność pojazdów w mojej okolicy": 1,
+    "Więcej dróg rowerowych w Łodzi": 0,
+    "Większe bezpieczeństwo podczas jazdy (np. wolniejsza prędkość poruszania się hulajnóg, lepsze wyposażenie hulajnóg w hamulce, dzwonek, kierunkowskazy itp.)": 0,
+    "Łatwiejszy sposób wypożyczenia hulajnóg": 2,
+    "Większa dostępność pojazdów do wypożyczenia i możliwość zwrotu pojazdów przy przystankach komunikacji miejskiej": 0,
+    "Atrakcyjne promocje cenowe i abonamenty na przejazdy (np. niższe ceny w określonych godzinach, tańsze pakiety minut)": 0
+  },
+  "58": 0,
+  "59": 2,
+  "60": {
+    "Pieszych": 1,
+    "Innych rowerzystów": 2,
+    "Osób o ograniczonej mobilności poruszających się np. na wózkach / o kulach": 1,
+    "Kierowców pojazdów silnikowych (samochodów, motocyklów, itp.)": 2,
+    "Użytkowników hulajnóg elektrycznych": 2,
+    "Kierowców pojazdów transportu zbiorowego (autobusów, tramwajów)": 2
+  },
+  "61": 0,
+  "62": 0,
+  "63": 0,
+  "64": {
+    "Dojazd do pracy": 1,
+    "Dojazd na uczelnię / do szkoły": 3,
+    "Rekreacyjnie (wycieczki, jazda dla przyjemności)": 1,
+    "Dojazd do przystanku komunikacji miejskiej": 1,
+    "Dojazd na zakupy": 2,
+    "Dojazd na spotkania towarzyskie/rodzinne": 1
+  },
+  "65": 0,
+  "66": 0,
+  "67": 0,
+  "68": [3, 4, 6],
+  "69": [3, 4, 6],
+  "70": 0,
+  "71": 0,
+  "72": 0
+}

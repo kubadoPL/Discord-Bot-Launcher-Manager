@@ -63,6 +63,7 @@ OFFLINE_THRESHOLD_SECONDS = 2592000  # 30 days
 all_user_activity = {}  # user_id -> last_activity_timestamp (global)
 custom_emojis = []  # List of {id, name, url, creator_id}
 anonymous_listeners = {}  # station_key -> {anon_id -> last_activity_timestamp}
+all_unique_anon_ids = set()  # Track every unique anon_id ever seen (across server lifetime)
 
 # Cache for online users results to reduce CPU load
 online_users_cache = (
@@ -234,6 +235,41 @@ def _do_update_last_seen(user_id, last_seen_at, last_station):
 
 def _db_update_last_seen(user_id, last_seen_at, last_station):
     _db_enqueue(_do_update_last_seen, user_id, last_seen_at, last_station)
+
+
+def _do_increment_unique_anon_count(delta):
+    """Increment (or decrement) the unique anonymous users counter in service_stats."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO service_stats (service_name, stat_name, value)
+            VALUES ('radio', 'unique_anonymous_users', GREATEST(0, %s))
+            ON DUPLICATE KEY UPDATE value = GREATEST(0, value + %s)
+            """,
+            (delta, delta),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Error updating unique anon count: {e}")
+
+
+def _get_unique_anon_count_from_db():
+    """Read the current unique_anonymous_users count from service_stats."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT value FROM service_stats WHERE service_name = 'radio' AND stat_name = 'unique_anonymous_users'"
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return int(row["value"]) if row else 0
+    except Exception as e:
+        print(f"[DB] Error reading unique anon count: {e}")
+        return 0
 
 
 def _do_save_session(session_token, session_data):
@@ -952,6 +988,11 @@ def anonymous_heartbeat():
         anonymous_listeners[station] = {}
     anonymous_listeners[station][anon_id] = now
 
+    # Track unique anonymous users and persist to DB
+    if anon_id not in all_unique_anon_ids:
+        all_unique_anon_ids.add(anon_id)
+        _db_enqueue(_do_increment_unique_anon_count, 1)
+
     # Invalidate cache so the new count is reflected
     if station in online_users_cache:
         del online_users_cache[station]
@@ -979,6 +1020,11 @@ def claim_anonymous():
             # Invalidate cache for this station
             if station_key in online_users_cache:
                 del online_users_cache[station_key]
+
+    # Remove from unique set and decrement DB counter
+    if anon_id in all_unique_anon_ids:
+        all_unique_anon_ids.discard(anon_id)
+        _db_enqueue(_do_increment_unique_anon_count, -1)
 
     return jsonify({"ok": True, "removed": removed})
 
@@ -1540,6 +1586,7 @@ def get_ranking():
             "favorites_count": fav_count_map,
             "total_users": len(user_totals),
             "total_unique_songs": len(global_songs),
+            "total_unique_anonymous_users": _get_unique_anon_count_from_db(),
             "generated_at": now.isoformat() + "Z",
         }
 
@@ -1594,6 +1641,7 @@ def get_radio_stats():
             "top_listener_time_seconds": top_time,
             "unique_songs_tracked": unique_songs,
             "total_listening_time_seconds": total_time,
+            "total_unique_anonymous_users": _get_unique_anon_count_from_db(),
         })
 
     # No cache — do a direct lightweight query
@@ -1635,6 +1683,7 @@ def get_radio_stats():
             "top_listener_time_seconds": top_time,
             "unique_songs_tracked": len(all_song_titles),
             "total_listening_time_seconds": total_time,
+            "total_unique_anonymous_users": _get_unique_anon_count_from_db(),
         })
 
     except Exception as e:

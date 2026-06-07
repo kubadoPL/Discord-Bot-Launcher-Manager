@@ -1,0 +1,976 @@
+{
+  "https://forms.office.com/Pages/ResponsePage.aspx?id=7xpEYw7al0O7fvnUcF6WO966JMTZ-UBDoTUEr7wXSnRUOTlJWEhYMFFRQkJNWFY5T0pKOFUyNThWSS4u": [
+    {
+      "num": 1,
+      "title": "Proszę podać swoją płeć",
+      "type": "radio",
+      "options": [
+        "Kobieta",
+        "Mężczyzna",
+        "Inna",
+        "Nie chcę podawać"
+      ]
+    },
+    {
+      "num": 2,
+      "title": "Proszę podać swoją płeć (2)",
+      "type": "radio",
+      "options": [
+        "Kobieta",
+        "Mężczyzna",
+        "Inna",
+        "Nie chcę podawać"
+      ],
+      "original_title": "Proszę podać swoją płeć"
+    },
+    {
+      "num": 3,
+      "title": "Proszę podać swój wiek",
+      "type": "radio",
+      "options": [
+        "18 - 29 lat",
+        "30 - 39 lat",
+        "40 - 49 lat",
+        "50 - 59 lat",
+        "60 lat i więcej"
+      ]
+    },
+    {
+      "num": 4,
+      "title": "Jakie P. ma wykształcenie ukończone?",
+      "type": "radio",
+      "options": [
+        "Podstawowe",
+        "Gimnazjalne",
+        "Zasadnicze zawodowe / branżowe",
+        "Średnie",
+        "Policealne",
+        "Wyższe"
+      ]
+    },
+    {
+      "num": 5,
+      "title": "Jaki P. ma status zawodowy?",
+      "type": "radio",
+      "options": [
+        "Uczeń / Student",
+        "Uczeń / Student pracujący",
+        "Pracujący",
+        "Bezrobotny",
+        "Emeryt / Rencista",
+        "Emeryt / Rencista pracujący"
+      ]
+    },
+    {
+      "num": 6,
+      "title": "Gdzie P. mieszka?",
+      "type": "radio",
+      "options": [
+        "w Łodzi",
+        "Poza granicami Łodzi"
+      ]
+    },
+    {
+      "num": 7,
+      "title": "Czy posiada P. samochód?",
+      "type": "radio",
+      "options": [
+        "Tak, korzystam regularnie (codziennie, prawie codziennie)",
+        "Tak, korzystam sporadycznie",
+        "Nie, ale planuję zakup w najbliższej przyszłości",
+        "Nie i nie planuję zakupu"
+      ]
+    },
+    {
+      "num": 8,
+      "title": "Czy, a jeśli tak, to jak często korzysta P. z poniższych środków transportu do przemieszczania się po Łodzi?",
+      "type": "matrix",
+      "options": [
+        "Codziennie lub prawie codziennie",
+        "Czasami (kilka razy w miesiącu)",
+        "Rzadko (kilka razy w roku)",
+        "Nigdy"
+      ],
+      "rows": [
+        "Samochód prywatny",
+        "Komunikacja miejska (autobus, tramwaj, kolej aglomeracyjna)",
+        "Rower własny",
+        "Hulajnoga elektryczna własna",
+        "Hulajnoga elektryczna na minuty",
+        "Carsharing (krótkoterminowy wynajem samochodów)",
+        "Carpooling (wspólne przejazdy samochodem z innymi pasażerami)",
+        "Motocykl / skuter / Motorower",
+        "Chodzę pieszo"
+      ]
+    },
+    {
+      "num": 9,
+      "title": "Czy wie P., że w Łodzi można/można było wypożyczyć poniższe środki transportu?",
+      "type": "matrix",
+      "options": [
+        "Tak",
+        "Nie"
+      ],
+      "rows": [
+        "Hulajnoga elektryczna",
+        "Rower publiczny",
+        "Samochód w ramach carsharingu",
+        "Skuter miejski elektryczny"
+      ]
+    },
+    {
+      "num": 10,
+      "title": "Jeśli P. wie, to skąd P. czerpie wiedzę o dostępności i możliwości wypożyczania hulajnóg elektrycznych na minuty i rowerów publicznych w Łodzi? Można wybrać maksymalnie 3 odpowiedzi",
+      "type": "checkbox",
+      "options": [
+        "Z mediów społecznościowych",
+        "Z łódzkich gazet",
+        "Z łódzkich portali internetowych",
+        "Z ogłoszeń zamieszczanych w przestrzeni publicznej (plakaty, banery, reklamy)",
+        "Od znajomych i rodziny",
+        "Samodzielnie szukam informacji o dostępnych operatorach poprzez ich aplikacje i strony internetowe",
+        "Inna odpowiedź"
+      ]
+    },
+    {
+      "num": 11,
+      "title": "Czy wypożyczał(a) P. kiedykolwiek w Łodzi poniższe środki transportu?",
+      "type": "matrix",
+      "options": [
+        "Tak",
+        "Nie"
+      ],
+      "rows": [
+        "Hulajnoga elektryczna",
+        "Rower publiczny",
+        "Samochód w ramach carsharingu",
+        "Skuter miejski elektryczny"
+      ]
+    },
+    {
+      "num": 12,
+      "title": "Czy P. zdaniem poniższe środki mobilności do wypożyczenia sprawdziłyby się w Łodzi?",
+      "type": "matrix",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "rows": [
+        "Skutery miejskie elektryczne na minuty",
+        "Deskorolki elektryczne na minuty",
+        "Rowery elektryczne na minuty",
+        "Mikrosamochody na minuty"
+      ]
+    },
+    {
+      "num": 13,
+      "title": "Czy P. zdaniem poniższe rozwiązania ułatwiają przemieszczanie się po Łodzi?",
+      "type": "matrix",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "rows": [
+        "Hulajnogi elektryczne na minuty",
+        "Rower publiczny"
+      ]
+    },
+    {
+      "num": 14,
+      "title": "Czy uważa P., że miasto Łódź powinno wspierać rozwój systemów mikromobilności współdzielonej (dofinansowanie roweru publicznego, rozbudowa dróg drogowych, tworzenie punktów przesiadkowych z transportem publicznym itp.)?",
+      "type": "radio",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ]
+    },
+    {
+      "num": 15,
+      "title": "Jakie działania P. zdaniem powinno podjąć miasto Łódź w celu poprawy funkcjonowania systemów mikromobilności współdzielonej?",
+      "type": "text",
+      "options": []
+    },
+    {
+      "num": 16,
+      "title": "Jakie zmiany P. zdaniem mogłyby zachęcić mieszkańców Łodzi do przesiadki z samochodów osobowych na środki mikromobilności (hulajnogi elektryczne, rowery)?",
+      "type": "text",
+      "options": []
+    },
+    {
+      "num": 17,
+      "title": "Jak ocenia P. jakość poniższej infrastruktury dla rowerów i hulajnóg elektrycznych w Łodzi? (Przez jakość rozumie się między innymi stan techniczny, bezpieczeństwo, komfort użytkowania oraz poziom utrzymania infrastruktury)",
+      "type": "matrix",
+      "options": [
+        "Bardzo dobrze",
+        "Dobrze",
+        "Źle",
+        "Bardzo źle"
+      ],
+      "rows": [
+        "Drogi rowerowe",
+        "Parkingi i miejsca parkingowe",
+        "Stojaki do przypięcia pojazdów",
+        "Podpórki na skrzyżowaniach",
+        "Stacje do samodzielnych napraw"
+      ]
+    },
+    {
+      "num": 18,
+      "title": "Jak ocenia P. dostępność poniższej infrastruktury dla rowerów i hulajnóg elektrycznych w Łodzi? (Przez dostępność rozumie się między innymi liczbę, rozmieszczenie oraz łatwość korzystania z infrastruktury na terenie miasta)",
+      "type": "matrix",
+      "options": [
+        "Bardzo dobrze",
+        "Dobrze",
+        "Źle",
+        "Bardzo źle"
+      ],
+      "rows": [
+        "Drogi rowerowe",
+        "Parkingi i miejsca parkingowe",
+        "Stojaki do przypięcia pojazdów",
+        "Podpórki na skrzyżowaniach",
+        "Stacje do samodzielnych napraw"
+      ]
+    },
+    {
+      "num": 19,
+      "title": "Czy P. zdaniem powinny powstać w Łodzi stacje/stojaki do ładowania elektrycznych mikropojazdów (hulajnóg, rowerów)?",
+      "type": "radio",
+      "options": [
+        "Tak",
+        "Nie"
+      ]
+    },
+    {
+      "num": 20,
+      "title": "Proszę podać swój wiek (2)",
+      "type": "radio",
+      "options": [
+        "18 - 29 lat",
+        "30 - 39 lat",
+        "40 - 49 lat",
+        "50 - 59 lat",
+        "60 lat i więcej"
+      ],
+      "original_title": "Proszę podać swój wiek"
+    },
+    {
+      "num": 21,
+      "title": "Jakie P. ma wykształcenie ukończone? (2)",
+      "type": "radio",
+      "options": [
+        "Podstawowe",
+        "Gimnazjalne",
+        "Zasadnicze zawodowe / branżowe",
+        "Średnie",
+        "Policealne",
+        "Wyższe"
+      ],
+      "original_title": "Jakie P. ma wykształcenie ukończone?"
+    },
+    {
+      "num": 22,
+      "title": "Jaki P. ma status zawodowy? (2)",
+      "type": "radio",
+      "options": [
+        "Uczeń / Student",
+        "Uczeń / Student pracujący",
+        "Pracujący",
+        "Bezrobotny",
+        "Emeryt / Rencista",
+        "Emeryt / Rencista pracujący"
+      ],
+      "original_title": "Jaki P. ma status zawodowy?"
+    },
+    {
+      "num": 23,
+      "title": "Gdzie P. mieszka? (2)",
+      "type": "radio",
+      "options": [
+        "w Łodzi",
+        "Poza granicami Łodzi"
+      ],
+      "original_title": "Gdzie P. mieszka?"
+    },
+    {
+      "num": 24,
+      "title": "Czy posiada P. samochód? (2)",
+      "type": "radio",
+      "options": [
+        "Tak, korzystam regularnie (codziennie, prawie codziennie)",
+        "Tak, korzystam sporadycznie",
+        "Nie, ale planuję zakup w najbliższej przyszłości",
+        "Nie i nie planuję zakupu"
+      ],
+      "original_title": "Czy posiada P. samochód?"
+    },
+    {
+      "num": 25,
+      "title": "Czy, a jeśli tak, to jak często korzysta P. z poniższych środków transportu do przemieszczania się po Łodzi? (2)",
+      "type": "matrix",
+      "options": [
+        "Codziennie lub prawie codziennie",
+        "Czasami (kilka razy w miesiącu)",
+        "Rzadko (kilka razy w roku)",
+        "Nigdy"
+      ],
+      "rows": [
+        "Samochód prywatny",
+        "Komunikacja miejska (autobus, tramwaj, kolej aglomeracyjna)",
+        "Rower własny",
+        "Hulajnoga elektryczna własna",
+        "Hulajnoga elektryczna na minuty",
+        "Carsharing (krótkoterminowy wynajem samochodów)",
+        "Carpooling (wspólne przejazdy samochodem z innymi pasażerami)",
+        "Motocykl / skuter / Motorower",
+        "Chodzę pieszo"
+      ],
+      "original_title": "Czy, a jeśli tak, to jak często korzysta P. z poniższych środków transportu do przemieszczania się po Łodzi?"
+    },
+    {
+      "num": 26,
+      "title": "Czy wie P., że w Łodzi można/można było wypożyczyć poniższe środki transportu? (2)",
+      "type": "matrix",
+      "options": [
+        "Tak",
+        "Nie"
+      ],
+      "rows": [
+        "Hulajnoga elektryczna",
+        "Rower publiczny",
+        "Samochód w ramach carsharingu",
+        "Skuter miejski elektryczny"
+      ],
+      "original_title": "Czy wie P., że w Łodzi można/można było wypożyczyć poniższe środki transportu?"
+    },
+    {
+      "num": 27,
+      "title": "Jeśli P. wie, to skąd P. czerpie wiedzę o dostępności i możliwości wypożyczania hulajnóg elektrycznych na minuty i rowerów publicznych w Łodzi? Można wybrać maksymalnie 3 odpowiedzi (2)",
+      "type": "checkbox",
+      "options": [
+        "Z mediów społecznościowych",
+        "Z łódzkich gazet",
+        "Z łódzkich portali internetowych",
+        "Z ogłoszeń zamieszczanych w przestrzeni publicznej (plakaty, banery, reklamy)",
+        "Od znajomych i rodziny",
+        "Samodzielnie szukam informacji o dostępnych operatorach poprzez ich aplikacje i strony internetowe",
+        "Inna odpowiedź"
+      ],
+      "original_title": "Jeśli P. wie, to skąd P. czerpie wiedzę o dostępności i możliwości wypożyczania hulajnóg elektrycznych na minuty i rowerów publicznych w Łodzi? Można wybrać maksymalnie 3 odpowiedzi"
+    },
+    {
+      "num": 28,
+      "title": "Czy wypożyczał(a) P. kiedykolwiek w Łodzi poniższe środki transportu? (2)",
+      "type": "matrix",
+      "options": [
+        "Tak",
+        "Nie"
+      ],
+      "rows": [
+        "Hulajnoga elektryczna",
+        "Rower publiczny",
+        "Samochód w ramach carsharingu",
+        "Skuter miejski elektryczny"
+      ],
+      "original_title": "Czy wypożyczał(a) P. kiedykolwiek w Łodzi poniższe środki transportu?"
+    },
+    {
+      "num": 29,
+      "title": "Czy P. zdaniem poniższe środki mobilności do wypożyczenia sprawdziłyby się w Łodzi? (2)",
+      "type": "matrix",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "rows": [
+        "Skutery miejskie elektryczne na minuty",
+        "Deskorolki elektryczne na minuty",
+        "Rowery elektryczne na minuty",
+        "Mikrosamochody na minuty"
+      ],
+      "original_title": "Czy P. zdaniem poniższe środki mobilności do wypożyczenia sprawdziłyby się w Łodzi?"
+    },
+    {
+      "num": 30,
+      "title": "Czy P. zdaniem poniższe rozwiązania ułatwiają przemieszczanie się po Łodzi? (2)",
+      "type": "matrix",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "rows": [
+        "Hulajnogi elektryczne na minuty",
+        "Rower publiczny"
+      ],
+      "original_title": "Czy P. zdaniem poniższe rozwiązania ułatwiają przemieszczanie się po Łodzi?"
+    },
+    {
+      "num": 31,
+      "title": "Czy uważa P., że miasto Łódź powinno wspierać rozwój systemów mikromobilności współdzielonej (dofinansowanie roweru publicznego, rozbudowa dróg drogowych, tworzenie punktów przesiadkowych z transportem publicznym itp.)? (2)",
+      "type": "radio",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "original_title": "Czy uważa P., że miasto Łódź powinno wspierać rozwój systemów mikromobilności współdzielonej (dofinansowanie roweru publicznego, rozbudowa dróg drogowych, tworzenie punktów przesiadkowych z transportem publicznym itp.)?"
+    },
+    {
+      "num": 32,
+      "title": "Jakie działania P. zdaniem powinno podjąć miasto Łódź w celu poprawy funkcjonowania systemów mikromobilności współdzielonej? (2)",
+      "type": "text",
+      "options": [],
+      "original_title": "Jakie działania P. zdaniem powinno podjąć miasto Łódź w celu poprawy funkcjonowania systemów mikromobilności współdzielonej?"
+    },
+    {
+      "num": 33,
+      "title": "Jakie zmiany P. zdaniem mogłyby zachęcić mieszkańców Łodzi do przesiadki z samochodów osobowych na środki mikromobilności (hulajnogi elektryczne, rowery)? (2)",
+      "type": "text",
+      "options": [],
+      "original_title": "Jakie zmiany P. zdaniem mogłyby zachęcić mieszkańców Łodzi do przesiadki z samochodów osobowych na środki mikromobilności (hulajnogi elektryczne, rowery)?"
+    },
+    {
+      "num": 34,
+      "title": "Jak ocenia P. jakość poniższej infrastruktury dla rowerów i hulajnóg elektrycznych w Łodzi? (Przez jakość rozumie się między innymi stan techniczny, bezpieczeństwo, komfort użytkowania oraz poziom utrzymania infrastruktury) (2)",
+      "type": "matrix",
+      "options": [
+        "Bardzo dobrze",
+        "Dobrze",
+        "Źle",
+        "Bardzo źle"
+      ],
+      "rows": [
+        "Drogi rowerowe",
+        "Parkingi i miejsca parkingowe",
+        "Stojaki do przypięcia pojazdów",
+        "Podpórki na skrzyżowaniach",
+        "Stacje do samodzielnych napraw"
+      ],
+      "original_title": "Jak ocenia P. jakość poniższej infrastruktury dla rowerów i hulajnóg elektrycznych w Łodzi? (Przez jakość rozumie się między innymi stan techniczny, bezpieczeństwo, komfort użytkowania oraz poziom utrzymania infrastruktury)"
+    },
+    {
+      "num": 35,
+      "title": "Jak ocenia P. dostępność poniższej infrastruktury dla rowerów i hulajnóg elektrycznych w Łodzi? (Przez dostępność rozumie się między innymi liczbę, rozmieszczenie oraz łatwość korzystania z infrastruktury na terenie miasta) (2)",
+      "type": "matrix",
+      "options": [
+        "Bardzo dobrze",
+        "Dobrze",
+        "Źle",
+        "Bardzo źle"
+      ],
+      "rows": [
+        "Drogi rowerowe",
+        "Parkingi i miejsca parkingowe",
+        "Stojaki do przypięcia pojazdów",
+        "Podpórki na skrzyżowaniach",
+        "Stacje do samodzielnych napraw"
+      ],
+      "original_title": "Jak ocenia P. dostępność poniższej infrastruktury dla rowerów i hulajnóg elektrycznych w Łodzi? (Przez dostępność rozumie się między innymi liczbę, rozmieszczenie oraz łatwość korzystania z infrastruktury na terenie miasta)"
+    },
+    {
+      "num": 36,
+      "title": "Czy P. zdaniem powinny powstać w Łodzi stacje/stojaki do ładowania elektrycznych mikropojazdów (hulajnóg, rowerów)? (2)",
+      "type": "radio",
+      "options": [
+        "Tak",
+        "Nie"
+      ],
+      "original_title": "Czy P. zdaniem powinny powstać w Łodzi stacje/stojaki do ładowania elektrycznych mikropojazdów (hulajnóg, rowerów)?"
+    },
+    {
+      "num": 37,
+      "title": "Gdzie P. zdaniem powinny powstać w Łodzi stacje/stojaki do ładowania hulajnóg/rowerów elektrycznych? Można wybrać maksymalnie 3 odpowiedzi",
+      "type": "checkbox",
+      "options": [
+        "Przy centrach handlowych",
+        "Przy dworach kolejowych i ruchliwych przystankach transportu zbiorowego",
+        "Na osiedlach mieszkaniowych",
+        "W obszarze zabudowy biurowej",
+        "W dzielnicach przemysłowych",
+        "W lokalizacjach tymczasowych podczas większych wydarzeń lub uroczystości",
+        "Inna odpowiedź"
+      ]
+    },
+    {
+      "num": 38,
+      "title": "Czy postrzega P. przemieszczanie się za pomocą hulajnóg elektrycznych jako bezpieczną formę transportu w Łodzi?",
+      "type": "radio",
+      "options": [
+        "Zdecydowanie tak",
+        "Tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ]
+    },
+    {
+      "num": 39,
+      "title": "Czy P. zdaniem osoby poruszające się na hulajnogach elektrycznych stanowią zagrożenie dla bezpieczeństwa poniższych użytkowników ruchu?",
+      "type": "matrix",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "rows": [
+        "Pieszych",
+        "Rowerzystów",
+        "Osób o ograniczonej mobilności poruszających się np. na wózkach / o kulach",
+        "Kierowców pojazdów silnikowych (samochodów, motocyklów itp.)",
+        "Innych użytkowników hulajnóg elektrycznych",
+        "Kierowców pojazdów transportu zbiorowego (autobusów, tramwajów)"
+      ]
+    },
+    {
+      "num": 40,
+      "title": "Czy P. zdaniem hulajnogi elektryczne powinny mieć zmniejszoną maksymalną prędkość z jaką mogą się poruszać?",
+      "type": "radio",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ]
+    },
+    {
+      "num": 41,
+      "title": "Jak ocenia P. dostępność hulajnóg elektrycznych do wypożyczenia w swojej okolicy?",
+      "type": "radio",
+      "options": [
+        "Bardzo dobrze",
+        "Dobrze",
+        "Źle",
+        "Bardzo źle"
+      ]
+    },
+    {
+      "num": 42,
+      "title": "Czy wykorzystuje P. hulajnogę elektryczną do przemieszczania się po Łodzi?",
+      "type": "radio",
+      "options": [
+        "Tak",
+        "Nie"
+      ]
+    },
+    {
+      "num": 43,
+      "title": "Czy postrzega P. przemieszczanie się za pomocą hulajnóg elektrycznych jako bezpieczną formę transportu w Łodzi? (2)",
+      "type": "radio",
+      "options": [
+        "Zdecydowanie tak",
+        "Tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "original_title": "Czy postrzega P. przemieszczanie się za pomocą hulajnóg elektrycznych jako bezpieczną formę transportu w Łodzi?"
+    },
+    {
+      "num": 44,
+      "title": "Czy P. zdaniem osoby poruszające się na hulajnogach elektrycznych stanowią zagrożenie dla bezpieczeństwa poniższych użytkowników ruchu? (2)",
+      "type": "matrix",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "rows": [
+        "Pieszych",
+        "Rowerzystów",
+        "Osób o ograniczonej mobilności poruszających się np. na wózkach / o kulach",
+        "Kierowców pojazdów silnikowych (samochodów, motocyklów itp.)",
+        "Innych użytkowników hulajnóg elektrycznych",
+        "Kierowców pojazdów transportu zbiorowego (autobusów, tramwajów)"
+      ],
+      "original_title": "Czy P. zdaniem osoby poruszające się na hulajnogach elektrycznych stanowią zagrożenie dla bezpieczeństwa poniższych użytkowników ruchu?"
+    },
+    {
+      "num": 45,
+      "title": "Czy P. zdaniem hulajnogi elektryczne powinny mieć zmniejszoną maksymalną prędkość z jaką mogą się poruszać? (2)",
+      "type": "radio",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "original_title": "Czy P. zdaniem hulajnogi elektryczne powinny mieć zmniejszoną maksymalną prędkość z jaką mogą się poruszać?"
+    },
+    {
+      "num": 46,
+      "title": "Jak ocenia P. dostępność hulajnóg elektrycznych do wypożyczenia w swojej okolicy? (2)",
+      "type": "radio",
+      "options": [
+        "Bardzo dobrze",
+        "Dobrze",
+        "Źle",
+        "Bardzo źle"
+      ],
+      "original_title": "Jak ocenia P. dostępność hulajnóg elektrycznych do wypożyczenia w swojej okolicy?"
+    },
+    {
+      "num": 47,
+      "title": "Czy wykorzystuje P. hulajnogę elektryczną do przemieszczania się po Łodzi? (2)",
+      "type": "radio",
+      "options": [
+        "Tak",
+        "Nie"
+      ],
+      "original_title": "Czy wykorzystuje P. hulajnogę elektryczną do przemieszczania się po Łodzi?"
+    },
+    {
+      "num": 48,
+      "title": "Czy wypożycza P. hulajnogi elektryczne w Łodzi?",
+      "type": "radio",
+      "options": [
+        "Tak",
+        "Nie"
+      ]
+    },
+    {
+      "num": 49,
+      "title": "Dlaczego nie wypożycza P. hulajnóg elektrycznych na minuty w Łodzi? Można wybrać maksymalnie 3 odpowiedzi",
+      "type": "checkbox",
+      "options": [
+        "Nie mam potrzeby",
+        "Preferuję własne środki transportu (samochód, rower, hulajnoga)",
+        "Preferuję komunikację miejską",
+        "Ceny za korzystanie są za wysokie",
+        "Brakuje dostępnych pojazdów w mojej okolicy",
+        "Mam obawy o bezpieczeństwo podczas jazdy",
+        "Zły stan lub brak ścieżek rowerowych w Łodzi",
+        "Nie mam zaufania do systemów (np. obawy o bycie oszukanym na pieniądze, wadliwie działająca aplikacja, wadliwie funkcjonujące wypożyczanie pojazdów)",
+        "Nie umiem wypożyczać tych pojazdów (brak umiejętności obsługi aplikacji)",
+        "Inna odpowiedź"
+      ]
+    },
+    {
+      "num": 50,
+      "title": "Czy poniższe czynniki mogłyby P. skłonić do wypożyczania hulajnóg elektrycznych na minuty w Łodzi?",
+      "type": "matrix",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "rows": [
+        "Niższe ceny",
+        "Lepsza dostępność pojazdów w mojej okolicy",
+        "Więcej dróg rowerowych w Łodzi",
+        "Większe bezpieczeństwo podczas jazdy (np. wolniejsza prędkość poruszania się hulajnóg, lepsze wyposażenie hulajnóg w hamulce, dzwonek, kierunkowskazy itp.)",
+        "Łatwiejszy sposób wypożyczenia hulajnóg",
+        "Większa dostępność pojazdów do wypożyczenia i możliwość zwrotu pojazdów przy przystankach komunikacji miejskiej",
+        "Atrakcyjne promocje cenowe i abonamenty na przejazdy (np. niższe ceny w określonych godzinach, tańsze pakiety minut)"
+      ]
+    },
+    {
+      "num": 51,
+      "title": "P. zdaniem ceny za wypożyczanie i jazdę hulajnogą elektryczną na minuty w Łodzi są ...? (Aktualne ceny - wypożyczenie: Bolt: 1,59 zł ; Lime: 1,99 zł. Jazda: Bolt: 0,99zł/min ; Lime: 0,89zł/min",
+      "type": "radio",
+      "options": [
+        "Za wysokie",
+        "Odpowiednie",
+        "Za niskie"
+      ]
+    },
+    {
+      "num": 52,
+      "title": "Czy przemieszczanie się po Łodzi rowerem jest w P. opinii bezpieczne?",
+      "type": "radio",
+      "options": [
+        "Zdecydowanie tak",
+        "Tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ]
+    },
+    {
+      "num": 53,
+      "title": "Czy P. zdaniem rowerzyści stanowią zagrożenie dla bezpieczeństwa poniższych użytkowników ruchu?",
+      "type": "matrix",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "rows": [
+        "Pieszych",
+        "Innych rowerzystów",
+        "Osób o ograniczonej mobilności poruszających się np. na wózkach / o kulach",
+        "Kierowców pojazdów silnikowych (samochodów, motocyklów, itp.)",
+        "Użytkowników hulajnóg elektrycznych",
+        "Kierowców pojazdów transportu zbiorowego (autobusów, tramwajów)"
+      ]
+    },
+    {
+      "num": 54,
+      "title": "Czy wykorzystuje P. rower do przemieszczania się po Łodzi?",
+      "type": "radio",
+      "options": [
+        "Tak",
+        "Nie"
+      ]
+    },
+    {
+      "num": 55,
+      "title": "Czy wypożyczał(a) P. rower publiczny w Łodzi?",
+      "type": "radio",
+      "options": [
+        "Tak",
+        "Nie"
+      ]
+    },
+    {
+      "num": 56,
+      "title": "Dlaczego nie wypożycza P. hulajnóg elektrycznych na minuty w Łodzi? Można wybrać maksymalnie 3 odpowiedzi (2)",
+      "type": "checkbox",
+      "options": [
+        "Nie mam potrzeby",
+        "Preferuję własne środki transportu (samochód, rower, hulajnoga)",
+        "Preferuję komunikację miejską",
+        "Ceny za korzystanie są za wysokie",
+        "Brakuje dostępnych pojazdów w mojej okolicy",
+        "Mam obawy o bezpieczeństwo podczas jazdy",
+        "Zły stan lub brak ścieżek rowerowych w Łodzi",
+        "Nie mam zaufania do systemów (np. obawy o bycie oszukanym na pieniądze, wadliwie działająca aplikacja, wadliwie funkcjonujące wypożyczanie pojazdów)",
+        "Nie umiem wypożyczać tych pojazdów (brak umiejętności obsługi aplikacji)",
+        "Inna odpowiedź"
+      ],
+      "original_title": "Dlaczego nie wypożycza P. hulajnóg elektrycznych na minuty w Łodzi? Można wybrać maksymalnie 3 odpowiedzi"
+    },
+    {
+      "num": 57,
+      "title": "Czy poniższe czynniki mogłyby P. skłonić do wypożyczania hulajnóg elektrycznych na minuty w Łodzi? (2)",
+      "type": "matrix",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "rows": [
+        "Niższe ceny",
+        "Lepsza dostępność pojazdów w mojej okolicy",
+        "Więcej dróg rowerowych w Łodzi",
+        "Większe bezpieczeństwo podczas jazdy (np. wolniejsza prędkość poruszania się hulajnóg, lepsze wyposażenie hulajnóg w hamulce, dzwonek, kierunkowskazy itp.)",
+        "Łatwiejszy sposób wypożyczenia hulajnóg",
+        "Większa dostępność pojazdów do wypożyczenia i możliwość zwrotu pojazdów przy przystankach komunikacji miejskiej",
+        "Atrakcyjne promocje cenowe i abonamenty na przejazdy (np. niższe ceny w określonych godzinach, tańsze pakiety minut)"
+      ],
+      "original_title": "Czy poniższe czynniki mogłyby P. skłonić do wypożyczania hulajnóg elektrycznych na minuty w Łodzi?"
+    },
+    {
+      "num": 58,
+      "title": "P. zdaniem ceny za wypożyczanie i jazdę hulajnogą elektryczną na minuty w Łodzi są ...? (Aktualne ceny - wypożyczenie: Bolt: 1,59 zł ; Lime: 1,99 zł. Jazda: Bolt: 0,99zł/min ; Lime: 0,89zł/min (2)",
+      "type": "radio",
+      "options": [
+        "Za wysokie",
+        "Odpowiednie",
+        "Za niskie"
+      ],
+      "original_title": "P. zdaniem ceny za wypożyczanie i jazdę hulajnogą elektryczną na minuty w Łodzi są ...? (Aktualne ceny - wypożyczenie: Bolt: 1,59 zł ; Lime: 1,99 zł. Jazda: Bolt: 0,99zł/min ; Lime: 0,89zł/min"
+    },
+    {
+      "num": 59,
+      "title": "Czy przemieszczanie się po Łodzi rowerem jest w P. opinii bezpieczne? (2)",
+      "type": "radio",
+      "options": [
+        "Zdecydowanie tak",
+        "Tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "original_title": "Czy przemieszczanie się po Łodzi rowerem jest w P. opinii bezpieczne?"
+    },
+    {
+      "num": 60,
+      "title": "Czy P. zdaniem rowerzyści stanowią zagrożenie dla bezpieczeństwa poniższych użytkowników ruchu? (2)",
+      "type": "matrix",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "rows": [
+        "Pieszych",
+        "Innych rowerzystów",
+        "Osób o ograniczonej mobilności poruszających się np. na wózkach / o kulach",
+        "Kierowców pojazdów silnikowych (samochodów, motocyklów, itp.)",
+        "Użytkowników hulajnóg elektrycznych",
+        "Kierowców pojazdów transportu zbiorowego (autobusów, tramwajów)"
+      ],
+      "original_title": "Czy P. zdaniem rowerzyści stanowią zagrożenie dla bezpieczeństwa poniższych użytkowników ruchu?"
+    },
+    {
+      "num": 61,
+      "title": "Czy wykorzystuje P. rower do przemieszczania się po Łodzi? (2)",
+      "type": "radio",
+      "options": [
+        "Tak",
+        "Nie"
+      ],
+      "original_title": "Czy wykorzystuje P. rower do przemieszczania się po Łodzi?"
+    },
+    {
+      "num": 62,
+      "title": "Czy wypożyczał(a) P. rower publiczny w Łodzi? (2)",
+      "type": "radio",
+      "options": [
+        "Tak",
+        "Nie"
+      ],
+      "original_title": "Czy wypożyczał(a) P. rower publiczny w Łodzi?"
+    },
+    {
+      "num": 63,
+      "title": "Z którego systemu roweru publicznego korzystał(a) P.?",
+      "type": "radio",
+      "options": [
+        "Tylko Łódzki Rower Publiczny",
+        "Tylko Rowerowe Łódzkie",
+        "Zarówno Łódzki Rower Publiczny i Rowerowe Łódzkie"
+      ]
+    },
+    {
+      "num": 64,
+      "title": "Czy, a jeśli tak, to jak często i w jakim celu korzystał/a P. z roweru publicznego w Łodzi?",
+      "type": "matrix",
+      "options": [
+        "Codziennie lub prawie codziennie",
+        "Kilka razy w miesiącu",
+        "Kilka razy w roku",
+        "Nigdy"
+      ],
+      "rows": [
+        "Dojazd do pracy",
+        "Dojazd na uczelnię / do szkoły",
+        "Rekreacyjnie (wycieczki, jazda dla przyjemności)",
+        "Dojazd do przystanku komunikacji miejskiej",
+        "Dojazd na zakupy",
+        "Dojazd na spotkania towarzyskie/rodzinne"
+      ]
+    },
+    {
+      "num": 65,
+      "title": "Czy brak funkcjonowania Łódzkiego Roweru Publicznego i Rowerowego Łódzkiego w 2026 roku wpłynął na P. sposób przemieszczania się po mieście?",
+      "type": "radio",
+      "options": [
+        "Tak, częściej korzystam z hulajnóg elektrycznych",
+        "Tak, częściej korzystam z komunikacji miejskiej",
+        "Tak, częściej korzystam z samochodu",
+        "Tak, częściej korzystam z roweru prywatnego",
+        "Nie wpłynęło to na moje zachowania transportowe",
+        "Nie korzystałam/em wcześniej z roweru publicznego"
+      ]
+    },
+    {
+      "num": 66,
+      "title": "Czy uważa P. że system roweru publicznego powinien zostać ponownie uruchomiony w Łodzi?",
+      "type": "radio",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ]
+    },
+    {
+      "num": 67,
+      "title": "Czy był(a)by P. zainteresowany(a) korzystaniem z roweru publicznego, gdyby system został ponownie uruchomiony?",
+      "type": "radio",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ]
+    },
+    {
+      "num": 68,
+      "title": "Dlaczego nie wypożyczał(a) P. rowerów publicznych? Można wybrać maksymalnie 3 odpowiedzi",
+      "type": "checkbox",
+      "options": [
+        "Nie miałem potrzeby",
+        "Preferuję własne środki transportu (samochód, rower, hulajnoga)",
+        "Preferuję komunikację miejską",
+        "Ceny za korzystanie były za wysokie",
+        "Brakowało dostępnych pojazdów w mojej okolicy",
+        "Miałem obawy o bezpieczeństwo podczas jazdy",
+        "Zły stan lub brak ścieżek rowerowych i dróg w Łodzi",
+        "Nie miałem zaufania do systemów (np. obawy o bycie oszukanym na pieniądze, wadliwie działająca aplikacja, wadliwie funkcjonujące wypożyczanie pojazdów)",
+        "Nie umiałem wypożyczać tych pojazdów (brak umiejętności obsługi aplikacji)",
+        "Inna odpowiedź"
+      ]
+    },
+    {
+      "num": 69,
+      "title": "Dlaczego nie wypożyczał(a) P. rowerów publicznych? Można wybrać maksymalnie 3 odpowiedzi (2)",
+      "type": "checkbox",
+      "options": [
+        "Nie miałem potrzeby",
+        "Preferuję własne środki transportu (samochód, rower, hulajnoga)",
+        "Preferuję komunikację miejską",
+        "Ceny za korzystanie były za wysokie",
+        "Brakowało dostępnych pojazdów w mojej okolicy",
+        "Miałem obawy o bezpieczeństwo podczas jazdy",
+        "Zły stan lub brak ścieżek rowerowych i dróg w Łodzi",
+        "Nie miałem zaufania do systemów (np. obawy o bycie oszukanym na pieniądze, wadliwie działająca aplikacja, wadliwie funkcjonujące wypożyczanie pojazdów)",
+        "Nie umiałem wypożyczać tych pojazdów (brak umiejętności obsługi aplikacji)",
+        "Inna odpowiedź"
+      ],
+      "original_title": "Dlaczego nie wypożyczał(a) P. rowerów publicznych? Można wybrać maksymalnie 3 odpowiedzi"
+    },
+    {
+      "num": 70,
+      "title": "Czy brak funkcjonowania Łódzkiego Roweru Publicznego i Rowerowego Łódzkiego w 2026 roku wpłynął na P. sposób przemieszczania się po mieście? (2)",
+      "type": "radio",
+      "options": [
+        "Tak, częściej korzystam z hulajnóg elektrycznych",
+        "Tak, częściej korzystam z komunikacji miejskiej",
+        "Tak, częściej korzystam z samochodu",
+        "Tak, częściej korzystam z roweru prywatnego",
+        "Nie wpłynęło to na moje zachowania transportowe",
+        "Nie korzystałam/em wcześniej z roweru publicznego"
+      ],
+      "original_title": "Czy brak funkcjonowania Łódzkiego Roweru Publicznego i Rowerowego Łódzkiego w 2026 roku wpłynął na P. sposób przemieszczania się po mieście?"
+    },
+    {
+      "num": 71,
+      "title": "Czy uważa P. że system roweru publicznego powinien zostać ponownie uruchomiony w Łodzi? (2)",
+      "type": "radio",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "original_title": "Czy uważa P. że system roweru publicznego powinien zostać ponownie uruchomiony w Łodzi?"
+    },
+    {
+      "num": 72,
+      "title": "Czy był(a)by P. zainteresowany(a) korzystaniem z roweru publicznego, gdyby system został ponownie uruchomiony? (2)",
+      "type": "radio",
+      "options": [
+        "Zdecydowanie tak",
+        "Raczej tak",
+        "Raczej nie",
+        "Zdecydowanie nie"
+      ],
+      "original_title": "Czy był(a)by P. zainteresowany(a) korzystaniem z roweru publicznego, gdyby system został ponownie uruchomiony?"
+    }
+  ]
+}
