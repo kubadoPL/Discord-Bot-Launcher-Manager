@@ -373,19 +373,24 @@ def _db_delete_session(session_token):
     _db_enqueue(_do_delete_session, session_token)
 
 
-def _do_save_anon_stats(anon_id, stats_json):
-    """Save anonymous listener stats to the user_data table."""
+def _do_save_anon_stats(anon_id, stats_json, station, total_time, song_count, favorites_count, first_seen, last_seen):
+    """Save anonymous listener stats to the dedicated anon_listener_stats table."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        db_user_id = f"anon_{anon_id}"
         cursor.execute(
             """
-            INSERT INTO user_data (user_id, data_key, data_value)
-            VALUES (%s, 'anonListeningStats', %s)
-            ON DUPLICATE KEY UPDATE data_value = VALUES(data_value)
+            INSERT INTO anon_listener_stats (anon_id, station, total_time, song_count, favorites_count, stats_json, first_seen, last_seen)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                station = VALUES(station),
+                total_time = VALUES(total_time),
+                song_count = VALUES(song_count),
+                favorites_count = VALUES(favorites_count),
+                stats_json = VALUES(stats_json),
+                last_seen = VALUES(last_seen)
             """,
-            (db_user_id, stats_json),
+            (anon_id, station, total_time, song_count, favorites_count, stats_json, first_seen, last_seen),
         )
         conn.commit()
         conn.close()
@@ -394,9 +399,37 @@ def _do_save_anon_stats(anon_id, stats_json):
 
 
 def _db_save_anon_stats(anon_id, stats_dict):
-    """Enqueue a debounced save of anon stats to DB."""
+    """Enqueue a save of anon stats to DB."""
     stats_json = json.dumps(stats_dict, ensure_ascii=False)
-    _db_enqueue(_do_save_anon_stats, anon_id, stats_json)
+    station = stats_dict.get("station", "")
+    total_time = stats_dict.get("totalTime", 0)
+    song_count = len(stats_dict.get("songs", {}))
+    favorites_count = len(stats_dict.get("favorites", []))
+    first_seen = stats_dict.get("first_seen", "")
+    last_seen = stats_dict.get("last_seen", "")
+    # Convert ISO strings to datetime for MySQL TIMESTAMP
+    try:
+        first_seen_dt = datetime.fromisoformat(first_seen.replace("Z", "+00:00")) if first_seen else None
+    except (ValueError, AttributeError):
+        first_seen_dt = None
+    try:
+        last_seen_dt = datetime.fromisoformat(last_seen.replace("Z", "+00:00")) if last_seen else None
+    except (ValueError, AttributeError):
+        last_seen_dt = None
+    _db_enqueue(_do_save_anon_stats, anon_id, stats_json, station, total_time, song_count, favorites_count, first_seen_dt, last_seen_dt)
+
+
+def _do_delete_anon_stats(anon_id):
+    """Delete anonymous listener stats from the database (when claimed)."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM anon_listener_stats WHERE anon_id = %s", (anon_id,))
+        conn.commit()
+        conn.close()
+        print(f"[DB] Deleted anon stats for claimed user {anon_id}")
+    except Exception as e:
+        print(f"[DB] Error deleting anon stats for {anon_id}: {e}")
 
 
 def _load_anon_stats_from_db():
@@ -404,16 +437,14 @@ def _load_anon_stats_from_db():
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute(
-            "SELECT user_id, data_value FROM user_data WHERE data_key = 'anonListeningStats'"
-        )
+        cursor.execute("SELECT anon_id, stats_json FROM anon_listener_stats")
         rows = cursor.fetchall()
         conn.close()
         count = 0
         for row in rows:
-            anon_id = row["user_id"].replace("anon_", "", 1)
+            anon_id = row["anon_id"]
             try:
-                stats = json.loads(row["data_value"]) if row["data_value"] else {}
+                stats = json.loads(row["stats_json"]) if row["stats_json"] else {}
                 if stats and stats.get("totalTime", 0) > 0:
                     anon_stats[anon_id] = stats
                     count += 1
@@ -1181,51 +1212,86 @@ def anonymous_heartbeat():
         _db_enqueue(_do_increment_unique_anon_count, 1)
 
     # Update anonymous listener stats
+    client_stats = data.get("listeningStats")  # full client-side stats (same format as logged-in users)
+    client_favorites = data.get("songFavorites")  # array of {title, cover, timestamp, station}
+    client_history = data.get("songHistory")  # array of {title, cover, timestamp}
+
     if anon_id not in anon_stats:
         anon_stats[anon_id] = {
             "station": station,
             "current_song": current_song,
-            "_previous_song": "",  # internal: track song changes for playCount
             "songs": {},
             "totalTime": 0,
-            "station_times": {},  # station -> seconds (per-station breakdown)
+            "station_times": {},
+            "favorites": [],
+            "history": [],
             "first_seen": now.isoformat() + "Z",
             "last_seen": now.isoformat() + "Z",
         }
 
     stats = anon_stats[anon_id]
-    prev_song = stats.get("_previous_song", "")
     stats["station"] = station
     stats["current_song"] = current_song
     stats["last_seen"] = now.isoformat() + "Z"
-    stats["totalTime"] += 30  # heartbeat is sent every 30s
 
-    # Track per-station listening time
-    if "station_times" not in stats:
-        stats["station_times"] = {}
-    stats["station_times"][station] = stats["station_times"].get(station, 0) + 30
+    # Store favorites and history from client (same as logged-in users)
+    if isinstance(client_favorites, list):
+        stats["favorites"] = client_favorites[:50]  # max 50 favorites
+    if isinstance(client_history, list):
+        stats["history"] = client_history[:20]  # max 20 recent songs
 
-    # Track song play stats
-    if current_song:
-        if current_song not in stats["songs"]:
-            stats["songs"][current_song] = {
-                "playCount": 0,
-                "listeningTime": 0,
-                "cover": cover,
-                "station": station,
-                "firstPlayed": now.isoformat() + "Z",
-                "lastPlayed": now.isoformat() + "Z",
-            }
-        song_entry = stats["songs"][current_song]
-        song_entry["listeningTime"] += 30
-        song_entry["lastPlayed"] = now.isoformat() + "Z"
-        if cover:
-            song_entry["cover"] = cover
-        # Increment playCount only when the song changes (not every heartbeat)
-        if current_song != prev_song:
-            song_entry["playCount"] += 1
+    if client_stats and isinstance(client_stats, dict):
+        # Use client-side stats directly (1-second precision, same as logged-in users)
+        stats["totalTime"] = client_stats.get("totalTime", stats.get("totalTime", 0))
 
-    stats["_previous_song"] = current_song
+        client_songs = client_stats.get("songs", {})
+        if isinstance(client_songs, dict):
+            # Merge client songs into server stats (client is authoritative)
+            for title, song_data in client_songs.items():
+                if not isinstance(song_data, dict):
+                    continue
+                stats["songs"][title] = {
+                    "playCount": song_data.get("playCount", 0),
+                    "listeningTime": song_data.get("listeningTime", 0),
+                    "cover": song_data.get("cover", ""),
+                    "station": song_data.get("station", station),
+                    "firstPlayed": song_data.get("firstPlayed", ""),
+                    "lastPlayed": song_data.get("lastPlayed", ""),
+                }
+
+        # Rebuild station_times from song data
+        station_times = {}
+        for title, s in stats["songs"].items():
+            s_station = s.get("station", station)
+            station_times[s_station] = station_times.get(s_station, 0) + s.get("listeningTime", 0)
+        stats["station_times"] = station_times
+    else:
+        # Fallback: server-side tracking (30s granularity)
+        stats["totalTime"] += 30
+
+        if "station_times" not in stats:
+            stats["station_times"] = {}
+        stats["station_times"][station] = stats["station_times"].get(station, 0) + 30
+
+        if current_song:
+            prev_song = stats.get("_previous_song", "")
+            if current_song not in stats["songs"]:
+                stats["songs"][current_song] = {
+                    "playCount": 0,
+                    "listeningTime": 0,
+                    "cover": cover,
+                    "station": station,
+                    "firstPlayed": now.isoformat() + "Z",
+                    "lastPlayed": now.isoformat() + "Z",
+                }
+            song_entry = stats["songs"][current_song]
+            song_entry["listeningTime"] += 30
+            song_entry["lastPlayed"] = now.isoformat() + "Z"
+            if cover:
+                song_entry["cover"] = cover
+            if current_song != prev_song:
+                song_entry["playCount"] += 1
+            stats["_previous_song"] = current_song
 
     # Debounced DB persistence (write every 60s per anon)
     last_write = _anon_stats_last_db_write.get(anon_id)
@@ -1268,6 +1334,15 @@ def claim_anonymous():
         global _unique_anon_count
         _unique_anon_count = max(0, _unique_anon_count - 1)
         _db_enqueue(_do_increment_unique_anon_count, -1)
+
+    # Remove anon stats from memory and DB
+    if anon_id in anon_stats:
+        del anon_stats[anon_id]
+    _anon_stats_last_db_write.pop(anon_id, None)
+    _db_enqueue(_do_delete_anon_stats, anon_id)
+
+    # Force invalidate ALL station caches to prevent stale online status
+    online_users_cache.clear()
 
     return jsonify({"ok": True, "removed": removed})
 
@@ -2027,6 +2102,9 @@ def get_anon_stats():
                 }
                 for title, s in all_songs
             ],
+            "favorites": stats.get("favorites", []),
+            "history": stats.get("history", []),
+            "favoritesCount": len(stats.get("favorites", [])),
         })
 
     result.sort(key=lambda x: x["totalTime"], reverse=True)

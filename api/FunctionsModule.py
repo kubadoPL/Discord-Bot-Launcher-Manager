@@ -248,6 +248,22 @@ def create_chat_tables():
     """
     )
 
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS anon_listener_stats (
+        anon_id VARCHAR(64) NOT NULL PRIMARY KEY,
+        station VARCHAR(64) DEFAULT '',
+        total_time INT DEFAULT 0,
+        song_count INT DEFAULT 0,
+        favorites_count INT DEFAULT 0,
+        stats_json LONGTEXT,
+        first_seen TIMESTAMP NULL,
+        last_seen TIMESTAMP NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+    """
+    )
+
     conn.commit()
     conn.close()
 
