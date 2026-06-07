@@ -554,7 +554,7 @@ def get_service_stat(service_name, stat_name):
 
 
 @app.route("/stats/<service_name>/<stat_name>", methods=["POST"])
-@require_api_key
+@cross_origin(origins=_CORS_ORIGINS)
 def update_service_stat(service_name, stat_name):
     """Create or update a stat for a service.
     Usage: POST /stats/k5portfolio/totalvisits
@@ -562,9 +562,21 @@ def update_service_stat(service_name, stat_name):
       {"value": 100}          -> sets the stat to exactly 100
       {"increment": 1}        -> adds 1 to the current value (creates with 1 if new)
       {"increment": -5}       -> subtracts 5 from the current value
+    Public services (no API key): k5portfolio
+    All other services require API key.
     """
     service_name = service_name.lower().strip()
     stat_name = stat_name.lower().strip()
+
+    # Allow public access for portfolio stats; require API key for everything else
+    PUBLIC_SERVICES = {"k5portfolio"}
+    if service_name not in PUBLIC_SERVICES:
+        api_key = request.headers.get("X-API-Key") or request.args.get("api_key")
+        if not api_key:
+            return jsonify({"error": "Missing API key"}), 401
+        from api.FunctionsModule import validate_api_key
+        if not validate_api_key(api_key):
+            return jsonify({"error": "Invalid API key"}), 403
 
     data = request.get_json(silent=True)
     if not data:
@@ -644,7 +656,6 @@ def delete_service_stat(service_name, stat_name):
         return jsonify({"message": "Stat deleted", "service": service_name, "stat": stat_name})
     else:
         return jsonify({"error": "Stat not found"}), 404
-
 
 def run_api():
     port = int(os.environ.get("PORT", 80))  # Get the port from environment variable
