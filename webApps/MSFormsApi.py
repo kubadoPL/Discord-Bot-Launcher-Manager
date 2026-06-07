@@ -48,10 +48,12 @@ _session_stats = {
 # ─── Global Persistent Stats (saved to DB) ─────────────────────────────────────
 FORMS_SERVICE_NAME = "msforms"
 _global_stats_queue = Queue()
+_global_stats_cache = {}  # In-memory cache of global stats, updated after each DB write
+_global_stats_cache_lock = threading.Lock()
 
 
 def _global_stats_worker():
-    """Background thread that increments stats in the database."""
+    """Background thread that increments stats in the database and updates in-memory cache."""
     while True:
         task = _global_stats_queue.get()
         if task is None:
@@ -70,6 +72,9 @@ def _global_stats_worker():
             )
             conn.commit()
             conn.close()
+            # Update in-memory cache immediately (no DB read needed)
+            with _global_stats_cache_lock:
+                _global_stats_cache[stat_name] = _global_stats_cache.get(stat_name, 0) + amount
             print(f"[MSForms GlobalStats] Saved: {stat_name} +{amount}")
         except Exception as e:
             print(f"[MSForms GlobalStats] Error saving {stat_name}: {e}")
@@ -87,7 +92,7 @@ def _increment_global_stat(stat_name, amount=1):
 
 
 def _get_global_stats():
-    """Fetch all global stats from the database."""
+    """Fetch all global stats from the database (used at startup only)."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
@@ -103,12 +108,21 @@ def _get_global_stats():
         return {}
 
 
+def _get_cached_global_stats():
+    """Return the in-memory cached global stats (non-blocking, no DB call)."""
+    with _global_stats_cache_lock:
+        return dict(_global_stats_cache)
+
+
 # Create service_stats table on startup (in background to avoid blocking gunicorn)
 def _init_global_stats_table():
     try:
         create_service_stats_table()
-        test_stats = _get_global_stats()
-        print(f"[MSForms] Global stats table ready. Current stats: {test_stats}")
+        loaded = _get_global_stats()
+        # Seed the in-memory cache from DB
+        with _global_stats_cache_lock:
+            _global_stats_cache.update(loaded)
+        print(f"[MSForms] Global stats table ready. Current stats: {loaded}")
     except Exception as e:
         print(f"[MSForms] Warning: Could not create stats table: {e}")
 
@@ -629,7 +643,7 @@ def api_stats():
         stats_copy = dict(_session_stats)
     stats_copy["cached_forms"] = len(_preview_cache)
 
-    global_stats = _get_global_stats()
+    global_stats = _get_cached_global_stats()
 
     return jsonify({
         "session": stats_copy,

@@ -64,6 +64,7 @@ all_user_activity = {}  # user_id -> last_activity_timestamp (global)
 custom_emojis = []  # List of {id, name, url, creator_id}
 anonymous_listeners = {}  # station_key -> {anon_id -> last_activity_timestamp}
 all_unique_anon_ids = set()  # Track every unique anon_id ever seen (across server lifetime)
+_unique_anon_count = 0  # In-memory counter, loaded from DB at startup, updated atomically
 
 # Cache for online users results to reduce CPU load
 online_users_cache = (
@@ -256,8 +257,9 @@ def _do_increment_unique_anon_count(delta):
         print(f"[DB] Error updating unique anon count: {e}")
 
 
-def _get_unique_anon_count_from_db():
-    """Read the current unique_anonymous_users count from service_stats."""
+def _load_unique_anon_count():
+    """Load the unique_anonymous_users count from DB into the in-memory counter (startup only)."""
+    global _unique_anon_count
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
@@ -266,10 +268,11 @@ def _get_unique_anon_count_from_db():
         )
         row = cursor.fetchone()
         conn.close()
-        return int(row["value"]) if row else 0
+        _unique_anon_count = int(row["value"]) if row else 0
+        print(f"[DB] Loaded unique anon count from DB: {_unique_anon_count}")
     except Exception as e:
-        print(f"[DB] Error reading unique anon count: {e}")
-        return 0
+        print(f"[DB] Error loading unique anon count: {e}")
+        _unique_anon_count = 0
 
 
 def _do_save_session(session_token, session_data):
@@ -507,6 +510,7 @@ def _init_chat_db():
     try:
         create_chat_tables()
         _load_chat_data_from_db()
+        _load_unique_anon_count()
     except Exception as e:
         print(f"[DB] Error during startup init: {e}")
 
@@ -991,6 +995,8 @@ def anonymous_heartbeat():
     # Track unique anonymous users and persist to DB
     if anon_id not in all_unique_anon_ids:
         all_unique_anon_ids.add(anon_id)
+        global _unique_anon_count
+        _unique_anon_count = max(0, _unique_anon_count + 1)
         _db_enqueue(_do_increment_unique_anon_count, 1)
 
     # Invalidate cache so the new count is reflected
@@ -1024,6 +1030,8 @@ def claim_anonymous():
     # Remove from unique set and decrement DB counter
     if anon_id in all_unique_anon_ids:
         all_unique_anon_ids.discard(anon_id)
+        global _unique_anon_count
+        _unique_anon_count = max(0, _unique_anon_count - 1)
         _db_enqueue(_do_increment_unique_anon_count, -1)
 
     return jsonify({"ok": True, "removed": removed})
@@ -1586,7 +1594,7 @@ def get_ranking():
             "favorites_count": fav_count_map,
             "total_users": len(user_totals),
             "total_unique_songs": len(global_songs),
-            "total_unique_anonymous_users": _get_unique_anon_count_from_db(),
+            "total_unique_anonymous_users": _unique_anon_count,
             "generated_at": now.isoformat() + "Z",
         }
 
@@ -1641,7 +1649,7 @@ def get_radio_stats():
             "top_listener_time_seconds": top_time,
             "unique_songs_tracked": unique_songs,
             "total_listening_time_seconds": total_time,
-            "total_unique_anonymous_users": _get_unique_anon_count_from_db(),
+            "total_unique_anonymous_users": _unique_anon_count,
         })
 
     # No cache — do a direct lightweight query
@@ -1683,7 +1691,7 @@ def get_radio_stats():
             "top_listener_time_seconds": top_time,
             "unique_songs_tracked": len(all_song_titles),
             "total_listening_time_seconds": total_time,
-            "total_unique_anonymous_users": _get_unique_anon_count_from_db(),
+            "total_unique_anonymous_users": _unique_anon_count,
         })
 
     except Exception as e:
