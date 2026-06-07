@@ -1245,6 +1245,9 @@ def poll_messages(station):
     if since:
         since_time_for_del = safe_parse_datetime(since)
         if since_time_for_del != datetime.min:
+            # Strip timezone info since recent_deletions uses naive utcnow()
+            if since_time_for_del.tzinfo is not None:
+                since_time_for_del = since_time_for_del.replace(tzinfo=None)
             for d in recent_deletions:
                 if d["timestamp"] > since_time_for_del:
                     if d["type"] == "message":
