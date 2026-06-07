@@ -95,6 +95,19 @@ online_users_cache = (
 CACHE_TTL_SECONDS = 10
 _last_seen_db_writes = {}  # user_id -> last DB write datetime (debounce)
 
+# ─── Recent Deletions Queue (for real-time sync) ──────────────────────────────
+# Tracks deleted messages and emojis so poll can inform other clients
+recent_deletions = []  # [{"type": "message"|"emoji", "id": str, "timestamp": datetime}]
+DELETION_TTL_SECONDS = 120  # Keep deletions for 2 minutes
+
+def record_deletion(deletion_type, item_id):
+    """Record a deletion event for real-time sync via polling."""
+    now = datetime.utcnow()
+    recent_deletions.append({"type": deletion_type, "id": item_id, "timestamp": now})
+    # Clean up old entries
+    cutoff = now - timedelta(seconds=DELETION_TTL_SECONDS)
+    recent_deletions[:] = [d for d in recent_deletions if d["timestamp"] > cutoff]
+
 
 # ─── DB Write Queue (background thread) ───────────────────────────────────────
 
@@ -1226,6 +1239,19 @@ def poll_messages(station):
             except Exception as e:
                 print(f"[POLL] Error checking mentions: {e}")
 
+    # Get recent deletions since the 'since' timestamp
+    deleted_messages = []
+    deleted_emojis = []
+    if since:
+        since_time_for_del = safe_parse_datetime(since)
+        if since_time_for_del != datetime.min:
+            for d in recent_deletions:
+                if d["timestamp"] > since_time_for_del:
+                    if d["type"] == "message":
+                        deleted_messages.append(d["id"])
+                    elif d["type"] == "emoji":
+                        deleted_emojis.append(d["id"])
+
     # Only return user list if specifically requested via ?full_users=1
     include_full_users = request.args.get("full_users") == "1"
 
@@ -1235,6 +1261,8 @@ def poll_messages(station):
             "other_mentions": other_mentions,
             "online_count": online_count,
             "online_users": online_users_list if include_full_users else None,
+            "deleted_messages": deleted_messages if deleted_messages else None,
+            "deleted_emojis": deleted_emojis if deleted_emojis else None,
             "server_time": datetime.utcnow().isoformat() + "Z",
         }
     )
@@ -1243,7 +1271,7 @@ def poll_messages(station):
 # --- User Data Sync (listening history, favorites, stats) ---
 
 # Allowed keys that can be synced to DB
-SYNCABLE_KEYS = {"songHistory", "songFavorites", "listeningStats"}
+SYNCABLE_KEYS = {"songHistory", "songFavorites", "listeningStats", "savedWebhooks"}
 
 
 def _do_save_user_data(user_id, data_key, data_value):
@@ -1910,6 +1938,7 @@ def delete_message():
                     return jsonify({"error": "You can only delete your own messages"}), 403
                 msgs.pop(i)
                 _db_delete_message(message_id)
+                record_deletion("message", message_id)
                 return jsonify({"success": True, "deleted_id": message_id, "admin_action": user_is_admin and msg["user"]["id"] != user_id})
 
     return jsonify({"error": "Message not found"}), 404
@@ -1954,6 +1983,7 @@ def delete_custom_emoji():
     custom_emojis.remove(target_emoji)
     if SAVE_EMOJIS:
         _db_delete_emoji(emoji_id)
+    record_deletion("emoji", emoji_id)
 
     # Clean up reactions using this emoji from all messages
     cleaned_count = 0
