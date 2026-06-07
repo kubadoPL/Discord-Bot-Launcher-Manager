@@ -32,6 +32,8 @@ import requests
 
 from flask_cors import CORS, cross_origin
 from flask_caching import Cache
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from datetime import datetime
 from api.config import RESTRICT_CORS
 
@@ -40,6 +42,15 @@ _CORS_ORIGINS = ["https://radio-gaming.stream", "https://k5studio.dev"] if RESTR
 app = Flask(__name__, template_folder=parent_dir + "/api/templates")
 
 cache = Cache(app, config={"CACHE_TYPE": "simple"})
+
+# ─── Rate Limiting ─────────────────────────────────────────────────────────────
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["120 per minute"],
+    storage_uri="memory://",
+    strategy="fixed-window",
+)
 
 # ─── Server Uptime ─────────────────────────────────────────────────────────────
 _server_start_time = _time.time()
@@ -203,6 +214,7 @@ def update_roblox_balance():
 
 
 @app.route("/spotify/token", methods=["GET"])
+@limiter.limit("30 per minute")
 @cross_origin(origins=_CORS_ORIGINS)
 @cache.cached(timeout=3000, query_string=False)
 def get_spotify_token():
@@ -246,6 +258,7 @@ def get_spotify_token():
 
 
 @app.route("/giphy/token", methods=["GET"])
+@limiter.limit("30 per minute")
 @cross_origin(origins=_CORS_ORIGINS)
 @cache.cached(timeout=3000, query_string=False)
 def get_giphy_token():
@@ -268,6 +281,7 @@ def get_giphy_token():
 
 
 @app.route("/youtube/token", methods=["GET"])
+@limiter.limit("30 per minute")
 @cross_origin(origins=_CORS_ORIGINS)
 @cache.cached(timeout=3000, query_string=False)
 def get_youtube_token():
@@ -290,6 +304,8 @@ def get_youtube_token():
 
 
 @app.route("/roblox/download_asset", methods=["GET"])
+@limiter.limit("40 per minute")
+@cross_origin(origins=_CORS_ORIGINS)
 def download_any_roblox_asset():
     asset_id = request.args.get("id")
     if not asset_id:
@@ -456,6 +472,7 @@ def api_webhooks():
 
 
 @app.route("/api/share", methods=["POST"])
+@limiter.limit("15 per minute")
 @cross_origin(origins=_CORS_ORIGINS)
 def api_share():
     """Proxy webhook message so webhook URLs stay server-side."""

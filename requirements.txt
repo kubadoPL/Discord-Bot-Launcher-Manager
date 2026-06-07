@@ -41,3 +41,4 @@ deno
 gunicorn
 gevent
 google-genai
+flask-limiter

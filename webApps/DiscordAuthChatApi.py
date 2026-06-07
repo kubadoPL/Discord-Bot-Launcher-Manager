@@ -14,6 +14,8 @@ if parent_dir not in sys.path:
 
 from flask import Flask, request, jsonify, redirect, Blueprint
 from flask_cors import cross_origin
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import requests as http_requests
 import json
 from api.config import RESTRICT_CORS
@@ -37,6 +39,15 @@ else:
     }
 
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2MB max request size
+
+# ─── Rate Limiting ─────────────────────────────────────────────────────────────
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["120 per minute"],
+    storage_uri="memory://",
+    strategy="fixed-window",
+)
 
 chat_api = Blueprint("chat_api", __name__)
 
@@ -349,6 +360,45 @@ def _db_delete_expired_sessions():
         print(f"[DB] Error cleaning sessions: {e}")
 
 
+def _cleanup_expired_sessions_memory():
+    """Remove expired sessions from in-memory dict."""
+    now = datetime.utcnow()
+    expired_tokens = []
+    for token, session in list(user_sessions.items()):
+        expires_at = session.get("expires_at", "")
+        if expires_at:
+            try:
+                expiry_str = expires_at.replace("Z", "+00:00")
+                expiry_dt = datetime.fromisoformat(expiry_str).replace(tzinfo=None)
+                if now > expiry_dt:
+                    expired_tokens.append(token)
+            except (ValueError, TypeError):
+                pass
+    for token in expired_tokens:
+        user_sessions.pop(token, None)
+    if expired_tokens:
+        print(f"[SESSIONS] Cleaned {len(expired_tokens)} expired sessions from memory")
+
+
+def _periodic_session_cleanup():
+    """Background thread: clean expired sessions from memory + DB every hour."""
+    import time as _time
+    while True:
+        _time.sleep(3600)  # 1 hour
+        try:
+            _cleanup_expired_sessions_memory()
+            _db_delete_expired_sessions()
+        except Exception as e:
+            print(f"[SESSIONS] Periodic cleanup error: {e}")
+
+
+import threading as _threading
+_cleanup_thread = _threading.Thread(
+    target=_periodic_session_cleanup, daemon=True, name="session-cleanup"
+)
+_cleanup_thread.start()
+
+
 def _load_chat_data_from_db():
     """Load chat messages, custom emojis, user profiles, and sessions from the database."""
     global chat_messages, custom_emojis, user_profiles, user_sessions
@@ -556,6 +606,7 @@ def get_custom_emojis():
 
 
 @chat_api.route("/chat/emojis/upload", methods=["POST"])
+@limiter.limit("30 per minute")
 @cross_origin(**CORS_OPTIONS)
 def upload_custom_emoji():
     auth_header = request.headers.get("Authorization")
@@ -563,8 +614,9 @@ def upload_custom_emoji():
         return jsonify({"error": "Unauthorized"}), 401
 
     token = auth_header.split(" ")[1]
-    if token not in user_sessions:
-        return jsonify({"error": "Invalid session"}), 401
+    session = validate_session(token)
+    if not session:
+        return jsonify({"error": "Invalid or expired session"}), 401
 
     data = request.json
     name = data.get("name", "custom").strip()[:20]
@@ -740,6 +792,7 @@ def home():
 
 
 @chat_api.route("/discord/login")
+@limiter.limit("15 per minute")
 @cross_origin(**CORS_OPTIONS)
 def discord_login():
     if not DISCORD_CLIENT_ID:
@@ -765,6 +818,7 @@ def discord_login():
 
 
 @chat_api.route("/discord/callback")
+@limiter.limit("15 per minute")
 @cross_origin(**CORS_OPTIONS)
 def discord_callback():
     code = request.args.get("code")
@@ -850,11 +904,12 @@ def get_user():
         return jsonify({"error": "Unauthorized"}), 401
 
     token = auth_header.split(" ")[1]
-    if token not in user_sessions:
-        return jsonify({"error": "Invalid session"}), 401
+    session = validate_session(token)
+    if not session:
+        return jsonify({"error": "Invalid or expired session"}), 401
 
     # Filter out sensitive fields before returning to client
-    safe_user = {k: v for k, v in user_sessions[token].items()
+    safe_user = {k: v for k, v in session.items()
                  if k not in ("discord_access_token", "guilds_cache")}
     return jsonify({"authenticated": True, "user": safe_user})
 
@@ -886,10 +941,9 @@ def check_guild(guild_id):
         return jsonify({"error": "Unauthorized"}), 401
 
     token = auth_header.split(" ")[1]
-    if token not in user_sessions:
-        return jsonify({"error": "Invalid session"}), 401
-
-    session = user_sessions[token]
+    session = validate_session(token)
+    if not session:
+        return jsonify({"error": "Invalid or expired session"}), 401
 
     # Use session cache if available and not expired (5 min cache)
     now = datetime.utcnow()
@@ -1016,6 +1070,7 @@ def get_chat_history(station):
 
 
 @chat_api.route("/chat/heartbeat", methods=["POST"])
+@limiter.limit("60 per minute")
 @cross_origin(**CORS_OPTIONS)
 def anonymous_heartbeat():
     """Track anonymous (not logged in) listeners per station."""
@@ -1051,6 +1106,7 @@ def anonymous_heartbeat():
 
 
 @chat_api.route("/chat/claim-anon", methods=["POST"])
+@limiter.limit("15 per minute")
 @cross_origin(**CORS_OPTIONS)
 def claim_anonymous():
     """Remove an anonymous listener when they log in via Discord."""
@@ -1209,10 +1265,11 @@ def get_user_data():
         return jsonify({"error": "Unauthorized"}), 401
 
     token = auth_header.split(" ")[1]
-    if token not in user_sessions:
-        return jsonify({"error": "Invalid session"}), 401
+    session = validate_session(token)
+    if not session:
+        return jsonify({"error": "Invalid or expired session"}), 401
 
-    user_id = user_sessions[token]["id"]
+    user_id = session["id"]
 
     try:
         conn = get_db_connection()
@@ -1249,10 +1306,11 @@ def save_user_data():
         return jsonify({"error": "Unauthorized"}), 401
 
     token = auth_header.split(" ")[1]
-    if token not in user_sessions:
-        return jsonify({"error": "Invalid session"}), 401
+    session = validate_session(token)
+    if not session:
+        return jsonify({"error": "Invalid or expired session"}), 401
 
-    user_id = user_sessions[token]["id"]
+    user_id = session["id"]
 
     data = request.get_json(silent=True)
     if not data:
@@ -1745,6 +1803,7 @@ def get_radio_stats():
 
 
 @chat_api.route("/chat/send", methods=["POST"])
+@limiter.limit("30 per minute")
 @cross_origin(**CORS_OPTIONS)
 def send_message():
     auth_header = request.headers.get("Authorization")
@@ -1752,8 +1811,9 @@ def send_message():
         return jsonify({"error": "Unauthorized"}), 401
 
     token = auth_header.split(" ")[1]
-    if token not in user_sessions:
-        return jsonify({"error": "Invalid session"}), 401
+    session = validate_session(token)
+    if not session:
+        return jsonify({"error": "Invalid or expired session"}), 401
 
     data = request.json
     content = data.get("message", "").strip()[:200]
@@ -1810,6 +1870,7 @@ def send_message():
 
 
 @chat_api.route("/chat/delete", methods=["POST"])
+@limiter.limit("40 per minute")
 @cross_origin(**CORS_OPTIONS)
 def delete_message():
     auth_header = request.headers.get("Authorization")
@@ -1817,15 +1878,16 @@ def delete_message():
         return jsonify({"error": "Unauthorized"}), 401
 
     token = auth_header.split(" ")[1]
-    if token not in user_sessions:
-        return jsonify({"error": "Invalid session"}), 401
+    session = validate_session(token)
+    if not session:
+        return jsonify({"error": "Invalid or expired session"}), 401
 
     data = request.json
     message_id = data.get("message_id", "")
     if not message_id:
         return jsonify({"error": "Missing message_id"}), 400
 
-    user = user_sessions[token]
+    user = session
     user_id = user["id"]
 
     # Find and remove the message across all stations
@@ -1843,6 +1905,7 @@ def delete_message():
 
 
 @chat_api.route("/chat/react", methods=["POST"])
+@limiter.limit("60 per minute")
 @cross_origin(**CORS_OPTIONS)
 def react_to_message():
     auth_header = request.headers.get("Authorization")
@@ -1850,8 +1913,9 @@ def react_to_message():
         return jsonify({"error": "Unauthorized"}), 401
 
     token = auth_header.split(" ")[1]
-    if token not in user_sessions:
-        return jsonify({"error": "Invalid session"}), 401
+    session = validate_session(token)
+    if not session:
+        return jsonify({"error": "Invalid or expired session"}), 401
 
     data = request.json
     message_id = data.get("message_id", "")
@@ -1960,6 +2024,7 @@ def search_deezer():
 
 
 @chat_api.route("/discord/activity-token", methods=["POST"])
+@limiter.limit("15 per minute")
 @cross_origin(**CORS_OPTIONS)
 def discord_activity_token():
     """
@@ -2005,6 +2070,7 @@ def discord_activity_token():
 
 
 @chat_api.route("/discord/activity-login", methods=["POST"])
+@limiter.limit("15 per minute")
 @cross_origin(**CORS_OPTIONS)
 def discord_activity_login():
     """

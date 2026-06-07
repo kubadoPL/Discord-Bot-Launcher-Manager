@@ -18,6 +18,8 @@ from flask_cors import cross_origin
 
 from flask import Flask, jsonify, render_template_string
 from flask_caching import Cache
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from api.config import RESTRICT_CORS
 
 _CORS_ORIGINS = ["https://radio-gaming.stream", "https://k5studio.dev"] if RESTRICT_CORS else "*"
@@ -26,6 +28,13 @@ _CORS_ORIGINS = ["https://radio-gaming.stream", "https://k5studio.dev"] if RESTR
 app = Flask(__name__)
 
 cache = Cache(app, config={"CACHE_TYPE": "simple"})
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["30 per minute"],
+    storage_uri="memory://",
+    strategy="fixed-window",
+)
 
 
 @app.route("/")
@@ -50,6 +59,7 @@ scraping_lock = threading.Lock()
 
 
 @app.route("/get-sum", methods=["GET"])
+@limiter.limit("5 per minute")
 @cross_origin(origins=_CORS_ORIGINS)
 @cache.cached(timeout=500, query_string=True)
 def get_sum():

@@ -12,6 +12,8 @@ import requests as http_requests  # renamed to avoid conflict with flask.request
 from flask import Flask, jsonify, request, render_template_string, Response
 from flask_cors import cross_origin
 from flask_caching import Cache
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -31,6 +33,13 @@ from FunctionsModule import get_db_connection, create_service_stats_table
 
 app = Flask(__name__)
 cache = Cache(app, config={"CACHE_TYPE": "simple"})
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["60 per minute"],
+    storage_uri="memory://",
+    strategy="fixed-window",
+)
 
 # ─── Session Stats ────────────────────────────────────────────────────────────────
 _session_stats_lock = threading.Lock()
@@ -616,6 +625,7 @@ def queue_status():
 
 
 @app.route("/heartbeat", methods=["POST"])
+@limiter.limit("60 per minute")
 @cross_origin()
 def heartbeat():
     """Register a heartbeat from a connected client."""
@@ -653,6 +663,7 @@ def api_stats():
 
 
 @app.route("/update-ai-key", methods=["POST"])
+@limiter.limit("15 per minute")
 @cross_origin()
 def update_ai_key():
     """Receive a new API key from user during quota exhaustion."""
@@ -671,6 +682,7 @@ import uuid
 _stored_weights = {}
 
 @app.route("/store-weights", methods=["POST"])
+@limiter.limit("30 per minute")
 @cross_origin()
 def store_weights():
     """Store weights + settings server-side and return a token to reference them."""
@@ -2660,6 +2672,7 @@ HOME_PAGE_HTML = r"""
 
 @app.route("/fill-form", methods=["GET"], defaults={"form_url": None})
 @app.route("/fill-form/<path:form_url>", methods=["GET"])
+@limiter.limit("3 per minute")
 @cross_origin()
 def fill_form(form_url):
     if not form_url:
@@ -2760,6 +2773,7 @@ def preview_form():
 
 
 @app.route("/stream-fill", methods=["GET"])
+@limiter.limit("3 per minute")
 def stream_fill():
     """SSE endpoint that streams live progress while filling the form."""
     form_url = request.args.get("url", "")
