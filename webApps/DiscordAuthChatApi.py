@@ -78,6 +78,16 @@ anonymous_listeners = {}  # station_key -> {anon_id -> last_activity_timestamp}
 all_unique_anon_ids = set()  # Track every unique anon_id ever seen (across server lifetime)
 _unique_anon_count = 0  # In-memory counter, loaded from DB at startup, updated atomically
 
+# ─── Admin Role System ─────────────────────────────────────────────────────────
+# Admin users have special privileges: delete any message, delete custom emojis
+ADMIN_USER_IDS = {
+    "264079253757231104",  # Admin
+}
+
+def is_admin(user_id):
+    """Check if a user ID has admin privileges."""
+    return str(user_id) in ADMIN_USER_IDS
+
 # Cache for online users results to reduce CPU load
 online_users_cache = (
     {}
@@ -1889,19 +1899,63 @@ def delete_message():
 
     user = session
     user_id = user["id"]
+    user_is_admin = is_admin(user_id)
 
     # Find and remove the message across all stations
     for station_key, msgs in chat_messages.items():
         for i, msg in enumerate(msgs):
             if msg["id"] == message_id:
-                # Only the author can delete their own message
-                if msg["user"]["id"] != user_id:
+                # Only the author or an admin can delete messages
+                if msg["user"]["id"] != user_id and not user_is_admin:
                     return jsonify({"error": "You can only delete your own messages"}), 403
                 msgs.pop(i)
                 _db_delete_message(message_id)
-                return jsonify({"success": True, "deleted_id": message_id})
+                return jsonify({"success": True, "deleted_id": message_id, "admin_action": user_is_admin and msg["user"]["id"] != user_id})
 
     return jsonify({"error": "Message not found"}), 404
+
+
+@chat_api.route("/chat/emojis/delete", methods=["POST"])
+@limiter.limit("30 per minute")
+@cross_origin(**CORS_OPTIONS)
+def delete_custom_emoji():
+    """Delete a custom emoji (admin only or emoji creator)."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    token = auth_header.split(" ")[1]
+    session = validate_session(token)
+    if not session:
+        return jsonify({"error": "Invalid or expired session"}), 401
+
+    data = request.json
+    emoji_id = data.get("emoji_id", "")
+    if not emoji_id:
+        return jsonify({"error": "Missing emoji_id"}), 400
+
+    user_id = session["id"]
+    user_is_admin = is_admin(user_id)
+
+    # Find the emoji
+    target_emoji = None
+    for emoji in custom_emojis:
+        if emoji["id"] == emoji_id:
+            target_emoji = emoji
+            break
+
+    if not target_emoji:
+        return jsonify({"error": "Emoji not found"}), 404
+
+    # Only admin or the creator can delete
+    if target_emoji["creator_id"] != user_id and not user_is_admin:
+        return jsonify({"error": "Only admins or the emoji creator can delete emojis"}), 403
+
+    custom_emojis.remove(target_emoji)
+    if SAVE_EMOJIS:
+        _db_delete_emoji(emoji_id)
+
+    return jsonify({"success": True, "deleted_id": emoji_id})
 
 
 @chat_api.route("/chat/react", methods=["POST"])
