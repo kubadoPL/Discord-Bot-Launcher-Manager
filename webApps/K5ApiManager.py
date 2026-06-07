@@ -674,6 +674,341 @@ def delete_service_stat(service_name, stat_name):
     else:
         return jsonify({"error": "Stat not found"}), 404
 
+
+# ─── Album Cover Search (replicates radio.js fetchCover system) ───────────────
+
+import re as _re
+import urllib.parse as _urlparse
+
+_cover_cache = {}  # query -> {url, score, source, timestamp}
+_COVER_CACHE_TTL = 300  # 5 minutes
+
+
+def _similarity_score(s1, s2):
+    """Dice coefficient similarity between two strings (word-level)."""
+    if not s1 or not s2:
+        return 0.0
+
+    def normalize(s):
+        return _re.sub(r"[^a-z0-9\s]", "", s.lower()).strip()
+
+    n1 = normalize(s1)
+    n2 = normalize(s2)
+    if n1 == n2:
+        return 1.0
+
+    words1 = n1.split()
+    words2 = n2.split()
+    if not words1 or not words2:
+        return 0.0
+
+    intersection = [w for w in words1 if w in words2]
+    return (len(intersection) * 2) / (len(words1) + len(words2))
+
+
+def _clean_title(title):
+    """Remove common junk from song titles."""
+    patterns = [
+        r"\.mp3", r"\(official music video\)", r"\[SPOTIFY-DOWNLOADER\.COM\]",
+        r"\[HD\]", r"\[NEW SONG\]", r"\(Official song\)", r"\(with Lyrics\)",
+        r"Lyrics", r"\(Lyric Video\)", r"\(Official Audio\)", r"\(Official Video\)",
+        r"\(Official\)", r"\[Official Music Video\]", r"\?+",
+    ]
+    for p in patterns:
+        title = _re.sub(p, "", title, flags=_re.IGNORECASE)
+    return title.strip()
+
+
+def _get_spotify_token_internal():
+    """Get a Spotify access token server-side."""
+    client_id = os.environ.get("SPOTIFY_CLIENT_ID")
+    client_secret = os.environ.get("SPOTIFY_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        return None
+
+    credentials = f"{client_id}:{client_secret}"
+    encoded = base64.b64encode(credentials.encode()).decode()
+
+    try:
+        resp = requests.post(
+            "https://accounts.spotify.com/api/token",
+            headers={
+                "Authorization": f"Basic {encoded}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            data={"grant_type": "client_credentials"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.json().get("access_token")
+    except Exception:
+        pass
+    return None
+
+
+def _search_spotify(query):
+    """Search Spotify for album cover. Returns {url, score} or None."""
+    token = _get_spotify_token_internal()
+    if not token:
+        return None
+
+    try:
+        url = f"https://api.spotify.com/v1/search?q={_urlparse.quote(query)}&type=track&limit=10"
+        resp = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        data = resp.json()
+
+        if data.get("tracks") and data["tracks"]["items"]:
+            best_match = None
+            highest_score = -1
+
+            for track in data["tracks"]["items"]:
+                title = f"{track['artists'][0]['name']} - {track['name']}"
+                score = _similarity_score(query, title)
+                if score > highest_score:
+                    highest_score = score
+                    best_match = track
+
+            if best_match and best_match["album"]["images"]:
+                return {
+                    "url": best_match["album"]["images"][0]["url"],
+                    "score": highest_score,
+                    "artist": best_match["artists"][0]["name"],
+                    "track": best_match["name"],
+                }
+    except Exception as e:
+        print(f"[Cover] Spotify error: {e}")
+    return None
+
+
+def _search_itunes(query):
+    """Search iTunes for album cover. Returns {url, score} or None."""
+    try:
+        url = f"https://itunes.apple.com/search?term={_urlparse.quote(query)}&media=music&limit=5"
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+
+        if data.get("results"):
+            best_match = None
+            highest_score = -1
+
+            for item in data["results"]:
+                title = f"{item.get('artistName', '')} - {item.get('trackName', '')}"
+                score = _similarity_score(query, title)
+                if score > highest_score:
+                    highest_score = score
+                    best_match = item
+
+            if best_match and best_match.get("artworkUrl100"):
+                return {
+                    "url": best_match["artworkUrl100"].replace("100x100bb.jpg", "600x600bb.jpg"),
+                    "score": highest_score,
+                    "artist": best_match.get("artistName", ""),
+                    "track": best_match.get("trackName", ""),
+                }
+    except Exception as e:
+        print(f"[Cover] iTunes error: {e}")
+    return None
+
+
+def _search_deezer(query):
+    """Search Deezer for album cover. Returns {url, score} or None."""
+    try:
+        url = f"https://api.deezer.com/search?q={_urlparse.quote(query)}&limit=5"
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+
+        if data.get("data"):
+            best_match = None
+            highest_score = -1
+
+            for item in data["data"]:
+                title = f"{item['artist']['name']} - {item['title']}"
+                score = _similarity_score(query, title)
+                if score > highest_score:
+                    highest_score = score
+                    best_match = item
+
+            if best_match:
+                cover_url = (
+                    best_match.get("album", {}).get("cover_xl")
+                    or best_match.get("album", {}).get("cover_big")
+                    or best_match.get("album", {}).get("cover_medium")
+                )
+                if cover_url:
+                    return {
+                        "url": cover_url,
+                        "score": highest_score,
+                        "artist": best_match["artist"]["name"],
+                        "track": best_match["title"],
+                    }
+    except Exception as e:
+        print(f"[Cover] Deezer error: {e}")
+    return None
+
+
+def _search_youtube(query):
+    """Search YouTube for thumbnail. Returns {url, score} or None."""
+    yt_key = os.environ.get("YOUTUBE_DATA_TOKEN")
+    if not yt_key:
+        return None
+
+    try:
+        url = (
+            f"https://www.googleapis.com/youtube/v3/search?"
+            f"part=snippet&q={_urlparse.quote(query)}&type=video&maxResults=5&key={yt_key}"
+        )
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+
+        if data.get("items"):
+            best_match = None
+            highest_score = -1
+
+            for item in data["items"]:
+                score = _similarity_score(query, item["snippet"]["title"])
+                if score > highest_score:
+                    highest_score = score
+                    best_match = item
+
+            if best_match:
+                thumbnails = best_match["snippet"]["thumbnails"]
+                thumb_url = (
+                    thumbnails.get("high", {}).get("url")
+                    or thumbnails.get("medium", {}).get("url")
+                    or thumbnails.get("default", {}).get("url")
+                )
+                if thumb_url:
+                    return {
+                        "url": thumb_url,
+                        "score": highest_score,
+                        "title": best_match["snippet"]["title"],
+                    }
+    except Exception as e:
+        print(f"[Cover] YouTube error: {e}")
+    return None
+
+
+@app.route("/music/cover", methods=["GET"])
+@limiter.limit("60 per minute")
+@cross_origin(origins=_CORS_ORIGINS)
+def search_cover():
+    """Search for album cover art across multiple providers.
+    Usage: GET /music/cover?q=Artist - Track Name
+    Optional: &sources=spotify,itunes,deezer,youtube (default: all)
+              &threshold=0.8 (minimum similarity score to accept early, default: 0.8)
+
+    Returns: {url, score, source, artist, track, query, scores}
+    The system searches sequentially (Spotify → iTunes → Deezer → YouTube),
+    stopping early if a match with score >= threshold is found.
+    """
+    query = request.args.get("q", "").strip()
+    if not query:
+        return jsonify({"error": "Missing 'q' query parameter"}), 400
+
+    # Clean the title
+    cleaned = _clean_title(query)
+    if not cleaned:
+        return jsonify({"error": "Query is empty after cleaning"}), 400
+
+    # Check cache
+    now = _time.time()
+    if cleaned in _cover_cache:
+        entry = _cover_cache[cleaned]
+        if now - entry["timestamp"] < _COVER_CACHE_TTL:
+            result = {k: v for k, v in entry.items() if k != "timestamp"}
+            result["cached"] = True
+            return jsonify(result)
+
+    # Parse options
+    threshold = float(request.args.get("threshold", "0.8"))
+    sources_param = request.args.get("sources", "spotify,itunes,deezer,youtube")
+    enabled_sources = [s.strip().lower() for s in sources_param.split(",")]
+
+    # Search providers sequentially
+    results = {}
+    best = {"url": None, "score": -1, "source": "none"}
+
+    source_funcs = {
+        "spotify": _search_spotify,
+        "itunes": _search_itunes,
+        "deezer": _search_deezer,
+        "youtube": _search_youtube,
+    }
+
+    for source_name in ["spotify", "itunes", "deezer", "youtube"]:
+        if source_name not in enabled_sources:
+            results[source_name] = "disabled"
+            continue
+
+        data = source_funcs[source_name](cleaned)
+        if data:
+            results[source_name] = round(data["score"], 3)
+            if data["score"] > best["score"]:
+                best = {
+                    "url": data["url"],
+                    "score": data["score"],
+                    "source": source_name,
+                    "artist": data.get("artist", ""),
+                    "track": data.get("track", data.get("title", "")),
+                }
+            # Early exit if good enough
+            if data["score"] >= threshold:
+                # Mark remaining as skipped
+                remaining = ["spotify", "itunes", "deezer", "youtube"]
+                idx = remaining.index(source_name)
+                for skip_source in remaining[idx + 1:]:
+                    if skip_source in enabled_sources:
+                        results[skip_source] = "skipped"
+                break
+        else:
+            results[source_name] = "no_results"
+
+    if best["url"] is None:
+        return jsonify({
+            "error": "No cover found",
+            "query": cleaned,
+            "scores": results,
+        }), 404
+
+    response_data = {
+        "url": best["url"],
+        "score": round(best["score"], 3),
+        "source": best["source"],
+        "artist": best.get("artist", ""),
+        "track": best.get("track", ""),
+        "query": cleaned,
+        "scores": results,
+        "cached": False,
+    }
+
+    # Cache the result
+    _cover_cache[cleaned] = {**response_data, "timestamp": now}
+    # Limit cache size
+    if len(_cover_cache) > 500:
+        oldest_key = min(_cover_cache, key=lambda k: _cover_cache[k]["timestamp"])
+        del _cover_cache[oldest_key]
+
+    return jsonify(response_data)
+
+
+@app.route("/music/deezer", methods=["GET"])
+@limiter.limit("60 per minute")
+@cross_origin(origins=_CORS_ORIGINS)
+def search_deezer_proxy():
+    """Proxy for Deezer search API (avoids CORS issues on frontend).
+    Usage: GET /music/deezer?q=search+query
+    """
+    query = request.args.get("q")
+    if not query:
+        return jsonify({"error": "Missing query"}), 400
+    try:
+        url = f"https://api.deezer.com/search?q={_urlparse.quote(query)}&limit=5"
+        resp = requests.get(url, timeout=10)
+        return jsonify(resp.json())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 def run_api():
     port = int(os.environ.get("PORT", 80))  # Get the port from environment variable
     print(f"[INFO] Starting API server on port {port}...")
