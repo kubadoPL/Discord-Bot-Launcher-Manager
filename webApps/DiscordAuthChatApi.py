@@ -1955,7 +1955,20 @@ def delete_custom_emoji():
     if SAVE_EMOJIS:
         _db_delete_emoji(emoji_id)
 
-    return jsonify({"success": True, "deleted_id": emoji_id})
+    # Clean up reactions using this emoji from all messages
+    cleaned_count = 0
+    for station_key, msgs in chat_messages.items():
+        for msg in msgs:
+            if "reactions" in msg and emoji_id in msg["reactions"]:
+                del msg["reactions"][emoji_id]
+                cleaned_count += 1
+                # Persist updated message to DB
+                _db_save_message(msg)
+
+    if cleaned_count > 0:
+        print(f"[CHAT] Cleaned emoji '{emoji_id}' reactions from {cleaned_count} messages")
+
+    return jsonify({"success": True, "deleted_id": emoji_id, "reactions_cleaned": cleaned_count})
 
 
 @chat_api.route("/chat/react", methods=["POST"])
