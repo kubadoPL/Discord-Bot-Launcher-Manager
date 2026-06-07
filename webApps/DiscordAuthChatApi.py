@@ -78,6 +78,11 @@ anonymous_listeners = {}  # station_key -> {anon_id -> last_activity_timestamp}
 all_unique_anon_ids = set()  # Track every unique anon_id ever seen (across server lifetime)
 _unique_anon_count = 0  # In-memory counter, loaded from DB at startup, updated atomically
 
+# Anonymous listener stats (persisted to DB via user_data table)
+# anon_id -> {station, current_song, songs: {title: {playCount, listeningTime, cover, station}}, totalTime, first_seen, last_seen}
+anon_stats = {}
+_anon_stats_last_db_write = {}  # anon_id -> datetime (debounce writes to every 60s)
+
 # ─── Admin Role System ─────────────────────────────────────────────────────────
 # Admin users have special privileges: delete any message, delete custom emojis
 ADMIN_USER_IDS = {
@@ -368,6 +373,57 @@ def _db_delete_session(session_token):
     _db_enqueue(_do_delete_session, session_token)
 
 
+def _do_save_anon_stats(anon_id, stats_json):
+    """Save anonymous listener stats to the user_data table."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        db_user_id = f"anon_{anon_id}"
+        cursor.execute(
+            """
+            INSERT INTO user_data (user_id, data_key, data_value)
+            VALUES (%s, 'anonListeningStats', %s)
+            ON DUPLICATE KEY UPDATE data_value = VALUES(data_value)
+            """,
+            (db_user_id, stats_json),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Error saving anon stats for {anon_id}: {e}")
+
+
+def _db_save_anon_stats(anon_id, stats_dict):
+    """Enqueue a debounced save of anon stats to DB."""
+    stats_json = json.dumps(stats_dict, ensure_ascii=False)
+    _db_enqueue(_do_save_anon_stats, anon_id, stats_json)
+
+
+def _load_anon_stats_from_db():
+    """Load all persisted anonymous listener stats from DB on startup."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT user_id, data_value FROM user_data WHERE data_key = 'anonListeningStats'"
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        count = 0
+        for row in rows:
+            anon_id = row["user_id"].replace("anon_", "", 1)
+            try:
+                stats = json.loads(row["data_value"]) if row["data_value"] else {}
+                if stats and stats.get("totalTime", 0) > 0:
+                    anon_stats[anon_id] = stats
+                    count += 1
+            except (json.JSONDecodeError, TypeError):
+                pass
+        print(f"[DB] Loaded {count} anonymous listener stats from DB")
+    except Exception as e:
+        print(f"[DB] Error loading anon stats: {e}")
+
+
 def _db_delete_expired_sessions():
     """Remove expired sessions from the database (runs synchronously at startup)."""
     try:
@@ -585,6 +641,7 @@ def _init_chat_db():
         create_chat_tables()
         _load_chat_data_from_db()
         _load_unique_anon_count()
+        _load_anon_stats_from_db()
     except Exception as e:
         print(f"[DB] Error during startup init: {e}")
 
@@ -1103,6 +1160,8 @@ def anonymous_heartbeat():
 
     anon_id = data.get("anon_id", "").strip()
     station = data.get("station", "").upper().replace("-", "").replace(" ", "")
+    current_song = data.get("current_song", "").strip()[:200]  # max 200 chars
+    cover = data.get("cover", "").strip()[:500]  # max 500 chars for URL
 
     if not anon_id or len(anon_id) > 64:
         return jsonify({"error": "Invalid anon_id"}), 400
@@ -1120,6 +1179,59 @@ def anonymous_heartbeat():
         global _unique_anon_count
         _unique_anon_count = max(0, _unique_anon_count + 1)
         _db_enqueue(_do_increment_unique_anon_count, 1)
+
+    # Update anonymous listener stats
+    if anon_id not in anon_stats:
+        anon_stats[anon_id] = {
+            "station": station,
+            "current_song": current_song,
+            "_previous_song": "",  # internal: track song changes for playCount
+            "songs": {},
+            "totalTime": 0,
+            "station_times": {},  # station -> seconds (per-station breakdown)
+            "first_seen": now.isoformat() + "Z",
+            "last_seen": now.isoformat() + "Z",
+        }
+
+    stats = anon_stats[anon_id]
+    prev_song = stats.get("_previous_song", "")
+    stats["station"] = station
+    stats["current_song"] = current_song
+    stats["last_seen"] = now.isoformat() + "Z"
+    stats["totalTime"] += 30  # heartbeat is sent every 30s
+
+    # Track per-station listening time
+    if "station_times" not in stats:
+        stats["station_times"] = {}
+    stats["station_times"][station] = stats["station_times"].get(station, 0) + 30
+
+    # Track song play stats
+    if current_song:
+        if current_song not in stats["songs"]:
+            stats["songs"][current_song] = {
+                "playCount": 0,
+                "listeningTime": 0,
+                "cover": cover,
+                "station": station,
+                "firstPlayed": now.isoformat() + "Z",
+                "lastPlayed": now.isoformat() + "Z",
+            }
+        song_entry = stats["songs"][current_song]
+        song_entry["listeningTime"] += 30
+        song_entry["lastPlayed"] = now.isoformat() + "Z"
+        if cover:
+            song_entry["cover"] = cover
+        # Increment playCount only when the song changes (not every heartbeat)
+        if current_song != prev_song:
+            song_entry["playCount"] += 1
+
+    stats["_previous_song"] = current_song
+
+    # Debounced DB persistence (write every 60s per anon)
+    last_write = _anon_stats_last_db_write.get(anon_id)
+    if last_write is None or (now - last_write).total_seconds() >= 60:
+        _anon_stats_last_db_write[anon_id] = now
+        _db_save_anon_stats(anon_id, stats)
 
     # Invalidate cache so the new count is reflected
     if station in online_users_cache:
@@ -1841,6 +1953,89 @@ def get_radio_stats():
         print(f"[RADIO-STATS] Error: {e}")
         return jsonify({"error": "Failed to fetch radio stats"}), 500
 
+
+# ─── Anonymous Listener Stats (Admin Only) ────────────────────────────────────
+
+
+@chat_api.route("/chat/anon-stats", methods=["GET"])
+@cross_origin(**CORS_OPTIONS)
+def get_anon_stats():
+    """Return all anonymous listener stats (admin only).
+    Requires Bearer token of an admin user.
+    """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    token = auth_header.split(" ")[1]
+    session = validate_session(token)
+    if not session:
+        return jsonify({"error": "Invalid or expired session"}), 401
+
+    if session.get("id") not in ADMIN_USER_IDS:
+        return jsonify({"error": "Admin access required"}), 403
+
+    # Determine which anon_ids are currently online
+    now = datetime.utcnow()
+    online_anons = set()
+    for station_key, listeners in anonymous_listeners.items():
+        for aid, last_ts in listeners.items():
+            if (now - last_ts).total_seconds() < ONLINE_THRESHOLD_SECONDS:
+                online_anons.add(aid)
+
+    # Build response list sorted by totalTime descending
+    result = []
+    for anon_id, stats in anon_stats.items():
+        songs = stats.get("songs", {})
+        song_count = len(songs)
+        station_times = stats.get("station_times", {})
+        total_plays = sum(s.get("playCount", 0) for s in songs.values())
+
+        # Determine favorite station
+        favorite_station = ""
+        if station_times:
+            favorite_station = max(station_times, key=station_times.get)
+
+        # All songs sorted by listening time
+        all_songs = sorted(
+            songs.items(),
+            key=lambda x: x[1].get("listeningTime", 0),
+            reverse=True,
+        )
+
+        result.append({
+            "anon_id": anon_id,
+            "station": stats.get("station", ""),
+            "current_song": stats.get("current_song", "") if anon_id in online_anons else None,
+            "totalTime": stats.get("totalTime", 0),
+            "songCount": song_count,
+            "totalPlays": total_plays,
+            "favoriteStation": favorite_station,
+            "station_times": station_times,
+            "first_seen": stats.get("first_seen", ""),
+            "last_seen": stats.get("last_seen", ""),
+            "is_online": anon_id in online_anons,
+            "songs": [
+                {
+                    "title": title,
+                    "listeningTime": s.get("listeningTime", 0),
+                    "playCount": s.get("playCount", 0),
+                    "cover": s.get("cover", ""),
+                    "station": s.get("station", ""),
+                    "firstPlayed": s.get("firstPlayed", ""),
+                    "lastPlayed": s.get("lastPlayed", ""),
+                }
+                for title, s in all_songs
+            ],
+        })
+
+    result.sort(key=lambda x: x["totalTime"], reverse=True)
+
+    return jsonify({
+        "total_anonymous_listeners": len(result),
+        "currently_online": len(online_anons),
+        "listeners": result,
+    })
 
 
 @chat_api.route("/chat/send", methods=["POST"])
