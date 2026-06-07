@@ -35,6 +35,16 @@ main_app = Flask(__name__, template_folder=script_dir + "/api/templates")
 CORS(main_app)  # enable CORS only for radio-gaming.stream
 
 
+# Security headers middleware
+@main_app.after_request
+def add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    return response
+
+
 @main_app.route("/")
 def index():
     return render_template("/main.html")  # "Main app root"

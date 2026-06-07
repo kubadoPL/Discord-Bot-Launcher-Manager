@@ -50,6 +50,7 @@ DISCORD_API_URL = "https://discord.com/api/v10"
 
 # In-memory storage (loaded from DB on startup)
 user_sessions = {}
+pending_oauth_states = {}  # state -> expiry timestamp (CSRF protection)
 chat_messages = {"RADIOGAMING": [], "RADIOGAMINGDARK": [], "RADIOGAMINGMARONFM": []}
 user_profiles = {}  # user_id -> profile_data (safe subset)
 user_last_station = {}  # user_id -> station_key
@@ -523,6 +524,28 @@ STATION_NAMES = {
     "RADIOGAMINGMARONFM": "Radio GAMING MARON FM",
 }
 
+
+def validate_session(token):
+    """Validate a session token and check expiration. Returns session data or None."""
+    if token not in user_sessions:
+        return None
+    session = user_sessions[token]
+    # Check if session has expired
+    expires_at = session.get("expires_at", "")
+    if expires_at:
+        try:
+            expiry_str = expires_at.replace("Z", "+00:00")
+            expiry_dt = datetime.fromisoformat(expiry_str).replace(tzinfo=None)
+            if datetime.utcnow() > expiry_dt:
+                # Session expired — clean up
+                del user_sessions[token]
+                _db_delete_session(token)
+                return None
+        except (ValueError, TypeError):
+            pass
+    return session
+
+
 # --- CUSTOM EMOJIS ENDPOINTS ---
 
 
@@ -722,6 +745,14 @@ def discord_login():
     if not DISCORD_CLIENT_ID:
         return jsonify({"error": "Discord OAuth not configured"}), 500
     state = secrets.token_urlsafe(32)
+    # Store state with 10-minute expiry for CSRF validation in callback
+    pending_oauth_states[state] = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
+    # Cleanup old states (keep max 100)
+    if len(pending_oauth_states) > 100:
+        now = datetime.utcnow().isoformat()
+        expired = [k for k, v in pending_oauth_states.items() if v < now]
+        for k in expired:
+            pending_oauth_states.pop(k, None)
     oauth_url = (
         f"https://discord.com/api/oauth2/authorize"
         f"?client_id={DISCORD_CLIENT_ID}"
@@ -737,11 +768,19 @@ def discord_login():
 @cross_origin(**CORS_OPTIONS)
 def discord_callback():
     code = request.args.get("code")
+    state = request.args.get("state")
     frontend_url = os.environ.get(
         "FRONTEND_URL", "http://127.0.0.1:5500/WebAPP/index.html"
     )
     if not code:
-        return redirect(f"{frontend_url}?auth_error=no_code")
+        return redirect(f"{frontend_url}#auth_error=no_code")
+
+    # Validate OAuth2 state to prevent CSRF attacks
+    if not state or state not in pending_oauth_states:
+        return redirect(f"{frontend_url}#auth_error=invalid_state")
+    state_expiry = pending_oauth_states.pop(state, None)
+    if state_expiry and state_expiry < datetime.utcnow().isoformat():
+        return redirect(f"{frontend_url}#auth_error=state_expired")
 
     try:
         token_response = http_requests.post(
@@ -757,7 +796,7 @@ def discord_callback():
         )
         token_json = token_response.json()
         if "access_token" not in token_json:
-            return redirect(f"{frontend_url}?auth_error=token_exchange_failed")
+            return redirect(f"{frontend_url}#auth_error=token_exchange_failed")
 
         user_response = http_requests.get(
             f"{DISCORD_API_URL}/users/@me",
@@ -796,9 +835,11 @@ def discord_callback():
             "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat() + "Z",
         }
         _db_save_session(session_token, user_sessions[session_token])
-        return redirect(f"{frontend_url}?auth_token={session_token}")
+        # Use URL fragment (#) instead of query string (?) to prevent token
+        # from appearing in server logs, Referer headers, and browser history
+        return redirect(f"{frontend_url}#auth_token={session_token}")
     except Exception as e:
-        return redirect(f"{frontend_url}?auth_error=server_error")
+        return redirect(f"{frontend_url}#auth_error=server_error")
 
 
 @chat_api.route("/discord/user")
@@ -812,7 +853,10 @@ def get_user():
     if token not in user_sessions:
         return jsonify({"error": "Invalid session"}), 401
 
-    return jsonify({"authenticated": True, "user": user_sessions[token]})
+    # Filter out sensitive fields before returning to client
+    safe_user = {k: v for k, v in user_sessions[token].items()
+                 if k not in ("discord_access_token", "guilds_cache")}
+    return jsonify({"authenticated": True, "user": safe_user})
 
 
 @chat_api.route("/discord/logout", methods=["POST"])

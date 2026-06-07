@@ -62,7 +62,7 @@ def api_key_info():
     api_key = request.headers.get("X-API-Key")
     hashed_key = api_key
 
-    print(f"[REQUEST] GET /api_key_info - api_key: {api_key}")
+    print(f"[REQUEST] GET /api_key_info - api_key: {api_key[:4]}***")
 
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
@@ -73,7 +73,7 @@ def api_key_info():
     conn.close()
 
     if key_info:
-        print(f"[SUCCESS] Found API key info for: {api_key}")
+        print(f"[SUCCESS] Found API key info for: {api_key[:4]}***")
         return jsonify({"api_key_info": key_info})
     else:
         print("[ERROR] API key not found.")

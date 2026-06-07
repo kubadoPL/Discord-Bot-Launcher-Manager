@@ -25,4 +25,4 @@ KOPALNIAMAX = 50
 GAMBLING_CHANNEL = "🃏-czerepalnia-gambling"
 BLOXLINK_API_KEY_815660960097239040 = os.getenv("BLOXLINK_API_KEY_815660960097239040")
 BLOXLINK_API_KEY_637696690853511184 = os.getenv("BLOXLINK_API_KEY_637696690853511184")
-RESTRICT_CORS = False  # False = allow all origins, True = restrict to whitelisted origins only
+RESTRICT_CORS = True  # False = allow all origins, True = restrict to whitelisted origins only
