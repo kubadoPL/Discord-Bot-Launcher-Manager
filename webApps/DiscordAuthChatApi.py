@@ -1631,10 +1631,11 @@ def get_user_profile(user_id):
         top_tracks.sort(key=lambda x: (x.get("playCount", 0), x.get("listeningTime", 0)), reverse=True)
         sorted_stations = sorted(station_breakdown.items(), key=lambda x: x[1]["time"], reverse=True)
 
-        # Get favorites (limit to 10)
+        # Get favorites (return preview of 10, but also total count)
         favorites = user_data.get("songFavorites") or []
         if not isinstance(favorites, list):
             favorites = []
+        total_favorites_count = len(favorites)
         favorites = favorites[:10]
 
         # Get song history (last 10)
@@ -1687,6 +1688,7 @@ def get_user_profile(user_id):
                 "ranking_position": ranking_pos,
             },
             "favorites": favorites,
+            "total_favorites_count": total_favorites_count,
             "history": history,
             "guilds": [],
             "online": {
