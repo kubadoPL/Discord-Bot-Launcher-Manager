@@ -786,7 +786,18 @@ def update_user_activity(user_id, station_key, playing_station=None):
     online_users[station_key][user_id] = now
     all_user_activity[user_id] = now
     final_station = playing_station if playing_station else station_key
+    previous_station = user_last_station.get(user_id)
     user_last_station[user_id] = final_station
+
+    # Invalidate cache for both old and new station when station changes
+    # so online counts update immediately instead of waiting for cache TTL
+    normalized_final = normalize_station(final_station) if final_station else None
+    normalized_prev = normalize_station(previous_station) if previous_station else None
+    if normalized_prev and normalized_prev != normalized_final:
+        if normalized_prev in online_users_cache:
+            del online_users_cache[normalized_prev]
+    if normalized_final and normalized_final in online_users_cache:
+        del online_users_cache[normalized_final]
 
     # Persist to DB (debounced: only write every 60 seconds per user)
     last_db_write = _last_seen_db_writes.get(user_id)
