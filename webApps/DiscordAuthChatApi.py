@@ -2053,6 +2053,91 @@ def get_radio_stats():
 # ─── Anonymous Listener Stats (Admin Only) ────────────────────────────────────
 
 
+@chat_api.route("/chat/radio-online")
+@cross_origin(**CORS_OPTIONS)
+def get_radio_online():
+    """Return comprehensive online status across all stations.
+    Shows per-station breakdown with logged-in users and anonymous listeners,
+    plus global totals.
+    """
+    now = datetime.utcnow()
+
+    stations_data = {}
+    total_online = 0
+    total_registered_online = 0
+    total_anonymous_online = 0
+    all_online_users = []  # deduplicated across stations
+    seen_user_ids = set()
+
+    for station_key, display_name in STATION_NAMES.items():
+        count, users_list = get_online_data(station_key)
+
+        registered_users = []
+        anonymous_users = []
+        station_registered_count = 0
+        station_anonymous_count = 0
+
+        for user in users_list:
+            if not user.get("is_online"):
+                continue
+
+            if user.get("is_anonymous"):
+                station_anonymous_count += 1
+                anonymous_users.append({
+                    "id": user.get("id", ""),
+                    "station": display_name,
+                    "last_seen": user.get("last_seen", ""),
+                })
+            else:
+                station_registered_count += 1
+                registered_users.append({
+                    "id": user.get("id", ""),
+                    "username": user.get("username", "Unknown"),
+                    "global_name": user.get("global_name", "Unknown"),
+                    "avatar_url": user.get("avatar_url", ""),
+                    "current_station": user.get("current_station", display_name),
+                    "last_seen": user.get("last_seen", ""),
+                })
+
+                # Track unique users across all stations
+                uid = user.get("id", "")
+                if uid and uid not in seen_user_ids:
+                    seen_user_ids.add(uid)
+                    all_online_users.append({
+                        "id": uid,
+                        "username": user.get("username", "Unknown"),
+                        "global_name": user.get("global_name", "Unknown"),
+                        "avatar_url": user.get("avatar_url", ""),
+                        "current_station": user.get("current_station", display_name),
+                        "last_seen": user.get("last_seen", ""),
+                    })
+
+        station_total = station_registered_count + station_anonymous_count
+        total_online += station_total
+        total_registered_online += station_registered_count
+        total_anonymous_online += station_anonymous_count
+
+        stations_data[display_name] = {
+            "station_key": station_key,
+            "online_count": station_total,
+            "registered_count": station_registered_count,
+            "anonymous_count": station_anonymous_count,
+            "registered_users": registered_users,
+            "anonymous_users": anonymous_users,
+        }
+
+    return jsonify({
+        "success": True,
+        "total_online": total_online,
+        "total_registered_online": total_registered_online,
+        "total_anonymous_online": total_anonymous_online,
+        "unique_registered_online": len(all_online_users),
+        "stations": stations_data,
+        "all_online_users": all_online_users,
+        "server_time": now.isoformat() + "Z",
+    })
+
+
 @chat_api.route("/chat/anon-stats", methods=["GET"])
 @cross_origin(**CORS_OPTIONS)
 def get_anon_stats():
