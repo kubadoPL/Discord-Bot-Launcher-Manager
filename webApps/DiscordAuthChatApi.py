@@ -1236,7 +1236,7 @@ def anonymous_heartbeat():
 
     # Store favorites and history from client (same as logged-in users)
     if isinstance(client_favorites, list):
-        stats["favorites"] = client_favorites[:50]  # max 50 favorites
+        stats["favorites"] = client_favorites
     if isinstance(client_history, list):
         stats["history"] = client_history[:20]  # max 20 recent songs
 
