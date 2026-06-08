@@ -1204,6 +1204,14 @@ def anonymous_heartbeat():
         anonymous_listeners[station] = {}
     anonymous_listeners[station][anon_id] = now
 
+    # Remove from all OTHER stations so the old station count drops immediately
+    for other_station in list(anonymous_listeners.keys()):
+        if other_station != station and anon_id in anonymous_listeners[other_station]:
+            del anonymous_listeners[other_station][anon_id]
+            # Invalidate cache for the old station too
+            if other_station in online_users_cache:
+                del online_users_cache[other_station]
+
     # Track unique anonymous users and persist to DB
     if anon_id not in all_unique_anon_ids:
         all_unique_anon_ids.add(anon_id)
