@@ -359,6 +359,12 @@ class WebStreamStation:
                                 clean_name = clean_name.replace(ch, '_')
                             local_dest = os.path.join(self.preload_dir, f"{clean_name[:120]}.mp3")
 
+                            # Update queue title with full artist info for frontend display & cover search
+                            if uploader.lower() not in title.lower():
+                                self._queue_titles[path] = f"{uploader} - {title}"
+                            else:
+                                self._queue_titles[path] = title
+
                         if os.path.exists(local_dest):
                             with self._preload_lock:
                                 self._preload_cache[path] = local_dest
