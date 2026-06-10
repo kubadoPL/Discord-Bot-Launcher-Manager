@@ -18,7 +18,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import requests as http_requests
 import json
-from api.config import RESTRICT_CORS
+from api.config import RESTRICT_CORS, RADIO_ADMIN_USER_IDS
 from api.FunctionsModule import get_db_connection, create_chat_tables
 
 app = Flask(__name__)
@@ -85,9 +85,8 @@ _anon_stats_last_db_write = {}  # anon_id -> datetime (debounce writes to every 
 
 # ─── Admin Role System ─────────────────────────────────────────────────────────
 # Admin users have special privileges: delete any message, delete custom emojis
-ADMIN_USER_IDS = {
-    "264079253757231104",  # Admin
-}
+# RADIO_ADMIN_USER_IDS imported from api.config (centralized)
+ADMIN_USER_IDS = RADIO_ADMIN_USER_IDS  # Local alias for backward compat
 
 def is_admin(user_id):
     """Check if a user ID has admin privileges."""
