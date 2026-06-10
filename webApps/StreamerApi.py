@@ -1282,30 +1282,33 @@ class WebStreamStation:
 
                 all_entries = []
 
+                # Exact Groovy _playlist() options
                 ydl_opts = {
-                    "extract_flat": "in_playlist",
-                    "playlistend": 10000,
                     "ignoreerrors": True,
-                    "quiet": True,
-                    "no_warnings": True,
+                    "extract_flat": "in_playlist",
+                    "playlist-end": 2000,
+                    "extractaudio": True,
+                    "audioformat": "mp3",
+                    "format": "bestaudio/best",
+                    "verbose": True,
                     "nocheckcertificate": True,
                     **cookie_opts,
                 }
 
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
+                ydl = yt_dlp.YoutubeDL(ydl_opts)
+                info = ydl.extract_info(url, download=False)
 
-                    if not info:
-                        self.log("yt-dlp returned no info.")
-                    elif "entries" not in info:
-                        processed_tracks.append(url)
-                        self.log("Single video detected.")
-                    else:
-                        for entry in info["entries"]:
-                            if entry is not None:
-                                all_entries.append(entry)
-                            if len(all_entries) % 100 == 0 and len(all_entries) > 0:
-                                self.log(f"Loaded {len(all_entries)} tracks so far...")
+                if not info:
+                    self.log("yt-dlp returned no info.")
+                elif "entries" not in info:
+                    processed_tracks.append(url)
+                    self.log("Single video detected.")
+                else:
+                    for entry in info["entries"]:
+                        if entry is not None:
+                            all_entries.append(entry)
+                        if len(all_entries) % 100 == 0 and len(all_entries) > 0:
+                            self.log(f"Loaded {len(all_entries)} tracks so far...")
 
                 if all_entries:
                     self.log(f"Playlist loaded: {len(all_entries)} entries total")
