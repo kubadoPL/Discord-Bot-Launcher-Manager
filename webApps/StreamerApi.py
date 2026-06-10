@@ -1246,6 +1246,12 @@ class WebStreamStation:
         """Process a URL (playlist or single) in background and add to queue."""
         self.log(f"Processing URL: {url}")
 
+        # Convert YouTube Music URLs to regular YouTube — YT Music API caps at ~100
+        # playlist items while regular YouTube returns all entries
+        if "music.youtube.com" in url:
+            url = url.replace("music.youtube.com", "www.youtube.com")
+            self.log("Converted YouTube Music URL to standard YouTube.")
+
         # Strip tracking parameters
         if "&si=" in url:
             url = url.split("&si=")[0]
