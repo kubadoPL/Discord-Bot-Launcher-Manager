@@ -345,6 +345,7 @@ class WebStreamStation:
         self.mic_active = False
         self.mic_queue = queue.Queue(maxsize=100)
         self._queue_titles = {}  # url -> display title
+        self._idle_since = None  # Timestamp when idle started (for auto-disconnect)
 
         # Preload system — download next 3 queue songs ahead as MP3
         self._preload_cache = {}   # original_path -> local_mp3_path
@@ -786,10 +787,22 @@ class WebStreamStation:
                 time.sleep(0.001)
 
     def _handle_no_media(self):
-        """Maintain stream when queue is empty: silence to keep connection alive."""
-        self.log("Queue empty. Entering idle mode...")
-        self.current_song = "RADIO GAMING Live/Idle"
-        self._update_metadata("RADIO GAMING Live/Idle", delay=1)
+        """Maintain stream when queue is empty: silence to keep connection alive.
+        Auto-disconnects after 2 minutes of continuous idle."""
+
+        # Track idle start
+        if self._idle_since is None:
+            self._idle_since = time.time()
+            self.log("Queue empty. Entering idle mode...")
+            self.current_song = "RADIO GAMING Live/Idle"
+            self._update_metadata("RADIO GAMING Live/Idle", delay=1)
+
+        # Auto-disconnect after 2 minutes idle
+        idle_seconds = time.time() - self._idle_since
+        if idle_seconds >= 120:
+            self.log(f"Idle for {int(idle_seconds)}s. Auto-disconnecting...")
+            self.stop()
+            return
 
         bytes_per_sec = 44100 * 2 * 2
         start_time = time.time()
@@ -801,6 +814,7 @@ class WebStreamStation:
         while self.running and (time.time() - start_time < 4):
             with self._queue_lock:
                 if self.manual_queue:
+                    self._idle_since = None  # Reset idle timer
                     return
 
             if self.transmitter and self.transmitter.poll() is not None:
@@ -856,7 +870,7 @@ class WebStreamStation:
                     "-b:a",
                     self.bitrate,
                     "-bufsize",
-                    "128k",
+                    "512k",
                     "-f",
                     "mp3",
                     "-timeout",
@@ -869,7 +883,7 @@ class WebStreamStation:
                         trans_cmd,
                         stdin=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        bufsize=128 * 1024,
+                        bufsize=512 * 1024,
                     )
 
                     # Monitor stderr in background
@@ -925,9 +939,12 @@ class WebStreamStation:
                     if self.manual_queue:
                         file_path = self.manual_queue.pop(0)
                         self.skip_requested = False
+                        self._idle_since = None  # Reset idle timer when song starts
 
                 if not file_path:
                     self._handle_no_media()
+                    if not self.running:  # Auto-disconnected
+                        break
                     continue
 
                 is_url = file_path.startswith("http") or file_path.startswith(
