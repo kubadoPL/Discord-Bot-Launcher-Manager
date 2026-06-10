@@ -213,6 +213,95 @@ _init_cookie_table()
 _restore_cookies_from_db()
 
 
+# ─── Startup Config (per-station, persisted to DB) ─────────────────────────────
+
+def _init_startup_table():
+    """Create streamer_startup_config table."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS streamer_startup_config (
+                station_id INT PRIMARY KEY,
+                auto_connect TINYINT(1) DEFAULT 0,
+                use_custom_icecast TINYINT(1) DEFAULT 0,
+                icecast_server VARCHAR(255) DEFAULT '',
+                icecast_port VARCHAR(10) DEFAULT '80',
+                icecast_mount VARCHAR(255) DEFAULT '',
+                icecast_password VARCHAR(255) DEFAULT '',
+                playlist_url TEXT,
+                shuffle_enabled TINYINT(1) DEFAULT 0,
+                shuffle_count INT DEFAULT 1,
+                loop_mode VARCHAR(10) DEFAULT 'off',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[Startup] DB table init error: {e}")
+
+
+def _load_startup_config(station_id):
+    """Load startup config for a station from DB."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM streamer_startup_config WHERE station_id = %s", (station_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row
+    except Exception as e:
+        print(f"[Startup] DB load error: {e}")
+        return None
+
+
+def _save_startup_config(station_id, config):
+    """Save startup config for a station to DB."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO streamer_startup_config
+                (station_id, auto_connect, use_custom_icecast,
+                 icecast_server, icecast_port, icecast_mount, icecast_password,
+                 playlist_url, shuffle_enabled, shuffle_count, loop_mode)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                auto_connect = VALUES(auto_connect),
+                use_custom_icecast = VALUES(use_custom_icecast),
+                icecast_server = VALUES(icecast_server),
+                icecast_port = VALUES(icecast_port),
+                icecast_mount = VALUES(icecast_mount),
+                icecast_password = VALUES(icecast_password),
+                playlist_url = VALUES(playlist_url),
+                shuffle_enabled = VALUES(shuffle_enabled),
+                shuffle_count = VALUES(shuffle_count),
+                loop_mode = VALUES(loop_mode),
+                updated_at = CURRENT_TIMESTAMP
+        """, (
+            station_id,
+            config.get("auto_connect", False),
+            config.get("use_custom_icecast", False),
+            config.get("icecast_server", ""),
+            config.get("icecast_port", "80"),
+            config.get("icecast_mount", ""),
+            config.get("icecast_password", ""),
+            config.get("playlist_url", ""),
+            config.get("shuffle_enabled", False),
+            config.get("shuffle_count", 1),
+            config.get("loop_mode", "off"),
+        ))
+        conn.commit()
+        conn.close()
+        print(f"[Startup] Config saved for station {station_id}")
+    except Exception as e:
+        print(f"[Startup] DB save error: {e}")
+
+
+_init_startup_table()
+
+
 def get_cookie_opts():
     """Return cookiefile dict if cookies.txt exists, else empty dict."""
     if os.path.isfile(COOKIE_FILE_PATH):
@@ -1404,6 +1493,65 @@ for i in range(3):
 print("[StreamerApi] Initialized 3 station managers.")
 
 
+def _apply_startup_configs():
+    """Check DB for startup configs and auto-start configured stations."""
+    for sid, station in stations.items():
+        cfg = _load_startup_config(sid)
+        if not cfg:
+            continue
+        if not cfg.get("auto_connect"):
+            continue
+
+        print(f"[Startup] Auto-starting station {sid} ({station.name})...")
+
+        # Apply custom Icecast settings if enabled
+        if cfg.get("use_custom_icecast"):
+            if cfg.get("icecast_server"):
+                STATION_CONFIGS[sid]["server"] = cfg["icecast_server"]
+            if cfg.get("icecast_port"):
+                STATION_CONFIGS[sid]["port"] = cfg["icecast_port"]
+            if cfg.get("icecast_mount"):
+                STATION_CONFIGS[sid]["mount"] = cfg["icecast_mount"]
+            if cfg.get("icecast_password"):
+                STATION_CONFIGS[sid]["password"] = cfg["icecast_password"]
+            station.log("Applied custom Icecast settings from startup config.")
+
+        # Set loop mode
+        loop = cfg.get("loop_mode", "off")
+        if loop in ("off", "single", "queue"):
+            station.loop_mode = loop
+
+        # Start the station
+        station.start()
+
+        # Load playlist in background if configured
+        playlist_url = (cfg.get("playlist_url") or "").strip()
+        shuffle = cfg.get("shuffle_enabled", False)
+        shuffle_count = cfg.get("shuffle_count", 1) or 1
+
+        if playlist_url:
+            def _startup_enqueue(st, url, shuf, shuf_count):
+                time.sleep(3)  # Wait for station to initialize
+                st.log(f"Startup: Loading playlist {url[:60]}...")
+                st.enqueue(url)
+                if shuf:
+                    time.sleep(2)
+                    for _ in range(shuf_count):
+                        st.shuffle_queue()
+                    st.log(f"Startup: Shuffled queue {shuf_count}x")
+            threading.Thread(
+                target=_startup_enqueue,
+                args=(station, playlist_url, shuffle, shuffle_count),
+                daemon=True,
+            ).start()
+
+        time.sleep(2)  # Stagger auto-starts
+
+
+# Run auto-start in background to not block module loading
+threading.Thread(target=_apply_startup_configs, daemon=True).start()
+
+
 # ─── REST API Endpoints ───────────────────────────────────────────────────────
 
 
@@ -1666,6 +1814,73 @@ def get_logs(station_id):
     total = len(stations[station_id]._log_buffer)
 
     return jsonify({"logs": logs, "total": total})
+
+
+# ─── Startup Config Endpoints ─────────────────────────────────────────────────
+
+
+@app.route("/startup/<int:station_id>", methods=["GET"])
+@limiter.limit("30 per minute")
+@cross_origin(**CORS_OPTIONS)
+def get_startup_config(station_id):
+    """Get startup config for a station (passwords masked)."""
+    session, err = get_admin_session()
+    if err:
+        return err
+
+    if station_id not in stations:
+        return jsonify({"error": "Invalid station ID"}), 400
+
+    cfg = _load_startup_config(station_id) or {}
+
+    return jsonify({
+        "auto_connect": bool(cfg.get("auto_connect")),
+        "use_custom_icecast": bool(cfg.get("use_custom_icecast")),
+        "icecast_server": cfg.get("icecast_server", ""),
+        "icecast_port": cfg.get("icecast_port", "80"),
+        "icecast_mount": cfg.get("icecast_mount", ""),
+        "has_password": bool(cfg.get("icecast_password")),
+        "playlist_url": cfg.get("playlist_url", "") or "",
+        "shuffle_enabled": bool(cfg.get("shuffle_enabled")),
+        "shuffle_count": cfg.get("shuffle_count", 1) or 1,
+        "loop_mode": cfg.get("loop_mode", "off") or "off",
+    })
+
+
+@app.route("/startup/<int:station_id>", methods=["POST"])
+@limiter.limit("10 per minute")
+@cross_origin(**CORS_OPTIONS)
+def set_startup_config(station_id):
+    """Save startup config for a station to DB."""
+    session, err = get_admin_session()
+    if err:
+        return err
+
+    if station_id not in stations:
+        return jsonify({"error": "Invalid station ID"}), 400
+
+    data = request.json or {}
+
+    # Load existing to preserve password if not provided
+    existing = _load_startup_config(station_id) or {}
+
+    config = {
+        "auto_connect": data.get("auto_connect", False),
+        "use_custom_icecast": data.get("use_custom_icecast", False),
+        "icecast_server": data.get("icecast_server", ""),
+        "icecast_port": data.get("icecast_port", "80"),
+        "icecast_mount": data.get("icecast_mount", ""),
+        "icecast_password": data.get("icecast_password") if data.get("icecast_password") else existing.get("icecast_password", ""),
+        "playlist_url": data.get("playlist_url", ""),
+        "shuffle_enabled": data.get("shuffle_enabled", False),
+        "shuffle_count": data.get("shuffle_count", 1),
+        "loop_mode": data.get("loop_mode", "off"),
+    }
+
+    _save_startup_config(station_id, config)
+    stations[station_id].log("Startup config saved to database.")
+
+    return jsonify({"success": True, "message": "Startup config saved."})
 
 
 # ─── Station Config Endpoints ─────────────────────────────────────────────────
