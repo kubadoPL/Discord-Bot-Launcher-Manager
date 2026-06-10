@@ -30,6 +30,7 @@ from flask_cors import cross_origin
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from api.config import RESTRICT_CORS, RADIO_ADMIN_USER_IDS
+from api.FunctionsModule import get_db_connection
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
@@ -133,10 +134,83 @@ STATION_CONFIGS = {
 }
 
 
-# ─── YouTube Cookies (same system as Groovy bot) ──────────────────────────────
+# ─── YouTube Cookies (persisted to DB across Heroku restarts) ──────────────────
 COOKIE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "streamer_data")
 os.makedirs(COOKIE_DIR, exist_ok=True)
 COOKIE_FILE_PATH = os.path.join(COOKIE_DIR, "cookies.txt")
+
+
+def _init_cookie_table():
+    """Create the streamer_cookies table if it doesn't exist."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS streamer_cookies (
+                id INT PRIMARY KEY DEFAULT 1,
+                cookie_data LONGTEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[Cookies] DB table init error: {e}")
+
+
+def _restore_cookies_from_db():
+    """On startup, restore cookies.txt from database if local file is missing."""
+    if os.path.isfile(COOKIE_FILE_PATH):
+        print("[Cookies] Local cookies.txt exists, skipping DB restore.")
+        return
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT cookie_data FROM streamer_cookies WHERE id = 1")
+        row = cursor.fetchone()
+        conn.close()
+        if row and row[0]:
+            with open(COOKIE_FILE_PATH, "w", encoding="utf-8") as f:
+                f.write(row[0])
+            print(f"[Cookies] Restored cookies.txt from DB ({len(row[0])} bytes)")
+        else:
+            print("[Cookies] No cookies in DB.")
+    except Exception as e:
+        print(f"[Cookies] DB restore error: {e}")
+
+
+def _save_cookies_to_db(cookie_text):
+    """Save cookie data to database for persistence."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO streamer_cookies (id, cookie_data) VALUES (1, %s)
+            ON DUPLICATE KEY UPDATE cookie_data = %s, updated_at = CURRENT_TIMESTAMP
+        """, (cookie_text, cookie_text))
+        conn.commit()
+        conn.close()
+        print(f"[Cookies] Saved to DB ({len(cookie_text)} bytes)")
+    except Exception as e:
+        print(f"[Cookies] DB save error: {e}")
+
+
+def _delete_cookies_from_db():
+    """Remove cookies from database."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM streamer_cookies WHERE id = 1")
+        conn.commit()
+        conn.close()
+        print("[Cookies] Deleted from DB.")
+    except Exception as e:
+        print(f"[Cookies] DB delete error: {e}")
+
+
+# Initialize on module load
+_init_cookie_table()
+_restore_cookies_from_db()
 
 
 def get_cookie_opts():
@@ -1675,13 +1749,16 @@ def upload_cookies():
 
         size = os.path.getsize(COOKIE_FILE_PATH)
 
+        # Persist to database so it survives dyno restarts
+        _save_cookies_to_db(text)
+
         # Log to all running stations
         for sid, station in stations.items():
-            station.log(f"Cookies.txt updated ({size} bytes)")
+            station.log(f"Cookies.txt updated ({size} bytes) — saved to DB")
 
         return jsonify({
             "success": True,
-            "message": f"Cookies.txt saved ({size} bytes). YouTube auth should work now.",
+            "message": f"Cookies.txt saved ({size} bytes) and persisted to database.",
         })
     except Exception as e:
         return jsonify({"error": f"Failed to save cookies: {str(e)}"}), 500
@@ -1698,9 +1775,10 @@ def delete_cookies():
 
     if os.path.isfile(COOKIE_FILE_PATH):
         os.remove(COOKIE_FILE_PATH)
+        _delete_cookies_from_db()
         for sid, station in stations.items():
-            station.log("Cookies.txt removed.")
-        return jsonify({"success": True, "message": "Cookies.txt deleted."})
+            station.log("Cookies.txt removed from file and database.")
+        return jsonify({"success": True, "message": "Cookies.txt deleted from file and database."})
 
     return jsonify({"error": "No cookies.txt to delete"}), 404
 
