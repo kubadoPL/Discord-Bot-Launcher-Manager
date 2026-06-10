@@ -1165,29 +1165,40 @@ class WebStreamStation:
 
         if not processed_tracks:
             try:
-                # Use yt-dlp CLI with --flat-playlist — the CLI correctly follows
-                # YouTube continuation tokens, unlike the Python API which caps at ~100.
+                # Use yt-dlp CLI — --skip-download with --print forces full
+                # playlist traversal including YouTube continuation tokens.
+                # (--flat-playlist caps at ~100 items on some YouTube playlists)
                 self.log("Loading playlist entries via yt-dlp CLI...")
 
                 cmd = [
                     sys.executable, "-m", "yt_dlp",
-                    "--flat-playlist",
-                    "--print", "%(id)s\t%(title)s",
+                    "--skip-download",
+                    "--no-flat-playlist",
+                    "--print", "%(id)s\t%(title)s\t%(uploader,channel)s",
                     "--no-warnings",
                     "--quiet",
                     "--ignore-errors",
+                    "--lazy-playlist",
                 ]
                 cookie_opts = get_cookie_opts()
                 if "cookiefile" in cookie_opts:
                     cmd.extend(["--cookies", cookie_opts["cookiefile"]])
                 cmd.append(url)
 
+                self.log(f"Running: yt-dlp --skip-download --print ... {url.split('?')[0]}?...")
+
                 result = subprocess.run(
                     cmd,
                     capture_output=True,
                     text=True,
-                    timeout=300,  # 5 min max for huge playlists
+                    timeout=600,  # 10 min max for huge playlists with full extraction
                 )
+
+                if result.stderr:
+                    # Log first few lines of stderr for debugging
+                    err_lines = result.stderr.strip().split("\n")[:3]
+                    for el in err_lines:
+                        self.log(f"yt-dlp stderr: {el[:120]}")
 
                 lines = [l.strip() for l in result.stdout.strip().split("\n") if l.strip()]
 
@@ -1207,9 +1218,10 @@ class WebStreamStation:
                     is_first_batch = True
 
                     for line in lines:
-                        parts = line.split("\t", 1)
+                        parts = line.split("\t")
                         vid_id = parts[0].strip()
                         title = parts[1].strip() if len(parts) > 1 else ""
+                        uploader = parts[2].strip() if len(parts) > 2 else ""
 
                         if not vid_id or vid_id == "NA":
                             continue
@@ -1217,9 +1229,14 @@ class WebStreamStation:
                         track_url = f"https://www.youtube.com/watch?v={vid_id}"
                         batch.append(track_url)
 
-                        # Save title
+                        # Build "Artist - Title" display name
+                        if uploader and uploader != "NA" and uploader.endswith(" - Topic"):
+                            uploader = uploader[:-8]
                         if title and title != "NA":
-                            self._queue_titles[track_url] = title
+                            if uploader and uploader != "NA" and uploader.lower() not in title.lower():
+                                self._queue_titles[track_url] = f"{uploader} - {title}"
+                            else:
+                                self._queue_titles[track_url] = title
 
                         if len(batch) >= 100:
                             with self._queue_lock:
