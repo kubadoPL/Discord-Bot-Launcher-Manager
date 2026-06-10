@@ -348,8 +348,11 @@ class WebStreamStation:
                             if uploader.endswith(" - Topic"):
                                 uploader = uploader[:-8]
 
-                            # Clean filename
-                            clean_name = f"{uploader} - {title}"
+                            # Clean filename — avoid duplicate artist
+                            if uploader.lower() not in title.lower():
+                                clean_name = f"{uploader} - {title}"
+                            else:
+                                clean_name = title
                             for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
                                 clean_name = clean_name.replace(ch, '_')
                             local_dest = os.path.join(self.preload_dir, f"{clean_name[:120]}.mp3")
@@ -375,7 +378,7 @@ class WebStreamStation:
                         }
 
                         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            self.log(f"Preloading: {uploader} - {title}")
+                            self.log(f"Preloading: {clean_name}")
                             ydl.download([path])
 
                         if os.path.exists(local_dest):
