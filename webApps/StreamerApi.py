@@ -870,7 +870,7 @@ class WebStreamStation:
                     "-b:a",
                     self.bitrate,
                     "-bufsize",
-                    "1024k",
+                    "5120k",
                     "-f",
                     "mp3",
                     "-timeout",
@@ -883,7 +883,7 @@ class WebStreamStation:
                         trans_cmd,
                         stdin=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        bufsize=1024 * 1024,
+                        bufsize=5 * 1024 * 1024,
                     )
 
                     # Monitor stderr in background
@@ -1276,15 +1276,15 @@ class WebStreamStation:
 
                 all_entries = []
 
-                # Approach 1: extract_flat (fast)
                 ydl_opts = {
                     "extract_flat": "in_playlist",
+                    "playlistend": 10000,
                     "ignoreerrors": True,
+                    "quiet": True,
+                    "no_warnings": True,
                     "nocheckcertificate": True,
                     **cookie_opts,
                 }
-
-                self.log(f"Extracting (flat): {url}")
 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
@@ -1299,33 +1299,10 @@ class WebStreamStation:
                             if entry is not None:
                                 all_entries.append(entry)
                             if len(all_entries) % 100 == 0 and len(all_entries) > 0:
-                                self.log(f"Scanned {len(all_entries)} entries so far...")
+                                self.log(f"Loaded {len(all_entries)} tracks so far...")
 
-                        self.log(f"Flat extraction: {len(all_entries)} entries")
-
-                # Fallback: if flat returned ≤100, try process=False (follows all continuations)
-                if len(all_entries) <= 100 and not processed_tracks:
-                    self.log("Flat extraction limited. Retrying with full extraction...")
-                    all_entries = []
-
-                    ydl_opts2 = {
-                        "ignoreerrors": True,
-                        "nocheckcertificate": True,
-                        "noplaylist": False,
-                        **cookie_opts,
-                    }
-
-                    with yt_dlp.YoutubeDL(ydl_opts2) as ydl:
-                        info = ydl.extract_info(url, download=False, process=False)
-
-                        if info and "entries" in info:
-                            for entry in info["entries"]:
-                                if entry is not None:
-                                    all_entries.append(entry)
-                                if len(all_entries) % 100 == 0 and len(all_entries) > 0:
-                                    self.log(f"Scanned {len(all_entries)} entries so far...")
-
-                            self.log(f"Full extraction: {len(all_entries)} entries")
+                if all_entries:
+                    self.log(f"Playlist loaded: {len(all_entries)} entries total")
 
                 # Process entries in batches of 100 (can be outside with block)
                 if all_entries:
