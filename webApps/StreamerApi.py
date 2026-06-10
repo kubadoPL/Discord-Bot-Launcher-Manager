@@ -1282,33 +1282,60 @@ class WebStreamStation:
 
                 all_entries = []
 
-                # Exact Groovy _playlist() options
-                ydl_opts = {
-                    "ignoreerrors": True,
-                    "extract_flat": "in_playlist",
-                    "playlist-end": 2000,
-                    "extractaudio": True,
-                    "audioformat": "mp3",
-                    "format": "bestaudio/best",
-                    "verbose": True,
-                    "nocheckcertificate": True,
-                    **cookie_opts,
-                }
+                is_yt = "youtube.com" in url or "youtu.be" in url or "music.youtube" in url
+                is_playlist = "?list=" in url or "&list=" in url or "/sets/" in url or "/playlist" in url
 
-                ydl = yt_dlp.YoutubeDL(ydl_opts)
-                info = ydl.extract_info(url, download=False)
+                if is_playlist:
+                    # Exact Groovy _playlist() options (line 1938)
+                    ydl_opts = {
+                        "ignoreerrors": True,
+                        "extract_flat": "in_playlist",
+                        "playlist-end": 2000,
+                        "extractaudio": True,
+                        "audioformat": "mp3",
+                        "format": "bestaudio/best",
+                        "verbose": True,
+                        "nocheckcertificate": True,
+                        **cookie_opts,
+                    }
 
-                if not info:
-                    self.log("yt-dlp returned no info.")
-                elif "entries" not in info:
+                    # Groovy: with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    #   playlist_dict = ydl.extract_info(search, download=False)
+                    #   for video in playlist_dict["entries"]:
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
+
+                        if info and "entries" in info:
+                            for video in info["entries"]:
+                                if video is None:
+                                    continue
+                                if len(all_entries) >= 2000:
+                                    break
+
+                                entry_url = video.get("url")
+                                title = video.get("title", "Unknown Title")
+
+                                # Groovy ie_key handling (line 1995)
+                                if video.get("ie_key") == "Youtube":
+                                    if entry_url and "youtube.com/watch" not in entry_url:
+                                        entry_url = f"https://www.youtube.com/watch?v={entry_url}"
+
+                                if not entry_url:
+                                    vid_id = video.get("id", "")
+                                    if vid_id:
+                                        entry_url = f"https://www.youtube.com/watch?v={vid_id}"
+                                    else:
+                                        continue
+
+                                all_entries.append({"url": entry_url, "title": title, "video": video})
+
+                                if len(all_entries) % 100 == 0:
+                                    self.log(f"Loaded {len(all_entries)} tracks so far...")
+
+                else:
+                    # Single video
                     processed_tracks.append(url)
                     self.log("Single video detected.")
-                else:
-                    for entry in info["entries"]:
-                        if entry is not None:
-                            all_entries.append(entry)
-                        if len(all_entries) % 100 == 0 and len(all_entries) > 0:
-                            self.log(f"Loaded {len(all_entries)} tracks so far...")
 
                 if all_entries:
                     self.log(f"Playlist loaded: {len(all_entries)} entries total")
@@ -1320,16 +1347,11 @@ class WebStreamStation:
                     is_first_batch = True
 
                     for entry in all_entries:
-                        vid_id = entry.get("id", "")
-                        title = entry.get("title", "")
-                        uploader = entry.get("uploader") or entry.get("channel") or ""
+                        track_url = entry["url"]
+                        title = entry["title"]
+                        video = entry["video"]
+                        uploader = video.get("uploader") or video.get("channel") or ""
 
-                        track_url = entry.get("url") or entry.get("webpage_url")
-                        if not track_url:
-                            if vid_id:
-                                track_url = f"https://www.youtube.com/watch?v={vid_id}"
-                            else:
-                                continue
                         batch.append(track_url)
 
                         # Build "Artist - Title" display name
@@ -1350,7 +1372,7 @@ class WebStreamStation:
                                     self.manual_queue.extend(batch)
                             processed_tracks.extend(batch)
                             total += len(batch)
-                            self.log(f"Loaded {total} tracks so far...")
+                            self.log(f"Queued {total} tracks so far...")
                             batch = []
 
                     # Add remaining
