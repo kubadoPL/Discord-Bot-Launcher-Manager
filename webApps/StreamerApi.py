@@ -1028,6 +1028,8 @@ class WebStreamStation:
                     "quiet": True,
                     "no_warnings": True,
                     "nocheckcertificate": True,
+                    "lazy_playlist": False,  # Force full playlist fetch
+                    "playlistend": -1,       # No limit on playlist size
                     **get_cookie_opts(),
                 }
 
@@ -1035,26 +1037,47 @@ class WebStreamStation:
                     info = ydl.extract_info(url, download=False)
 
                     if "entries" in info:
-                        # Handle large playlists — fetch in batches of 100
-                        entries = list(info["entries"])
-                        total = len(entries)
-                        self.log(f"Found {total} items in playlist.")
+                        # Iterate the lazy generator properly for large playlists
+                        self.log("Loading playlist entries...")
+                        count = 0
+                        batch = []
 
-                        batch_num = 0
-                        for i in range(0, total, 100):
-                            batch = entries[i:i + 100]
-                            batch_num += 1
-                            if total > 100:
-                                self.log(f"Processing batch {batch_num} ({i+1}-{min(i+100, total)} of {total})...")
-                            for entry in batch:
-                                if not entry:
+                        for entry in info["entries"]:
+                            if not entry:
+                                continue
+                            track_url = entry.get("url") or entry.get("webpage_url")
+                            if not track_url:
+                                vid_id = entry.get("id")
+                                if vid_id:
+                                    track_url = f"https://www.youtube.com/watch?v={vid_id}"
+                                else:
                                     continue
-                                track_url = entry.get("url") or entry.get("webpage_url")
-                                if not track_url:
-                                    track_url = (
-                                        f"https://www.youtube.com/watch?v={entry.get('id')}"
-                                    )
-                                processed_tracks.append(track_url)
+                            batch.append(track_url)
+                            count += 1
+
+                            # Every 100 tracks, add to queue immediately so playback can start
+                            if len(batch) >= 100:
+                                with self._queue_lock:
+                                    if instant and req_id == self._last_instant_id and count <= 100:
+                                        self.manual_queue = batch + self.manual_queue
+                                    else:
+                                        self.manual_queue.extend(batch)
+                                self.log(f"Loaded {count} tracks so far...")
+                                processed_tracks.extend(batch)
+                                batch = []
+
+                        # Add remaining batch
+                        if batch:
+                            with self._queue_lock:
+                                if instant and req_id == self._last_instant_id and count <= len(batch):
+                                    self.manual_queue = batch + self.manual_queue
+                                else:
+                                    self.manual_queue.extend(batch)
+                            processed_tracks.extend(batch)
+
+                        self.log(f"Playlist fully loaded: {count} tracks total.")
+                        # Skip the normal queue append below since we already added in batches
+                        return
                     else:
                         processed_tracks.append(url)
 
@@ -1335,6 +1358,33 @@ def shuffle_queue(station_id):
 
     stations[station_id].shuffle_queue()
     return jsonify({"success": True})
+
+
+@app.route("/queue/<int:station_id>/remove", methods=["POST"])
+@limiter.limit("30 per minute")
+@cross_origin(**CORS_OPTIONS)
+def remove_queue_item(station_id):
+    """Remove a single item from queue by index. Body: {index: int}"""
+    session, err = get_admin_session()
+    if err:
+        return err
+
+    if station_id not in stations:
+        return jsonify({"error": "Invalid station ID"}), 400
+
+    data = request.get_json(silent=True) or {}
+    index = data.get("index")
+    if index is None or not isinstance(index, int):
+        return jsonify({"error": "Missing index"}), 400
+
+    station = stations[station_id]
+    with station._queue_lock:
+        if 0 <= index < len(station.manual_queue):
+            removed = station.manual_queue.pop(index)
+            station.log(f"Removed from queue: {removed[:60]}")
+            return jsonify({"success": True})
+        else:
+            return jsonify({"error": "Index out of range"}), 400
 
 
 @app.route("/loop/<int:station_id>", methods=["POST"])
