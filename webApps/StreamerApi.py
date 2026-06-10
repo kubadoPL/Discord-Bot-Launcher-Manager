@@ -1246,11 +1246,6 @@ class WebStreamStation:
         """Process a URL (playlist or single) in background and add to queue."""
         self.log(f"Processing URL: {url}")
 
-        # Convert YouTube Music URLs to regular YouTube for better playlist support
-        if "music.youtube.com" in url:
-            url = url.replace("music.youtube.com", "www.youtube.com")
-            self.log("Converted YouTube Music URL to standard YouTube.")
-
         # Strip tracking parameters
         if "&si=" in url:
             url = url.split("&si=")[0]
@@ -1271,22 +1266,26 @@ class WebStreamStation:
 
         if not processed_tracks:
             try:
-                # Use yt-dlp Python API with extract_flat.
-                # CRITICAL: iterate entries INSIDE the `with` block so the
-                # YoutubeDL HTTP session stays alive for continuation pages.
+                # Match Groovy's exact yt-dlp options for playlist extraction
                 self.log("Loading playlist entries...")
 
                 import yt_dlp
 
+                cookie_opts = get_cookie_opts()
+                has_cookies = "cookiefile" in cookie_opts
+                self.log(f"yt-dlp v{yt_dlp.version.__version__}, cookies={'yes' if has_cookies else 'NO'}")
+
+                # Groovy-style options — no quiet, no no_warnings
                 ydl_opts = {
                     "extract_flat": "in_playlist",
-                    "playlistend": 2000,
                     "ignoreerrors": True,
-                    "quiet": True,
-                    "no_warnings": True,
                     "nocheckcertificate": True,
-                    **get_cookie_opts(),
+                    **cookie_opts,
                 }
+
+                self.log(f"Extracting: {url}")
+
+                all_entries = []
 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
@@ -1567,7 +1566,22 @@ def _apply_startup_configs():
 
 
 # Run auto-start in background to not block module loading
-threading.Thread(target=_apply_startup_configs, daemon=True).start()
+# Guard against double execution (e.g. gunicorn preloading)
+_startup_done = False
+_startup_lock = threading.Lock()
+
+
+def _guarded_startup():
+    global _startup_done
+    with _startup_lock:
+        if _startup_done:
+            return
+        _startup_done = True
+    time.sleep(3)  # Wait for app to fully initialize
+    _apply_startup_configs()
+
+
+threading.Thread(target=_guarded_startup, daemon=True).start()
 
 
 # ─── REST API Endpoints ───────────────────────────────────────────────────────
