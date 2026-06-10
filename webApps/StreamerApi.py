@@ -1025,13 +1025,11 @@ class WebStreamStation:
                 import yt_dlp
 
                 ydl_opts = {
-                    "extract_flat": "in_playlist",
+                    "extract_flat": True,
                     "skip_download": True,
                     "quiet": True,
                     "no_warnings": True,
                     "nocheckcertificate": True,
-                    "lazy_playlist": False,  # Force full playlist fetch
-                    "playlistend": -1,       # No limit on playlist size
                     **get_cookie_opts(),
                 }
 
