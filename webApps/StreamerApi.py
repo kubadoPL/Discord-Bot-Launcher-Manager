@@ -476,11 +476,18 @@ class WebStreamStation:
             time.sleep(5)  # Periodic check
 
     def _resolve_titles(self, urls):
-        """Background: resolve proper 'Artist - Title' for queue items missing artist info."""
+        """Background: resolve proper 'Artist - Title' for queue items missing artist info.
+        Prioritizes the first 20 (visible page) before resolving the rest.
+        """
         import yt_dlp
 
+        # Prioritize first 20 items (visible queue page), then the rest
+        priority = urls[:20]
+        remaining = urls[20:]
+        ordered = priority + remaining
+
         resolved = 0
-        for url in urls:
+        for url in ordered:
             if not self.running:
                 break
 
@@ -512,13 +519,15 @@ class WebStreamStation:
                         self._queue_titles[url] = title
 
                     resolved += 1
-                    if resolved % 20 == 0:
-                        self.log(f"Resolved titles: {resolved}/{len(urls)}")
+                    if resolved == 20:
+                        self.log(f"Resolved titles for visible page (20 items)")
+                    elif resolved % 50 == 0:
+                        self.log(f"Resolved titles: {resolved}/{len(ordered)}")
 
             except Exception:
                 pass
 
-            time.sleep(0.5)  # Rate limit
+            time.sleep(0.3)  # Rate limit — faster for priority items
 
     def skip_song(self):
         self.skip_requested = True
@@ -1158,82 +1167,96 @@ class WebStreamStation:
             try:
                 import yt_dlp
 
-                ydl_opts = {
-                    "extract_flat": "in_playlist",
-                    "skip_download": True,
-                    "quiet": True,
-                    "no_warnings": True,
-                    "nocheckcertificate": True,
-                    "ignoreerrors": True,
-                    **get_cookie_opts(),
-                }
+                # Load playlist in batches of 100 using playliststart/playlistend
+                BATCH_SIZE = 100
+                batch_start = 1
+                total_loaded = 0
+                is_playlist = False
 
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
+                while True:
+                    ydl_opts = {
+                        "extract_flat": "in_playlist",
+                        "skip_download": True,
+                        "quiet": True,
+                        "no_warnings": True,
+                        "nocheckcertificate": True,
+                        "ignoreerrors": True,
+                        "playliststart": batch_start,
+                        "playlistend": batch_start + BATCH_SIZE - 1,
+                        **get_cookie_opts(),
+                    }
 
-                    if "entries" in info:
-                        # Iterate the lazy generator properly for large playlists
-                        self.log("Loading playlist entries...")
-                        count = 0
-                        batch = []
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
 
-                        for entry in info["entries"]:
-                            if not entry:
+                    if not info:
+                        break
+
+                    if "entries" not in info:
+                        # Single video, not a playlist
+                        if batch_start == 1:
+                            processed_tracks.append(url)
+                        break
+
+                    is_playlist = True
+                    entries = list(info.get("entries") or [])
+                    entries = [e for e in entries if e is not None]
+
+                    if not entries:
+                        break  # No more items
+
+                    batch_urls = []
+                    for entry in entries:
+                        track_url = entry.get("url") or entry.get("webpage_url")
+                        if not track_url:
+                            vid_id = entry.get("id")
+                            if vid_id:
+                                track_url = f"https://www.youtube.com/watch?v={vid_id}"
+                            else:
                                 continue
-                            track_url = entry.get("url") or entry.get("webpage_url")
-                            if not track_url:
-                                vid_id = entry.get("id")
-                                if vid_id:
-                                    track_url = f"https://www.youtube.com/watch?v={vid_id}"
-                                else:
-                                    continue
-                            batch.append(track_url)
-                            count += 1
+                        batch_urls.append(track_url)
 
-                            # Save title for frontend display
-                            entry_title = entry.get("title")
-                            if entry_title:
-                                uploader = entry.get("uploader") or entry.get("channel") or ""
-                                if uploader and uploader.endswith(" - Topic"):
-                                    uploader = uploader[:-8]
-                                if uploader and uploader.lower() not in entry_title.lower():
-                                    self._queue_titles[track_url] = f"{uploader} - {entry_title}"
-                                else:
-                                    self._queue_titles[track_url] = entry_title
+                        # Save title for frontend display
+                        entry_title = entry.get("title")
+                        if entry_title:
+                            uploader = entry.get("uploader") or entry.get("channel") or ""
+                            if uploader and uploader.endswith(" - Topic"):
+                                uploader = uploader[:-8]
+                            if uploader and uploader.lower() not in entry_title.lower():
+                                self._queue_titles[track_url] = f"{uploader} - {entry_title}"
+                            else:
+                                self._queue_titles[track_url] = entry_title
 
-                            # Every 100 tracks, add to queue immediately so playback can start
-                            if len(batch) >= 100:
-                                with self._queue_lock:
-                                    if instant and req_id == self._last_instant_id and count <= 100:
-                                        self.manual_queue = batch + self.manual_queue
-                                    else:
-                                        self.manual_queue.extend(batch)
-                                self.log(f"Loaded {count} tracks so far...")
-                                processed_tracks.extend(batch)
-                                batch = []
+                    # Add batch to queue immediately
+                    if batch_urls:
+                        with self._queue_lock:
+                            if instant and req_id == self._last_instant_id and total_loaded == 0:
+                                self.manual_queue = batch_urls + self.manual_queue
+                            else:
+                                self.manual_queue.extend(batch_urls)
+                        processed_tracks.extend(batch_urls)
+                        total_loaded += len(batch_urls)
+                        self.log(f"Loaded batch {batch_start}-{batch_start + len(batch_urls) - 1} ({total_loaded} tracks total)")
 
-                        # Add remaining batch
-                        if batch:
-                            with self._queue_lock:
-                                if instant and req_id == self._last_instant_id and count <= len(batch):
-                                    self.manual_queue = batch + self.manual_queue
-                                else:
-                                    self.manual_queue.extend(batch)
-                            processed_tracks.extend(batch)
+                    # If we got fewer than BATCH_SIZE, we've reached the end
+                    if len(entries) < BATCH_SIZE:
+                        break
 
-                        self.log(f"Playlist fully loaded: {count} tracks total.")
+                    batch_start += BATCH_SIZE
+                    time.sleep(0.5)  # Rate limit between batches
 
-                        # Start background title resolver for items without artist info
-                        threading.Thread(
-                            target=self._resolve_titles,
-                            args=(list(processed_tracks),),
-                            daemon=True,
-                        ).start()
+                if is_playlist:
+                    self.log(f"Playlist fully loaded: {total_loaded} tracks total.")
 
-                        # Skip the normal queue append below since we already added in batches
-                        return
-                    else:
-                        processed_tracks.append(url)
+                    # Start background title resolver for items without artist info
+                    threading.Thread(
+                        target=self._resolve_titles,
+                        args=(list(processed_tracks),),
+                        daemon=True,
+                    ).start()
+
+                    # Already added to queue in batches
+                    return
 
             except Exception as e:
                 self.log(f"URL Error: {str(e)}")
