@@ -870,7 +870,7 @@ class WebStreamStation:
                     "-b:a",
                     self.bitrate,
                     "-bufsize",
-                    "512k",
+                    "1024k",
                     "-f",
                     "mp3",
                     "-timeout",
@@ -883,7 +883,7 @@ class WebStreamStation:
                         trans_cmd,
                         stdin=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        bufsize=512 * 1024,
+                        bufsize=1024 * 1024,
                     )
 
                     # Monitor stderr in background
@@ -1271,8 +1271,9 @@ class WebStreamStation:
 
         if not processed_tracks:
             try:
-                # Use yt-dlp Python API with extract_flat and manually consume
-                # the lazy generator to ensure all continuation pages are fetched.
+                # Use yt-dlp Python API with extract_flat.
+                # CRITICAL: iterate entries INSIDE the `with` block so the
+                # YoutubeDL HTTP session stays alive for continuation pages.
                 self.log("Loading playlist entries...")
 
                 import yt_dlp
@@ -1290,29 +1291,27 @@ class WebStreamStation:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
 
-                if not info:
-                    self.log("yt-dlp returned no info.")
-                elif "entries" not in info:
-                    # Single video
-                    processed_tracks.append(url)
-                    self.log("Single video detected.")
-                else:
-                    # Consume the lazy generator — this is critical!
-                    # We must iterate through ALL entries, not just list()
-                    entries_gen = info["entries"]
-                    all_entries = []
+                    if not info:
+                        self.log("yt-dlp returned no info.")
+                    elif "entries" not in info:
+                        # Single video
+                        processed_tracks.append(url)
+                        self.log("Single video detected.")
+                    else:
+                        # Iterate entries INSIDE the with block — generator
+                        # needs YDL session alive to fetch continuation pages!
+                        all_entries = []
+                        self.log("Iterating playlist entries...")
+                        for entry in info["entries"]:
+                            if entry is not None:
+                                all_entries.append(entry)
+                            if len(all_entries) % 100 == 0 and len(all_entries) > 0:
+                                self.log(f"Scanned {len(all_entries)} entries so far...")
 
-                    self.log("Iterating playlist entries...")
-                    for entry in entries_gen:
-                        if entry is not None:
-                            all_entries.append(entry)
-                        # Log progress every 100
-                        if len(all_entries) % 100 == 0 and len(all_entries) > 0:
-                            self.log(f"Scanned {len(all_entries)} entries so far...")
+                        self.log(f"Total entries from yt-dlp: {len(all_entries)}")
 
-                    self.log(f"Total entries from yt-dlp: {len(all_entries)}")
-
-                    # Process entries in batches of 100
+                # Process entries in batches of 100 (can be outside with block)
+                if all_entries:
                     batch = []
                     total = 0
                     is_first_batch = True
