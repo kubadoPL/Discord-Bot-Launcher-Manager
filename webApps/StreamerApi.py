@@ -1266,7 +1266,6 @@ class WebStreamStation:
 
         if not processed_tracks:
             try:
-                # Match Groovy's exact yt-dlp options for playlist extraction
                 self.log("Loading playlist entries...")
 
                 import yt_dlp
@@ -1275,7 +1274,9 @@ class WebStreamStation:
                 has_cookies = "cookiefile" in cookie_opts
                 self.log(f"yt-dlp v{yt_dlp.version.__version__}, cookies={'yes' if has_cookies else 'NO'}")
 
-                # Groovy-style options — no quiet, no no_warnings
+                all_entries = []
+
+                # Approach 1: extract_flat (fast)
                 ydl_opts = {
                     "extract_flat": "in_playlist",
                     "ignoreerrors": True,
@@ -1283,9 +1284,7 @@ class WebStreamStation:
                     **cookie_opts,
                 }
 
-                self.log(f"Extracting: {url}")
-
-                all_entries = []
+                self.log(f"Extracting (flat): {url}")
 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
@@ -1293,21 +1292,40 @@ class WebStreamStation:
                     if not info:
                         self.log("yt-dlp returned no info.")
                     elif "entries" not in info:
-                        # Single video
                         processed_tracks.append(url)
                         self.log("Single video detected.")
                     else:
-                        # Iterate entries INSIDE the with block — generator
-                        # needs YDL session alive to fetch continuation pages!
-                        all_entries = []
-                        self.log("Iterating playlist entries...")
                         for entry in info["entries"]:
                             if entry is not None:
                                 all_entries.append(entry)
                             if len(all_entries) % 100 == 0 and len(all_entries) > 0:
                                 self.log(f"Scanned {len(all_entries)} entries so far...")
 
-                        self.log(f"Total entries from yt-dlp: {len(all_entries)}")
+                        self.log(f"Flat extraction: {len(all_entries)} entries")
+
+                # Fallback: if flat returned ≤100, try process=False (follows all continuations)
+                if len(all_entries) <= 100 and not processed_tracks:
+                    self.log("Flat extraction limited. Retrying with full extraction...")
+                    all_entries = []
+
+                    ydl_opts2 = {
+                        "ignoreerrors": True,
+                        "nocheckcertificate": True,
+                        "noplaylist": False,
+                        **cookie_opts,
+                    }
+
+                    with yt_dlp.YoutubeDL(ydl_opts2) as ydl:
+                        info = ydl.extract_info(url, download=False, process=False)
+
+                        if info and "entries" in info:
+                            for entry in info["entries"]:
+                                if entry is not None:
+                                    all_entries.append(entry)
+                                if len(all_entries) % 100 == 0 and len(all_entries) > 0:
+                                    self.log(f"Scanned {len(all_entries)} entries so far...")
+
+                            self.log(f"Full extraction: {len(all_entries)} entries")
 
                 # Process entries in batches of 100 (can be outside with block)
                 if all_entries:
