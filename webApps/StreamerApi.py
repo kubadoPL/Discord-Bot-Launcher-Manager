@@ -870,7 +870,7 @@ class WebStreamStation:
                     "-b:a",
                     self.bitrate,
                     "-bufsize",
-                    "5120k",
+                    "256k",
                     "-f",
                     "mp3",
                     "-timeout",
@@ -883,7 +883,7 @@ class WebStreamStation:
                         trans_cmd,
                         stdin=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        bufsize=5 * 1024 * 1024,
+                        bufsize=256 * 1024,
                     )
 
                     # Monitor stderr in background
