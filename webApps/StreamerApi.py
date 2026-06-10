@@ -1254,6 +1254,70 @@ def get_logs(station_id):
     return jsonify({"logs": logs, "total": total})
 
 
+# ─── Station Config Endpoints ─────────────────────────────────────────────────
+
+
+@app.route("/config/<int:station_id>", methods=["GET"])
+@limiter.limit("30 per minute")
+@cross_origin(**CORS_OPTIONS)
+def get_config(station_id):
+    """Get current Icecast config for a station (passwords masked)."""
+    session, err = get_admin_session()
+    if err:
+        return err
+
+    if station_id not in STATION_CONFIGS:
+        return jsonify({"error": "Invalid station ID"}), 400
+
+    cfg = STATION_CONFIGS[station_id]
+    return jsonify({
+        "server": cfg.get("server", ""),
+        "port": cfg.get("port", ""),
+        "mount": cfg.get("mount", ""),
+        "user": cfg.get("user", "source"),
+        "password_set": bool(cfg.get("password", "")),
+    })
+
+
+@app.route("/config/<int:station_id>", methods=["POST"])
+@limiter.limit("10 per minute")
+@cross_origin(**CORS_OPTIONS)
+def set_config(station_id):
+    """Update Icecast config for a station at runtime.
+    Body: {server?, port?, mount?, user?, password?}
+    Only provided fields are updated.
+    """
+    session, err = get_admin_session()
+    if err:
+        return err
+
+    if station_id not in STATION_CONFIGS:
+        return jsonify({"error": "Invalid station ID"}), 400
+
+    data = request.json or {}
+    cfg = STATION_CONFIGS[station_id]
+
+    updated = []
+    for key in ("server", "port", "mount", "user", "password"):
+        if key in data and data[key] is not None:
+            cfg[key] = str(data[key]).strip()
+            updated.append(key)
+
+    if not updated:
+        return jsonify({"error": "No fields provided"}), 400
+
+    # Log which fields were updated (without exposing password value)
+    safe_fields = [f for f in updated if f != "password"]
+    if "password" in updated:
+        safe_fields.append("password(***)")
+    station_name = cfg.get("name", f"Station {station_id}")
+
+    if station_id in stations:
+        stations[station_id].log(f"Config updated: {', '.join(safe_fields)}")
+
+    return jsonify({"success": True, "message": f"Updated {', '.join(safe_fields)} for {station_name}"})
+
+
 # ─── Microphone Endpoints ─────────────────────────────────────────────────────
 
 
