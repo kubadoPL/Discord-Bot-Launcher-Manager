@@ -182,6 +182,18 @@ class WebStreamStation:
         self.mic_active = False
         self.mic_queue = queue.Queue(maxsize=100)
 
+        # Preload system — download next 3 queue songs ahead as MP3
+        self._preload_cache = {}   # original_path -> local_mp3_path
+        self._preload_lock = threading.Lock()
+        self.preload_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "streamer_data",
+            f"preload_{station_id}",
+        )
+        os.makedirs(self.preload_dir, exist_ok=True)
+        self._preload_thread = threading.Thread(target=self._preload_loop, daemon=True)
+        self._preload_thread.start()
+
     def log(self, message):
         """Log a message and store it for polling."""
         with self._log_lock:
@@ -277,7 +289,106 @@ class WebStreamStation:
             except Exception:
                 pass
         self._established = False
+
+        # Clean up preload cache
+        try:
+            with self._preload_lock:
+                self._preload_cache.clear()
+            import shutil
+            if os.path.exists(self.preload_dir):
+                shutil.rmtree(self.preload_dir, ignore_errors=True)
+                os.makedirs(self.preload_dir, exist_ok=True)
+        except Exception:
+            pass
+
         self.log("Stream stopped")
+
+    # ─── Preload Worker ────────────────────────────────────────────────────────
+
+    def _preload_loop(self):
+        """Background worker: downloads next 3 songs from queue as MP3 to local storage."""
+        while True:
+            try:
+                if not self.running:
+                    time.sleep(3)
+                    continue
+
+                # Get next 3 from queue
+                to_preload = []
+                with self._queue_lock:
+                    to_preload = list(self.manual_queue[:3])
+
+                # Filter already cached
+                targets = []
+                for p in to_preload:
+                    with self._preload_lock:
+                        if p not in self._preload_cache:
+                            targets.append(p)
+
+                for path in targets:
+                    if not self.running:
+                        break
+
+                    is_url = path.startswith("http") or path.startswith("ytsearch")
+                    if not is_url:
+                        continue
+
+                    try:
+                        import yt_dlp
+
+                        # First get metadata for filename
+                        with yt_dlp.YoutubeDL(
+                            {"quiet": True, "no_warnings": True, **get_cookie_opts()}
+                        ) as ydl:
+                            info = ydl.extract_info(path, download=False)
+                            if "entries" in info:
+                                info = info["entries"][0]
+                            title = info.get("title", "Unknown")
+                            uploader = info.get("uploader", "Unknown")
+                            if uploader.endswith(" - Topic"):
+                                uploader = uploader[:-8]
+
+                            # Clean filename
+                            clean_name = f"{uploader} - {title}"
+                            for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
+                                clean_name = clean_name.replace(ch, '_')
+                            local_dest = os.path.join(self.preload_dir, f"{clean_name[:120]}.mp3")
+
+                        if os.path.exists(local_dest):
+                            with self._preload_lock:
+                                self._preload_cache[path] = local_dest
+                            continue
+
+                        ydl_opts = {
+                            "format": "bestaudio/best",
+                            "outtmpl": local_dest.replace(".mp3", ".%(ext)s"),
+                            "postprocessors": [
+                                {
+                                    "key": "FFmpegExtractAudio",
+                                    "preferredcodec": "mp3",
+                                    "preferredquality": "192",
+                                }
+                            ],
+                            "quiet": True,
+                            "no_warnings": True,
+                            **get_cookie_opts(),
+                        }
+
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            self.log(f"Preloading: {uploader} - {title}")
+                            ydl.download([path])
+
+                        if os.path.exists(local_dest):
+                            with self._preload_lock:
+                                self._preload_cache[path] = local_dest
+                    except Exception as e:
+                        self.log(f"Preload failed: {e}")
+
+                    time.sleep(1)  # Gap between downloads
+
+            except Exception:
+                time.sleep(5)
+            time.sleep(5)  # Periodic check
 
     def skip_song(self):
         self.skip_requested = True
@@ -595,8 +706,24 @@ class WebStreamStation:
                     "ytsearch"
                 )
 
+                # Check preload cache — use local MP3 if available
+                preloaded_path = None
+                with self._preload_lock:
+                    if file_path in self._preload_cache:
+                        preloaded_path = self._preload_cache[file_path]
+                        if os.path.exists(preloaded_path):
+                            self.log(f"Using preloaded: {os.path.basename(preloaded_path)}")
+                        else:
+                            preloaded_path = None
+
                 while self.running:
-                    if is_url:
+                    if preloaded_path:
+                        # Play from preloaded local MP3
+                        play_path = preloaded_path
+                        clean_title = os.path.basename(preloaded_path).rsplit(".", 1)[0]
+                        self.current_song = clean_title
+                        is_url = False  # local file, no reconnect flags needed
+                    elif is_url:
                         self.log(f"Fetching stream: {file_path}")
                         try:
                             import yt_dlp
@@ -646,7 +773,15 @@ class WebStreamStation:
                             if not play_path:
                                 raise Exception("No playable URL found.")
 
-                            clean_title = info.get("title", "Web Stream")
+                            # Build "Artist - Title" format
+                            title = info.get("title", "Web Stream")
+                            uploader = info.get("uploader", "")
+                            if uploader and uploader.endswith(" - Topic"):
+                                uploader = uploader[:-8]
+                            if uploader and uploader.lower() not in title.lower():
+                                clean_title = f"{uploader} - {title}"
+                            else:
+                                clean_title = title
                             self.current_song = clean_title
                         except Exception as e:
                             self.log(f"Stream expansion failed: {e}")
@@ -807,6 +942,18 @@ class WebStreamStation:
 
                         self._feed_silence(0.5)
 
+                        # Clean up preloaded file after playing
+                        if preloaded_path and os.path.exists(preloaded_path):
+                            try:
+                                os.remove(preloaded_path)
+                                with self._preload_lock:
+                                    # Remove from cache by value
+                                    keys_to_remove = [k for k, v in self._preload_cache.items() if v == preloaded_path]
+                                    for k in keys_to_remove:
+                                        del self._preload_cache[k]
+                            except Exception:
+                                pass
+
                         if not self.running or not inner_running:
                             break
                         if self.skip_requested:
@@ -885,17 +1032,26 @@ class WebStreamStation:
                     info = ydl.extract_info(url, download=False)
 
                     if "entries" in info:
+                        # Handle large playlists — fetch in batches of 100
                         entries = list(info["entries"])
-                        self.log(f"Found {len(entries)} items in playlist.")
-                        for entry in entries:
-                            if not entry:
-                                continue
-                            track_url = entry.get("url") or entry.get("webpage_url")
-                            if not track_url:
-                                track_url = (
-                                    f"https://www.youtube.com/watch?v={entry.get('id')}"
-                                )
-                            processed_tracks.append(track_url)
+                        total = len(entries)
+                        self.log(f"Found {total} items in playlist.")
+
+                        batch_num = 0
+                        for i in range(0, total, 100):
+                            batch = entries[i:i + 100]
+                            batch_num += 1
+                            if total > 100:
+                                self.log(f"Processing batch {batch_num} ({i+1}-{min(i+100, total)} of {total})...")
+                            for entry in batch:
+                                if not entry:
+                                    continue
+                                track_url = entry.get("url") or entry.get("webpage_url")
+                                if not track_url:
+                                    track_url = (
+                                        f"https://www.youtube.com/watch?v={entry.get('id')}"
+                                    )
+                                processed_tracks.append(track_url)
                     else:
                         processed_tracks.append(url)
 
