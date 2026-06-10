@@ -181,6 +181,7 @@ class WebStreamStation:
         self._log_lock = threading.Lock()
         self.mic_active = False
         self.mic_queue = queue.Queue(maxsize=100)
+        self._queue_titles = {}  # url -> display title
 
         # Preload system — download next 3 queue songs ahead as MP3
         self._preload_cache = {}   # original_path -> local_mp3_path
@@ -232,6 +233,7 @@ class WebStreamStation:
             "mic_active": self.mic_active,
             "queue": queue_list,
             "queue_length": len(queue_list),
+            "queue_titles": dict(self._queue_titles),
             "history": self.manual_history[:20],
             "log_count": len(self._log_buffer),
         }
@@ -1054,6 +1056,17 @@ class WebStreamStation:
                                     continue
                             batch.append(track_url)
                             count += 1
+
+                            # Save title for frontend display
+                            entry_title = entry.get("title")
+                            if entry_title:
+                                uploader = entry.get("uploader") or entry.get("channel") or ""
+                                if uploader and uploader.endswith(" - Topic"):
+                                    uploader = uploader[:-8]
+                                if uploader and uploader.lower() not in entry_title.lower():
+                                    self._queue_titles[track_url] = f"{uploader} - {entry_title}"
+                                else:
+                                    self._queue_titles[track_url] = entry_title
 
                             # Every 100 tracks, add to queue immediately so playback can start
                             if len(batch) >= 100:
