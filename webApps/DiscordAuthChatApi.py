@@ -445,7 +445,7 @@ def _load_anon_stats_from_db():
             anon_id = row["anon_id"]
             try:
                 stats = json.loads(row["stats_json"]) if row["stats_json"] else {}
-                if stats and stats.get("totalTime", 0) > 0:
+                if stats:
                     anon_stats[anon_id] = stats
                     count += 1
             except (json.JSONDecodeError, TypeError):
