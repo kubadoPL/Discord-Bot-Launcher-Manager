@@ -133,6 +133,19 @@ STATION_CONFIGS = {
 }
 
 
+# ─── YouTube Cookies (same system as Groovy bot) ──────────────────────────────
+COOKIE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "streamer_data")
+os.makedirs(COOKIE_DIR, exist_ok=True)
+COOKIE_FILE_PATH = os.path.join(COOKIE_DIR, "cookies.txt")
+
+
+def get_cookie_opts():
+    """Return cookiefile dict if cookies.txt exists, else empty dict."""
+    if os.path.isfile(COOKIE_FILE_PATH):
+        return {"cookiefile": COOKIE_FILE_PATH}
+    return {}
+
+
 # ─── Stream Station Engine (ported from audio_streaming_system) ────────────────
 
 
@@ -594,6 +607,7 @@ class WebStreamStation:
                                 "no_warnings": True,
                                 "noplaylist": True,
                                 "nocheckcertificate": True,
+                                **get_cookie_opts(),
                             }
 
                             fetch_res = {}
@@ -864,6 +878,7 @@ class WebStreamStation:
                     "quiet": True,
                     "no_warnings": True,
                     "nocheckcertificate": True,
+                    **get_cookie_opts(),
                 }
 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -1317,6 +1332,88 @@ def set_config(station_id):
 
     return jsonify({"success": True, "message": f"Updated {', '.join(safe_fields)} for {station_name}"})
 
+
+@app.route("/cookies", methods=["GET"])
+@limiter.limit("10 per minute")
+@cross_origin(**CORS_OPTIONS)
+def get_cookies_status():
+    """Check if cookies.txt is present."""
+    session, err = get_admin_session()
+    if err:
+        return err
+
+    exists = os.path.isfile(COOKIE_FILE_PATH)
+    size = os.path.getsize(COOKIE_FILE_PATH) if exists else 0
+    return jsonify({
+        "has_cookies": exists,
+        "file_size": size,
+    })
+
+
+@app.route("/cookies", methods=["POST"])
+@limiter.limit("5 per minute")
+@cross_origin(**CORS_OPTIONS)
+def upload_cookies():
+    """Upload cookies.txt file for YouTube authentication.
+    Accepts multipart/form-data with a 'file' field,
+    or raw text body with Content-Type text/plain.
+    """
+    session, err = get_admin_session()
+    if err:
+        return err
+
+    cookie_data = None
+
+    # Try multipart file upload first
+    if "file" in request.files:
+        f = request.files["file"]
+        cookie_data = f.read()
+    else:
+        # Try raw body (text/plain or application/octet-stream)
+        cookie_data = request.get_data()
+
+    if not cookie_data or len(cookie_data) < 10:
+        return jsonify({"error": "No valid cookie data received"}), 400
+
+    # Validate it looks like a Netscape cookies file
+    text = cookie_data.decode("utf-8", errors="replace")
+    if not ("# Netscape HTTP Cookie File" in text or "\t" in text[:500]):
+        return jsonify({"error": "Invalid cookies.txt format. Use Netscape/Mozilla format."}), 400
+
+    try:
+        with open(COOKIE_FILE_PATH, "wb") as f:
+            f.write(cookie_data)
+
+        size = os.path.getsize(COOKIE_FILE_PATH)
+
+        # Log to all running stations
+        for sid, station in stations.items():
+            station.log(f"Cookies.txt updated ({size} bytes)")
+
+        return jsonify({
+            "success": True,
+            "message": f"Cookies.txt saved ({size} bytes). YouTube auth should work now.",
+        })
+    except Exception as e:
+        return jsonify({"error": f"Failed to save cookies: {str(e)}"}), 500
+
+
+@app.route("/cookies", methods=["DELETE"])
+@limiter.limit("5 per minute")
+@cross_origin(**CORS_OPTIONS)
+def delete_cookies():
+    """Remove cookies.txt."""
+    session, err = get_admin_session()
+    if err:
+        return err
+
+    if os.path.isfile(COOKIE_FILE_PATH):
+        os.remove(COOKIE_FILE_PATH)
+        for sid, station in stations.items():
+            station.log("Cookies.txt removed.")
+        return jsonify({"success": True, "message": "Cookies.txt deleted."})
+
+    return jsonify({"error": "No cookies.txt to delete"}), 404
 
 # ─── Microphone Endpoints ─────────────────────────────────────────────────────
 
