@@ -1262,11 +1262,11 @@ class WebStreamStation:
 
                 ydl_opts = {
                     "extract_flat": "in_playlist",
-                    "skip_download": True,
+                    "playlistend": 2000,
+                    "ignoreerrors": True,
                     "quiet": True,
                     "no_warnings": True,
                     "nocheckcertificate": True,
-                    "ignoreerrors": True,
                     **get_cookie_opts(),
                 }
 
