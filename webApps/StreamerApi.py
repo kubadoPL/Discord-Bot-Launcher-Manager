@@ -401,6 +401,51 @@ class WebStreamStation:
                 time.sleep(5)
             time.sleep(5)  # Periodic check
 
+    def _resolve_titles(self, urls):
+        """Background: resolve proper 'Artist - Title' for queue items missing artist info."""
+        import yt_dlp
+
+        resolved = 0
+        for url in urls:
+            if not self.running:
+                break
+
+            # Skip if already has a dash (artist separator) in title
+            existing = self._queue_titles.get(url, "")
+            if " - " in existing:
+                continue
+
+            # Only resolve YouTube URLs
+            if not (url.startswith("http") and ("youtube" in url or "youtu.be" in url)):
+                continue
+
+            try:
+                with yt_dlp.YoutubeDL(
+                    {"quiet": True, "no_warnings": True, "skip_download": True, **get_cookie_opts()}
+                ) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    if "entries" in info:
+                        info = info["entries"][0]
+
+                    title = info.get("title", "")
+                    uploader = info.get("uploader", "")
+                    if uploader and uploader.endswith(" - Topic"):
+                        uploader = uploader[:-8]
+
+                    if uploader and uploader.lower() not in title.lower():
+                        self._queue_titles[url] = f"{uploader} - {title}"
+                    elif title:
+                        self._queue_titles[url] = title
+
+                    resolved += 1
+                    if resolved % 20 == 0:
+                        self.log(f"Resolved titles: {resolved}/{len(urls)}")
+
+            except Exception:
+                pass
+
+            time.sleep(0.5)  # Rate limit
+
     def skip_song(self):
         self.skip_requested = True
         if self.feeder:
@@ -1012,6 +1057,15 @@ class WebStreamStation:
         """Process a URL (playlist or single) in background and add to queue."""
         self.log(f"Processing URL: {url}")
 
+        # Convert YouTube Music URLs to regular YouTube for better playlist support
+        if "music.youtube.com" in url:
+            url = url.replace("music.youtube.com", "www.youtube.com")
+            self.log("Converted YouTube Music URL to standard YouTube.")
+
+        # Strip tracking parameters
+        if "&si=" in url:
+            url = url.split("&si=")[0]
+
         processed_tracks = []
 
         # Spotify handling
@@ -1031,11 +1085,12 @@ class WebStreamStation:
                 import yt_dlp
 
                 ydl_opts = {
-                    "extract_flat": True,
+                    "extract_flat": "in_playlist",
                     "skip_download": True,
                     "quiet": True,
                     "no_warnings": True,
                     "nocheckcertificate": True,
+                    "ignoreerrors": True,
                     **get_cookie_opts(),
                 }
 
@@ -1093,6 +1148,14 @@ class WebStreamStation:
                             processed_tracks.extend(batch)
 
                         self.log(f"Playlist fully loaded: {count} tracks total.")
+
+                        # Start background title resolver for items without artist info
+                        threading.Thread(
+                            target=self._resolve_titles,
+                            args=(list(processed_tracks),),
+                            daemon=True,
+                        ).start()
+
                         # Skip the normal queue append below since we already added in batches
                         return
                     else:
