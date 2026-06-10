@@ -1254,75 +1254,70 @@ class WebStreamStation:
 
         if not processed_tracks:
             try:
-                # Use yt-dlp CLI — --skip-download with --print forces full
-                # playlist traversal including YouTube continuation tokens.
-                # (--flat-playlist caps at ~100 items on some YouTube playlists)
-                self.log("Loading playlist entries via yt-dlp CLI...")
+                # Use yt-dlp Python API with extract_flat and manually consume
+                # the lazy generator to ensure all continuation pages are fetched.
+                self.log("Loading playlist entries...")
 
-                cmd = [
-                    sys.executable, "-m", "yt_dlp",
-                    "--skip-download",
-                    "--no-flat-playlist",
-                    "--print", "%(id)s\t%(title)s\t%(uploader,channel)s",
-                    "--no-warnings",
-                    "--quiet",
-                    "--ignore-errors",
-                    "--lazy-playlist",
-                ]
-                cookie_opts = get_cookie_opts()
-                if "cookiefile" in cookie_opts:
-                    cmd.extend(["--cookies", cookie_opts["cookiefile"]])
-                cmd.append(url)
+                import yt_dlp
 
-                self.log(f"Running: yt-dlp --skip-download --print ... {url.split('?')[0]}?...")
+                ydl_opts = {
+                    "extract_flat": "in_playlist",
+                    "skip_download": True,
+                    "quiet": True,
+                    "no_warnings": True,
+                    "nocheckcertificate": True,
+                    "ignoreerrors": True,
+                    **get_cookie_opts(),
+                }
 
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=600,  # 10 min max for huge playlists with full extraction
-                )
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
 
-                if result.stderr:
-                    # Log first few lines of stderr for debugging
-                    err_lines = result.stderr.strip().split("\n")[:3]
-                    for el in err_lines:
-                        self.log(f"yt-dlp stderr: {el[:120]}")
-
-                lines = [l.strip() for l in result.stdout.strip().split("\n") if l.strip()]
-
-                if not lines:
-                    # Fallback: might be a single video URL
-                    import yt_dlp
-                    with yt_dlp.YoutubeDL(
-                        {"quiet": True, "no_warnings": True, "skip_download": True, **get_cookie_opts()}
-                    ) as ydl:
-                        info = ydl.extract_info(url, download=False)
-                        if info and "entries" not in info:
-                            processed_tracks.append(url)
+                if not info:
+                    self.log("yt-dlp returned no info.")
+                elif "entries" not in info:
+                    # Single video
+                    processed_tracks.append(url)
+                    self.log("Single video detected.")
                 else:
-                    # Process playlist entries in batches of 100
+                    # Consume the lazy generator — this is critical!
+                    # We must iterate through ALL entries, not just list()
+                    entries_gen = info["entries"]
+                    all_entries = []
+
+                    self.log("Iterating playlist entries...")
+                    for entry in entries_gen:
+                        if entry is not None:
+                            all_entries.append(entry)
+                        # Log progress every 100
+                        if len(all_entries) % 100 == 0 and len(all_entries) > 0:
+                            self.log(f"Scanned {len(all_entries)} entries so far...")
+
+                    self.log(f"Total entries from yt-dlp: {len(all_entries)}")
+
+                    # Process entries in batches of 100
                     batch = []
                     total = 0
                     is_first_batch = True
 
-                    for line in lines:
-                        parts = line.split("\t")
-                        vid_id = parts[0].strip()
-                        title = parts[1].strip() if len(parts) > 1 else ""
-                        uploader = parts[2].strip() if len(parts) > 2 else ""
+                    for entry in all_entries:
+                        vid_id = entry.get("id", "")
+                        title = entry.get("title", "")
+                        uploader = entry.get("uploader") or entry.get("channel") or ""
 
-                        if not vid_id or vid_id == "NA":
-                            continue
-
-                        track_url = f"https://www.youtube.com/watch?v={vid_id}"
+                        track_url = entry.get("url") or entry.get("webpage_url")
+                        if not track_url:
+                            if vid_id:
+                                track_url = f"https://www.youtube.com/watch?v={vid_id}"
+                            else:
+                                continue
                         batch.append(track_url)
 
                         # Build "Artist - Title" display name
-                        if uploader and uploader != "NA" and uploader.endswith(" - Topic"):
+                        if uploader and uploader.endswith(" - Topic"):
                             uploader = uploader[:-8]
-                        if title and title != "NA":
-                            if uploader and uploader != "NA" and uploader.lower() not in title.lower():
+                        if title:
+                            if uploader and uploader.lower() not in title.lower():
                                 self._queue_titles[track_url] = f"{uploader} - {title}"
                             else:
                                 self._queue_titles[track_url] = title
@@ -1531,14 +1526,21 @@ def _apply_startup_configs():
 
         if playlist_url:
             def _startup_enqueue(st, url, shuf, shuf_count):
-                time.sleep(3)  # Wait for station to initialize
+                time.sleep(5)  # Wait for station to connect
                 st.log(f"Startup: Loading playlist {url[:60]}...")
-                st.enqueue(url)
-                if shuf:
-                    time.sleep(2)
+
+                # Call _handle_url_enqueue DIRECTLY (synchronous) so we wait
+                # for the playlist to actually be loaded before shuffling
+                st._handle_url_enqueue(url, False, 0)
+
+                queue_len = len(st.manual_queue)
+                st.log(f"Startup: Queue has {queue_len} items.")
+
+                if shuf and queue_len > 1:
                     for _ in range(shuf_count):
                         st.shuffle_queue()
                     st.log(f"Startup: Shuffled queue {shuf_count}x")
+
             threading.Thread(
                 target=_startup_enqueue,
                 args=(station, playlist_url, shuffle, shuffle_count),
