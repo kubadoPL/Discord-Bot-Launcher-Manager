@@ -18,7 +18,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import requests as http_requests
 import json
-from api.config import RESTRICT_CORS, RADIO_ADMIN_USER_IDS
+from api.config import RESTRICT_CORS, RADIO_ADMIN_USER_IDS, RADIO_OWNER_USER_IDS
 from api.FunctionsModule import get_db_connection, create_chat_tables
 
 app = Flask(__name__)
@@ -83,14 +83,30 @@ _unique_anon_count = 0  # In-memory counter, loaded from DB at startup, updated 
 anon_stats = {}
 _anon_stats_last_db_write = {}  # anon_id -> datetime (debounce writes to every 60s)
 
-# ─── Admin Role System ─────────────────────────────────────────────────────────
-# Admin users have special privileges: delete any message, delete custom emojis
-# RADIO_ADMIN_USER_IDS imported from api.config (centralized)
-ADMIN_USER_IDS = RADIO_ADMIN_USER_IDS  # Local alias for backward compat
+# ─── Owner & Admin Role System ─────────────────────────────────────────────────
+# Owner: highest privilege, can promote/demote admins (immutable, from config)
+# Admin: chat moderation, streamer panel (static from config + dynamic from DB)
+OWNER_USER_IDS = RADIO_OWNER_USER_IDS  # Immutable owner set
+ADMIN_USER_IDS = set(RADIO_ADMIN_USER_IDS)  # Mutable copy — dynamic admins added at runtime
+dynamic_admin_ids = set()  # Admins promoted at runtime (persisted to DB)
+
+def is_owner(user_id):
+    """Check if a user ID has owner privileges."""
+    return str(user_id) in OWNER_USER_IDS
 
 def is_admin(user_id):
-    """Check if a user ID has admin privileges."""
-    return str(user_id) in ADMIN_USER_IDS
+    """Check if a user ID has admin privileges (includes owners)."""
+    uid = str(user_id)
+    return uid in ADMIN_USER_IDS or uid in dynamic_admin_ids or uid in OWNER_USER_IDS
+
+def get_user_role(user_id):
+    """Get the role string for a user: 'owner', 'admin', or None."""
+    uid = str(user_id)
+    if uid in OWNER_USER_IDS:
+        return "owner"
+    if uid in ADMIN_USER_IDS or uid in dynamic_admin_ids:
+        return "admin"
+    return None
 
 # Cache for online users results to reduce CPU load
 online_users_cache = (
@@ -361,6 +377,50 @@ def _db_save_emoji(emoji_obj):
 
 def _db_delete_emoji(emoji_id):
     _db_enqueue(_do_delete_emoji, emoji_id)
+
+# --- Dynamic Admin Persistence ---
+
+def _do_save_dynamic_admin(user_id):
+    """Add a dynamic admin to DB."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # Store the full set as JSON in service_stats
+        admins_json = json.dumps(list(dynamic_admin_ids))
+        cursor.execute(
+            """
+            INSERT INTO service_stats (service_name, stat_name, value)
+            VALUES ('radio', 'dynamic_admins', %s)
+            ON DUPLICATE KEY UPDATE value = %s
+            """,
+            (admins_json, admins_json),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Error saving dynamic admin {user_id}: {e}")
+
+def _do_delete_dynamic_admin(user_id):
+    """Remove a dynamic admin — just re-save the full set."""
+    _do_save_dynamic_admin(user_id)  # Same logic: overwrite with current set
+
+def _load_dynamic_admins():
+    """Load dynamic admin IDs from DB on startup."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT value FROM service_stats WHERE service_name = 'radio' AND stat_name = 'dynamic_admins'"
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row and row["value"]:
+            ids = json.loads(row["value"])
+            if isinstance(ids, list):
+                dynamic_admin_ids.update(str(uid) for uid in ids)
+                print(f"[DB] Loaded {len(dynamic_admin_ids)} dynamic admins: {dynamic_admin_ids}")
+    except Exception as e:
+        print(f"[DB] Error loading dynamic admins: {e}")
 
 def _db_save_profile(profile):
     _db_enqueue(_do_save_profile, profile)
@@ -672,6 +732,7 @@ def _init_chat_db():
         _load_chat_data_from_db()
         _load_unique_anon_count()
         _load_anon_stats_from_db()
+        _load_dynamic_admins()
     except Exception as e:
         print(f"[DB] Error during startup init: {e}")
 
@@ -1714,11 +1775,97 @@ def get_user_profile(user_id):
                 "current_station": current_station,
                 "last_seen": last_seen,
             },
+            "role": get_user_role(user_id),
         })
 
     except Exception as e:
         print(f"[UserProfile] Error: {e}")
         return jsonify({"error": "Failed to load user profile"}), 500
+
+
+# ─── Promote / Demote (Owner Only) ─────────────────────────────────────────────
+
+@chat_api.route("/user/promote/<target_user_id>", methods=["POST"])
+@limiter.limit("10 per minute")
+@cross_origin(**CORS_OPTIONS)
+def promote_user(target_user_id):
+    """Promote a user to admin. Only owners can do this."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    token = auth_header.split(" ")[1]
+    session = validate_session(token)
+    if not session:
+        return jsonify({"error": "Invalid or expired session"}), 401
+
+    caller_id = session.get("id")
+    if not is_owner(caller_id):
+        return jsonify({"error": "Only owners can promote users"}), 403
+
+    target_id = str(target_user_id)
+
+    # Can't promote an owner
+    if is_owner(target_id):
+        return jsonify({"error": "Cannot modify owner roles"}), 400
+
+    # Already admin?
+    if is_admin(target_id):
+        return jsonify({"error": "User is already an admin"}), 400
+
+    # Add to dynamic set
+    dynamic_admin_ids.add(target_id)
+
+    # Persist to DB
+    _db_enqueue(_do_save_dynamic_admin, target_id)
+
+    print(f"[ROLES] Owner {caller_id} promoted {target_id} to admin")
+    return jsonify({"success": True, "role": "admin", "user_id": target_id})
+
+
+@chat_api.route("/user/demote/<target_user_id>", methods=["POST"])
+@limiter.limit("10 per minute")
+@cross_origin(**CORS_OPTIONS)
+def demote_user(target_user_id):
+    """Demote an admin to regular user. Only owners can do this."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    token = auth_header.split(" ")[1]
+    session = validate_session(token)
+    if not session:
+        return jsonify({"error": "Invalid or expired session"}), 401
+
+    caller_id = session.get("id")
+    if not is_owner(caller_id):
+        return jsonify({"error": "Only owners can demote users"}), 403
+
+    target_id = str(target_user_id)
+
+    # Can't demote an owner
+    if is_owner(target_id):
+        return jsonify({"error": "Cannot modify owner roles"}), 400
+
+    # Not an admin?
+    if not is_admin(target_id):
+        return jsonify({"error": "User is not an admin"}), 400
+
+    # Remove from dynamic set
+    dynamic_admin_ids.discard(target_id)
+
+    # Persist to DB
+    _db_enqueue(_do_delete_dynamic_admin, target_id)
+
+    print(f"[ROLES] Owner {caller_id} demoted {target_id} from admin")
+    return jsonify({"success": True, "role": None, "user_id": target_id})
+
+
+@chat_api.route("/user/role/<target_user_id>")
+@cross_origin(**CORS_OPTIONS)
+def get_user_role_endpoint(target_user_id):
+    """Get the role of a user (public)."""
+    return jsonify({"user_id": target_user_id, "role": get_user_role(target_user_id)})
 
 
 @chat_api.route("/user/guild-check/<user_id>/<guild_id>")

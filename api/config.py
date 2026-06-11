@@ -16,6 +16,11 @@ NITRO_BONUS = 100  # Bonus for Nitro Boosters
 ADMIN_IDS = [264079253757231104,]  # List of admin user IDs (int, used by bot commands)
 ADMIN_USER_IDS = {str(uid) for uid in ADMIN_IDS}  # Set of string IDs (used by bot web APIs)
 
+# Radio GAMING owners (highest privilege — can promote/demote admins)
+RADIO_OWNER_USER_IDS = {
+    "264079253757231104",  # kubado
+}
+
 # Radio GAMING admins (chat moderation + streamer panel)
 RADIO_ADMIN_USER_IDS = {
     "264079253757231104",  # kubado
