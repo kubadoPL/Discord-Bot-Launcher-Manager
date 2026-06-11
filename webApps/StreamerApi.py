@@ -72,10 +72,20 @@ def _get_chat_api():
     return _chat_api_module
 
 
-# RADIO_ADMIN_USER_IDS imported from api.config (centralized)
+## RADIO_ADMIN_USER_IDS imported from api.config (centralized)
+# Use the shared is_admin from DiscordAuthChatApi which includes dynamic admins
 
 
 def is_admin(user_id):
+    # Try to use the live is_admin from DiscordAuthChatApi (same process)
+    try:
+        import sys
+        chat_mod = sys.modules.get('webApps.DiscordAuthChatApi') or sys.modules.get('DiscordAuthChatApi')
+        if chat_mod and hasattr(chat_mod, 'is_admin'):
+            return chat_mod.is_admin(user_id)
+    except Exception:
+        pass
+    # Fallback to static config
     return str(user_id) in RADIO_ADMIN_USER_IDS
 
 
