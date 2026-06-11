@@ -1047,6 +1047,11 @@ class WebStreamStation:
                         play_path = file_path
                         clean_title = os.path.basename(file_path).rsplit(".", 1)[0]
                         self.current_song = clean_title
+                    # Clean display title: strip (...) suffixes and stray quotes
+                    import re
+                    clean_title = re.sub(r'\s*\([^)]*\)', '', clean_title).strip()
+                    clean_title = clean_title.replace('"', '').strip()
+                    self.current_song = clean_title
 
                     self.log(f"Playing: {clean_title}")
                     self._update_metadata(clean_title, delay=4)
