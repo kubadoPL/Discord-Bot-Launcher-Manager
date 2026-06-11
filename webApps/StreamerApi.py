@@ -558,6 +558,17 @@ class WebStreamStation:
                                 self._preload_cache[path] = local_dest
                     except Exception as e:
                         self.log(f"Preload failed: {e}")
+                        # Track failures — remove from queue after 2 failed attempts
+                        if not hasattr(self, '_preload_failures'):
+                            self._preload_failures = {}
+                        self._preload_failures[path] = self._preload_failures.get(path, 0) + 1
+                        if self._preload_failures[path] >= 2:
+                            with self._queue_lock:
+                                if path in self.manual_queue:
+                                    self.manual_queue.remove(path)
+                                    title = self._queue_titles.get(path, path)
+                                    self.log(f"Removed unavailable: {title}")
+                            self._preload_failures.pop(path, None)
 
                     time.sleep(1)  # Gap between downloads
 
