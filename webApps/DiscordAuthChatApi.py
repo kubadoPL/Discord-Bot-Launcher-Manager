@@ -1868,6 +1868,18 @@ def get_user_role_endpoint(target_user_id):
     return jsonify({"user_id": target_user_id, "role": get_user_role(target_user_id)})
 
 
+@chat_api.route("/user/roles")
+@cross_origin(**CORS_OPTIONS)
+def get_all_roles():
+    """Return all owner and admin user IDs (public, for frontend badge rendering)."""
+    all_admin_ids = list(ADMIN_USER_IDS | dynamic_admin_ids)
+    all_owner_ids = list(OWNER_USER_IDS)
+    return jsonify({
+        "owners": all_owner_ids,
+        "admins": all_admin_ids,
+    })
+
+
 @chat_api.route("/user/guild-check/<user_id>/<guild_id>")
 @cross_origin(**CORS_OPTIONS)
 def check_user_guild(user_id, guild_id):
