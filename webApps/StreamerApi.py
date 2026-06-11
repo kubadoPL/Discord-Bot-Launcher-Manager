@@ -1312,7 +1312,7 @@ class WebStreamStation:
                     ydl_opts = {
                         "ignoreerrors": True,
                         "extract_flat": "in_playlist",
-                        "playlistend": 2000,
+                        "playlist-end": 2000,
                         "extractaudio": True,
                         "audioformat": "mp3",
                         "format": "bestaudio/best",
