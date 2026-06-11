@@ -264,6 +264,19 @@ def create_chat_tables():
     """
     )
 
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS gif_favorites (
+        user_id VARCHAR(64) NOT NULL,
+        url TEXT NOT NULL,
+        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        url_hash VARCHAR(64) AS (SHA2(url, 256)) STORED,
+        PRIMARY KEY (user_id, url_hash),
+        INDEX idx_user (user_id)
+    )
+    """
+    )
+
     conn.commit()
     conn.close()
 

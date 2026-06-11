@@ -29,13 +29,13 @@ if RESTRICT_CORS:
     CORS_OPTIONS = {
         "origins": ["https://radio-gaming.stream", "https://k5studio.dev"],
         "allow_headers": ["Authorization", "Content-Type", "X-Playing-Station"],
-        "methods": ["GET", "POST", "OPTIONS"],
+        "methods": ["GET", "POST", "DELETE", "OPTIONS"],
     }
 else:
     CORS_OPTIONS = {
         "origins": "*",
         "allow_headers": ["Authorization", "Content-Type", "X-Playing-Station"],
-        "methods": ["GET", "POST", "OPTIONS"],
+        "methods": ["GET", "POST", "DELETE", "OPTIONS"],
     }
 
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2MB max request size
@@ -380,45 +380,65 @@ def _db_delete_emoji(emoji_id):
 
 # --- Dynamic Admin Persistence ---
 
+def _create_radio_admins_table():
+    """Create the radio_admins table if it doesn't exist."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS radio_admins (
+                user_id VARCHAR(64) PRIMARY KEY,
+                promoted_by VARCHAR(64),
+                promoted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+        conn.close()
+        print("[DB] radio_admins table ready")
+    except Exception as e:
+        print(f"[DB] Error creating radio_admins table: {e}")
+
 def _do_save_dynamic_admin(user_id):
     """Add a dynamic admin to DB."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Store the full set as JSON in service_stats
-        admins_json = json.dumps(list(dynamic_admin_ids))
         cursor.execute(
             """
-            INSERT INTO service_stats (service_name, stat_name, value)
-            VALUES ('radio', 'dynamic_admins', %s)
-            ON DUPLICATE KEY UPDATE value = %s
+            INSERT IGNORE INTO radio_admins (user_id) VALUES (%s)
             """,
-            (admins_json, admins_json),
+            (str(user_id),),
         )
         conn.commit()
         conn.close()
+        print(f"[DB] Saved dynamic admin: {user_id}")
     except Exception as e:
         print(f"[DB] Error saving dynamic admin {user_id}: {e}")
 
 def _do_delete_dynamic_admin(user_id):
-    """Remove a dynamic admin — just re-save the full set."""
-    _do_save_dynamic_admin(user_id)  # Same logic: overwrite with current set
+    """Remove a dynamic admin from DB."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM radio_admins WHERE user_id = %s", (str(user_id),))
+        conn.commit()
+        conn.close()
+        print(f"[DB] Deleted dynamic admin: {user_id}")
+    except Exception as e:
+        print(f"[DB] Error deleting dynamic admin {user_id}: {e}")
 
 def _load_dynamic_admins():
     """Load dynamic admin IDs from DB on startup."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute(
-            "SELECT value FROM service_stats WHERE service_name = 'radio' AND stat_name = 'dynamic_admins'"
-        )
-        row = cursor.fetchone()
+        cursor.execute("SELECT user_id FROM radio_admins")
+        rows = cursor.fetchall()
         conn.close()
-        if row and row["value"]:
-            ids = json.loads(row["value"])
-            if isinstance(ids, list):
-                dynamic_admin_ids.update(str(uid) for uid in ids)
-                print(f"[DB] Loaded {len(dynamic_admin_ids)} dynamic admins: {dynamic_admin_ids}")
+        for row in rows:
+            dynamic_admin_ids.add(str(row["user_id"]))
+        if dynamic_admin_ids:
+            print(f"[DB] Loaded {len(dynamic_admin_ids)} dynamic admins: {dynamic_admin_ids}")
     except Exception as e:
         print(f"[DB] Error loading dynamic admins: {e}")
 
@@ -729,6 +749,7 @@ def _load_chat_data_from_db():
 def _init_chat_db():
     try:
         create_chat_tables()
+        _create_radio_admins_table()
         _load_chat_data_from_db()
         _load_unique_anon_count()
         _load_anon_stats_from_db()
@@ -2790,6 +2811,119 @@ def discord_activity_login():
 
     except Exception as e:
         return jsonify({"error": f"Activity login error: {str(e)}"}), 500
+
+
+# --- GIF FAVORITES CLOUD SYNC ---
+
+
+@chat_api.route("/favorites/gif", methods=["GET"])
+@cross_origin(**CORS_OPTIONS)
+def get_gif_favorites():
+    """Get all GIF favorites for the logged-in user."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    token = auth_header.split(" ")[1]
+    session = validate_session(token)
+    if not session:
+        return jsonify({"error": "Invalid or expired session"}), 401
+
+    user_id = session["id"]
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT url FROM gif_favorites WHERE user_id = %s ORDER BY added_at ASC",
+            (user_id,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return jsonify({"favorites": [row["url"] for row in rows]})
+    except Exception as e:
+        print(f"[GIF Favorites] Error loading for {user_id}: {e}")
+        return jsonify({"error": "Failed to load favorites"}), 500
+
+
+@chat_api.route("/favorites/gif", methods=["POST"])
+@limiter.limit("30 per minute")
+@cross_origin(**CORS_OPTIONS)
+def save_gif_favorites():
+    """Add one or more GIF favorites (bulk merge). Body: { "urls": [...] }"""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    token = auth_header.split(" ")[1]
+    session = validate_session(token)
+    if not session:
+        return jsonify({"error": "Invalid or expired session"}), 401
+
+    user_id = session["id"]
+    data = request.get_json()
+    urls = data.get("urls", []) if data else []
+
+    if not urls or not isinstance(urls, list):
+        return jsonify({"error": "Missing 'urls' array"}), 400
+
+    # Cap at 500 to prevent abuse
+    if len(urls) > 500:
+        urls = urls[:500]
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        for url in urls:
+            if not isinstance(url, str) or len(url) > 2000:
+                continue
+            cursor.execute(
+                """
+                INSERT IGNORE INTO gif_favorites (user_id, url) VALUES (%s, %s)
+                """,
+                (user_id, url),
+            )
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "added": len(urls)})
+    except Exception as e:
+        print(f"[GIF Favorites] Error saving for {user_id}: {e}")
+        return jsonify({"error": "Failed to save favorites"}), 500
+
+
+@chat_api.route("/favorites/gif", methods=["DELETE"])
+@limiter.limit("30 per minute")
+@cross_origin(**CORS_OPTIONS)
+def delete_gif_favorite():
+    """Remove a GIF favorite. Body: { "url": "..." }"""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    token = auth_header.split(" ")[1]
+    session = validate_session(token)
+    if not session:
+        return jsonify({"error": "Invalid or expired session"}), 401
+
+    user_id = session["id"]
+    data = request.get_json()
+    url = data.get("url") if data else None
+
+    if not url:
+        return jsonify({"error": "Missing 'url'"}), 400
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM gif_favorites WHERE user_id = %s AND url_hash = SHA2(%s, 256)",
+            (user_id, url),
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True})
+    except Exception as e:
+        print(f"[GIF Favorites] Error deleting for {user_id}: {e}")
+        return jsonify({"error": "Failed to delete favorite"}), 500
 
 
 app.register_blueprint(chat_api, url_prefix="/DiscordAuthChatApi")

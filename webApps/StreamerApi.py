@@ -79,23 +79,18 @@ _dynamic_admin_cache = {"ids": set(), "ts": 0}
 
 
 def _get_dynamic_admins():
-    """Load dynamic admin IDs from DB with 30s cache."""
+    """Load dynamic admin IDs from radio_admins table with 30s cache."""
     now = time.time()
-    if now - _dynamic_admin_cache["ts"] < 30:
+    if now - _dynamic_admin_cache["ts"] < 120:
         return _dynamic_admin_cache["ids"]
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute(
-            "SELECT value FROM service_stats WHERE service_name = 'radio' AND stat_name = 'dynamic_admins'"
-        )
-        row = cursor.fetchone()
+        cursor.execute("SELECT user_id FROM radio_admins")
+        rows = cursor.fetchall()
         conn.close()
-        if row and row["value"]:
-            ids = json.loads(row["value"])
-            if isinstance(ids, list):
-                _dynamic_admin_cache["ids"] = set(str(uid) for uid in ids)
-                _dynamic_admin_cache["ts"] = now
+        _dynamic_admin_cache["ids"] = set(str(row["user_id"]) for row in rows)
+        _dynamic_admin_cache["ts"] = now
     except Exception as e:
         print(f"[StreamerApi] Error loading dynamic admins: {e}")
     return _dynamic_admin_cache["ids"]
