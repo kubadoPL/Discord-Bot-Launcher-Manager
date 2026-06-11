@@ -1296,7 +1296,6 @@ class WebStreamStation:
                         "format": "bestaudio/best",
                         "verbose": True,
                         "nocheckcertificate": True,
-                        **cookie_opts,
                     }
 
                     # Groovy: with yt_dlp.YoutubeDL(ydl_opts) as ydl:
