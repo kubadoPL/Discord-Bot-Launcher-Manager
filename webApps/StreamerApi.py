@@ -1201,7 +1201,7 @@ class WebStreamStation:
                         except Exception:
                             pass
 
-                        self._feed_silence(0.5)
+                        # No silence gap — seamless transition self._feed_silence(0.5)
 
                         # Clean up preloaded file after playing
                         if preloaded_path and os.path.exists(preloaded_path):
