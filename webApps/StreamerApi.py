@@ -1252,9 +1252,15 @@ class WebStreamStation:
             url = url.replace("music.youtube.com", "www.youtube.com")
             self.log("Converted YouTube Music URL to standard YouTube.")
 
-        # Strip tracking parameters
-        if "&si=" in url:
-            url = url.split("&si=")[0]
+        # Strip tracking parameters (si= causes YouTube to limit playlists to 100 items!)
+        if "si=" in url:
+            from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            params.pop("si", None)
+            clean_query = urlencode(params, doseq=True)
+            url = urlunparse(parsed._replace(query=clean_query))
+            self.log(f"Stripped si param: {url}")
 
         processed_tracks = []
 
