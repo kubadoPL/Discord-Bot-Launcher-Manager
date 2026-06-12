@@ -326,6 +326,184 @@ def _save_startup_config(station_id, config):
 _init_startup_table()
 
 
+# ─── Admin Presence Tracking (in-memory, no extra fetch needed) ────────────────
+
+_admin_presence = {}  # user_id -> {name, avatar_url, last_heartbeat, online_since, actions: [{time, action}]}
+_admin_presence_lock = threading.Lock()
+ADMIN_ONLINE_THRESHOLD = 30  # seconds — consider offline after this
+ADMIN_MAX_ACTIONS = 50  # max action log entries per admin
+
+
+def _admin_heartbeat(session, action=None):
+    """Update admin presence. Called automatically on every authenticated API call."""
+    uid = str(session.get("id", ""))
+    if not uid:
+        return
+    now = time.time()
+    with _admin_presence_lock:
+        if uid not in _admin_presence:
+            _admin_presence[uid] = {
+                "name": session.get("global_name") or session.get("username", "Admin"),
+                "avatar_url": session.get("avatar_url", ""),
+                "last_heartbeat": now,
+                "online_since": now,
+                "actions": [],
+            }
+            # Log the "came online" event
+            _admin_presence[uid]["actions"].append({
+                "time": time.strftime("%H:%M:%S"),
+                "ts": now,
+                "action": "Wszedł online",
+            })
+        else:
+            entry = _admin_presence[uid]
+            # If was offline and came back, reset online_since
+            if now - entry["last_heartbeat"] > ADMIN_ONLINE_THRESHOLD:
+                entry["online_since"] = now
+                entry["actions"].append({
+                    "time": time.strftime("%H:%M:%S"),
+                    "ts": now,
+                    "action": "Wrócił online",
+                })
+            entry["last_heartbeat"] = now
+            entry["name"] = session.get("global_name") or session.get("username", entry["name"])
+            entry["avatar_url"] = session.get("avatar_url", entry["avatar_url"])
+
+        if action:
+            _admin_presence[uid]["actions"].append({
+                "time": time.strftime("%H:%M:%S"),
+                "ts": now,
+                "action": action,
+            })
+            # Trim old actions
+            if len(_admin_presence[uid]["actions"]) > ADMIN_MAX_ACTIONS:
+                _admin_presence[uid]["actions"] = _admin_presence[uid]["actions"][-ADMIN_MAX_ACTIONS:]
+
+
+def _get_admin_presence_data():
+    """Return list of admins with online status and recent actions."""
+    now = time.time()
+    result = []
+    with _admin_presence_lock:
+        for uid, data in _admin_presence.items():
+            is_online = (now - data["last_heartbeat"]) < ADMIN_ONLINE_THRESHOLD
+            result.append({
+                "id": uid,
+                "name": data["name"],
+                "avatar_url": data["avatar_url"],
+                "is_online": is_online,
+                "online_since": data["online_since"],
+                "last_heartbeat": data["last_heartbeat"],
+                "actions": data["actions"][-15:],  # last 15 actions for UI
+            })
+    # Online admins first
+    result.sort(key=lambda x: (x["is_online"], x["last_heartbeat"]), reverse=True)
+    return result
+
+
+# ─── Input History (persisted to DB) ───────────────────────────────────────────
+
+def _init_input_history_table():
+    """Create streamer_input_history table for persisting all enqueued inputs."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS streamer_input_history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                station_id INT NOT NULL,
+                url TEXT NOT NULL,
+                custom_name VARCHAR(255) DEFAULT NULL,
+                resolved_title VARCHAR(255) DEFAULT NULL,
+                added_by_id VARCHAR(64),
+                added_by_name VARCHAR(128),
+                instant TINYINT(1) DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_station (station_id),
+                INDEX idx_created (created_at)
+            )
+        """)
+        conn.commit()
+        conn.close()
+        print("[InputHistory] Table ready.")
+    except Exception as e:
+        print(f"[InputHistory] DB table init error: {e}")
+
+
+def _save_input_history(station_id, url, admin_session, instant=False, custom_name=None):
+    """Save an enqueued input to the history database."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO streamer_input_history
+                (station_id, url, custom_name, added_by_id, added_by_name, instant)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
+            station_id,
+            url[:2000],  # cap URL length
+            custom_name[:255] if custom_name else None,
+            str(admin_session.get("id", "")),
+            admin_session.get("global_name") or admin_session.get("username", "Unknown"),
+            instant,
+        ))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[InputHistory] Save error: {e}")
+
+
+def _get_input_history(station_id=None, limit=50, offset=0):
+    """Load input history from DB. Optional station filter."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        if station_id is not None:
+            cursor.execute("""
+                SELECT * FROM streamer_input_history
+                WHERE station_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """, (station_id, limit, offset))
+        else:
+            cursor.execute("""
+                SELECT * FROM streamer_input_history
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """, (limit, offset))
+        rows = cursor.fetchall()
+        conn.close()
+        # Convert datetime objects to strings
+        for row in rows:
+            if row.get("created_at"):
+                row["created_at"] = row["created_at"].strftime("%Y-%m-%dT%H:%M:%SZ")
+        return rows
+    except Exception as e:
+        print(f"[InputHistory] Load error: {e}")
+        return []
+
+
+def _update_input_custom_name(entry_id, custom_name):
+    """Update custom_name for an input history entry."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE streamer_input_history
+            SET custom_name = %s
+            WHERE id = %s
+        """, (custom_name[:255] if custom_name else None, entry_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"[InputHistory] Update error: {e}")
+        return False
+
+
+_init_input_history_table()
+
+
 def get_cookie_opts():
     """Return cookiefile dict if cookies.txt exists, else empty dict."""
     if os.path.isfile(COOKIE_FILE_PATH):
@@ -1668,14 +1846,20 @@ def home():
 @limiter.limit("30 per minute")
 @cross_origin(**CORS_OPTIONS)
 def get_all_status():
-    """Get status of all stations. Admin only."""
+    """Get status of all stations + admin presence. Admin only."""
     session, err = get_admin_session()
     if err:
         return err
 
+    # Heartbeat — piggybacks on the existing status poll (no extra fetch needed)
+    _admin_heartbeat(session)
+
     result = {}
     for sid, station in stations.items():
         result[str(sid)] = station.get_status()
+
+    # Bundle admin presence data with status response
+    result["_admin_presence"] = _get_admin_presence_data()
 
     return jsonify(result)
 
@@ -1697,6 +1881,7 @@ def start_station(station_id):
         return jsonify({"error": "Station already running"}), 400
 
     station.start()
+    _admin_heartbeat(session, f"Start: {station.name}")
     return jsonify({"success": True, "message": f"{station.name} starting..."})
 
 
@@ -1714,6 +1899,7 @@ def stop_station(station_id):
 
     station = stations[station_id]
     station.stop()
+    _admin_heartbeat(session, f"Stop: {station.name}")
     return jsonify({"success": True, "message": f"{station.name} stopped."})
 
 
@@ -1729,6 +1915,8 @@ def skip_song(station_id):
     if station_id not in stations:
         return jsonify({"error": "Invalid station ID"}), 400
 
+    station_name = STATION_CONFIGS.get(station_id, {}).get("name", f"Station {station_id}")
+    _admin_heartbeat(session, f"Skip na {station_name}")
     stations[station_id].skip_song()
     return jsonify({"success": True})
 
@@ -1737,7 +1925,7 @@ def skip_song(station_id):
 @limiter.limit("30 per minute")
 @cross_origin(**CORS_OPTIONS)
 def enqueue_song(station_id):
-    """Add a URL/search to queue. Body: {url: string, instant?: boolean}"""
+    """Add a URL/search to queue. Body: {url: string, instant?: boolean, custom_name?: string}"""
     session, err = get_admin_session()
     if err:
         return err
@@ -1751,7 +1939,15 @@ def enqueue_song(station_id):
         return jsonify({"error": "Missing url parameter"}), 400
 
     instant = data.get("instant", False)
+    custom_name = data.get("custom_name", "").strip() or None
     stations[station_id].enqueue(url, instant=instant)
+
+    # Log admin action and save to input history DB
+    station_name = STATION_CONFIGS.get(station_id, {}).get("name", f"Station {station_id}")
+    mode = "Instant" if instant else "Queue"
+    _admin_heartbeat(session, f"{mode}: {url[:80]} → {station_name}")
+    _save_input_history(station_id, url, session, instant=instant, custom_name=custom_name)
+
     return jsonify({"success": True, "message": f"Processing: {url}"})
 
 
@@ -2236,6 +2432,80 @@ def stop_all():
         station.stop()
 
     return jsonify({"success": True, "message": "All stations stopped."})
+
+
+# ─── Input History Endpoints ──────────────────────────────────────────────────
+
+
+@app.route("/input-history", methods=["GET"])
+@limiter.limit("30 per minute")
+@cross_origin(**CORS_OPTIONS)
+def get_input_history():
+    """Get input history. Query: ?station=<id>&limit=<n>&offset=<n>"""
+    session, err = get_admin_session()
+    if err:
+        return err
+
+    station_id = request.args.get("station", None, type=int)
+    limit = min(request.args.get("limit", 50, type=int), 200)
+    offset = request.args.get("offset", 0, type=int)
+
+    history = _get_input_history(station_id=station_id, limit=limit, offset=offset)
+    return jsonify({"history": history})
+
+
+@app.route("/input-history/<int:entry_id>/name", methods=["POST"])
+@limiter.limit("30 per minute")
+@cross_origin(**CORS_OPTIONS)
+def update_input_name(entry_id):
+    """Update custom_name for an input history entry. Body: {custom_name: string}"""
+    session, err = get_admin_session()
+    if err:
+        return err
+
+    data = request.json or {}
+    custom_name = data.get("custom_name", "").strip()
+
+    success = _update_input_custom_name(entry_id, custom_name if custom_name else None)
+    if success:
+        _admin_heartbeat(session, f"Renamed input #{entry_id}: {custom_name[:40]}")
+        return jsonify({"success": True})
+    return jsonify({"error": "Update failed"}), 500
+
+
+@app.route("/input-history/<int:entry_id>/replay", methods=["POST"])
+@limiter.limit("30 per minute")
+@cross_origin(**CORS_OPTIONS)
+def replay_input(entry_id):
+    """Re-enqueue an input from history. Body: {station_id: int, instant?: boolean}"""
+    session, err = get_admin_session()
+    if err:
+        return err
+
+    data = request.json or {}
+    target_station = data.get("station_id", 0)
+    instant = data.get("instant", False)
+
+    if target_station not in stations:
+        return jsonify({"error": "Invalid station ID"}), 400
+
+    # Load the entry from DB
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT url FROM streamer_input_history WHERE id = %s", (entry_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return jsonify({"error": "Entry not found"}), 404
+
+        url = row["url"]
+        stations[target_station].enqueue(url, instant=instant)
+        station_name = STATION_CONFIGS.get(target_station, {}).get("name", f"Station {target_station}")
+        _admin_heartbeat(session, f"Replay #{entry_id} → {station_name}")
+        return jsonify({"success": True, "message": f"Re-enqueued to {station_name}"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 def run_api():
