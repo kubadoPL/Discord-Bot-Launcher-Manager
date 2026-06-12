@@ -548,6 +548,7 @@ class WebStreamStation:
         self.mic_queue = queue.Queue(maxsize=100)
         self._queue_titles = {}  # url -> display title
         self._idle_since = None  # Timestamp when idle started (for auto-disconnect)
+        self.auto_disconnect_empty = False  # Auto-disconnect when queue empties (no loop)
 
         # Preload system — download next 3 queue songs ahead as MP3
         self._preload_cache = {}   # original_path -> local_mp3_path
@@ -597,6 +598,7 @@ class WebStreamStation:
             "current_song": self.current_song,
             "loop_mode": self.loop_mode,
             "mic_active": self.mic_active,
+            "auto_disconnect_empty": self.auto_disconnect_empty,
             "queue": queue_list,
             "queue_length": len(queue_list),
             "queue_titles": dict(self._queue_titles),
@@ -1001,11 +1003,19 @@ class WebStreamStation:
 
     def _handle_no_media(self):
         """Maintain stream when queue is empty: silence to keep connection alive.
-        Auto-disconnects after 2 minutes of continuous idle."""
+        Auto-disconnects after 2 minutes of continuous idle,
+        or immediately if auto_disconnect_empty is enabled and loop is off."""
 
         # Track idle start
         if self._idle_since is None:
             self._idle_since = time.time()
+
+            # Immediate disconnect if checkbox enabled and not looping
+            if self.auto_disconnect_empty and self.loop_mode == "off":
+                self.log("Queue empty + auto-disconnect enabled. Rozłączam...")
+                self.stop()
+                return
+
             self.log("Queue empty. Entering idle mode...")
             self.current_song = "RADIO GAMING Live/Idle"
             self._update_metadata("RADIO GAMING Live/Idle", delay=1)
@@ -2023,6 +2033,27 @@ def remove_queue_item(station_id):
             return jsonify({"success": True})
         else:
             return jsonify({"error": "Index out of range"}), 400
+
+
+@app.route("/auto-disconnect/<int:station_id>", methods=["POST"])
+@limiter.limit("30 per minute")
+@cross_origin(**CORS_OPTIONS)
+def toggle_auto_disconnect(station_id):
+    """Toggle auto-disconnect on empty queue. Body: {enabled: boolean}"""
+    session, err = get_admin_session()
+    if err:
+        return err
+
+    if station_id not in stations:
+        return jsonify({"error": "Invalid station ID"}), 400
+
+    data = request.json or {}
+    enabled = bool(data.get("enabled", False))
+    stations[station_id].auto_disconnect_empty = enabled
+    state_text = "ON" if enabled else "OFF"
+    stations[station_id].log(f"Auto-disconnect on empty: {state_text}")
+    _admin_heartbeat(session, f"Auto-disconnect {state_text}: {stations[station_id].name}")
+    return jsonify({"success": True, "enabled": enabled})
 
 
 @app.route("/loop/<int:station_id>", methods=["POST"])
