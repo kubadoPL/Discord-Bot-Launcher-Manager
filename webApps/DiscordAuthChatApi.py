@@ -2332,7 +2332,7 @@ def get_anon_stats():
     if not session:
         return jsonify({"error": "Invalid or expired session"}), 401
 
-    if session.get("id") not in ADMIN_USER_IDS:
+    if not is_admin(session.get("id")):
         return jsonify({"error": "Admin access required"}), 403
 
     # Determine which anon_ids are currently online
