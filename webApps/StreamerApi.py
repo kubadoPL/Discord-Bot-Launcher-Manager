@@ -936,7 +936,7 @@ class WebStreamStation:
 
     def _send_metadata_request(self, title):
         """Send a single HTTP GET to Icecast admin API to update song metadata.
-        Returns True on success, False on failure."""
+        Returns True on success, False on failure. Uses short timeout to avoid blocking."""
         try:
             mount_point = (
                 self.mount if self.mount.startswith("/") else f"/{self.mount}"
@@ -954,7 +954,7 @@ class WebStreamStation:
                 "User-Agent",
                 "Mozilla/5.0 RadioGamingWebStreamer/1.0",
             )
-            with urllib.request.urlopen(req, timeout=10) as response:
+            with urllib.request.urlopen(req, timeout=3) as response:
                 return response.status == 200
         except Exception as e:
             print(f"[{self.name}] Metadata update error: {e}")
@@ -970,23 +970,26 @@ class WebStreamStation:
             retry_delays = [5, 10]
 
         def task():
-            if delay > 0:
-                time.sleep(delay)
+            try:
+                if delay > 0:
+                    time.sleep(delay)
 
-            # Guard: station may have stopped or song changed during delay
-            if not self.running or self.current_song != title:
-                return
-
-            # --- First (primary) send ---
-            self._send_metadata_request(title)
-
-            # --- Redundant retry sends for safety ---
-            for extra_delay in retry_delays:
-                time.sleep(extra_delay)
-                # Stop retrying if station stopped or a different song started playing
+                # Guard: station may have stopped or song changed during delay
                 if not self.running or self.current_song != title:
                     return
+
+                # --- First (primary) send ---
                 self._send_metadata_request(title)
+
+                # --- Redundant retry sends for safety ---
+                for extra_delay in retry_delays:
+                    time.sleep(extra_delay)
+                    # Stop retrying if station stopped or a different song started playing
+                    if not self.running or self.current_song != title:
+                        return
+                    self._send_metadata_request(title)
+            except Exception as e:
+                print(f"[{self.name}] Metadata task error: {e}")
 
         threading.Thread(target=task, daemon=True).start()
 
