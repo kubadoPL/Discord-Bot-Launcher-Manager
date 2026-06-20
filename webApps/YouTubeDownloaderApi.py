@@ -24,7 +24,7 @@ if parent_dir not in sys.path:
 
 from queue import Queue
 
-from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import Flask, request, jsonify, send_file, send_from_directory, make_response
 from flask_cors import cross_origin
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -556,6 +556,14 @@ def download_file(job_id):
     if clean_name.startswith(f"{job_id}_"):
         clean_name = clean_name[len(f"{job_id}_"):]
 
+    # Sanitize filename — remove characters that break Content-Disposition header
+    # Keep only safe chars: alphanumeric, spaces, hyphens, underscores, dots, parens
+    clean_name = re.sub(r'[^\w\s\-\.\(\)]', '', clean_name)
+    # Collapse multiple spaces/underscores
+    clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+    if not clean_name:
+        clean_name = f"download.{job['format']}"
+
     # Track file download stat
     if job["format"] == "mp3":
         _increment_stat("mp3_downloaded")
@@ -564,12 +572,13 @@ def download_file(job_id):
 
     mimetype = "audio/mpeg" if job["format"] == "mp3" else "video/mp4"
 
-    return send_file(
-        filepath,
-        as_attachment=True,
-        download_name=clean_name,
-        mimetype=mimetype,
-    )
+    # Use make_response to set Content-Disposition safely with ASCII filename
+    with open(filepath, 'rb') as f:
+        response = make_response(f.read())
+    response.headers['Content-Type'] = mimetype
+    response.headers['Content-Disposition'] = f'attachment; filename="{clean_name}"'
+    response.headers['Content-Length'] = os.path.getsize(filepath)
+    return response
 
 
 # ─── Stats & Online Endpoints ─────────────────────────────────────────────────
