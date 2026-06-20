@@ -1605,6 +1605,11 @@ class WebStreamStation:
                     # Single video
                     processed_tracks.append(url)
                     self.log("Single video detected.")
+                    # Extract thumbnail from video ID immediately
+                    import re as _re
+                    yt_match = _re.search(r'[?&]v=([^&]+)', url) or _re.search(r'youtu\.be/([^?&]+)', url)
+                    if yt_match:
+                        self._queue_thumbnails[url] = f"https://img.youtube.com/vi/{yt_match.group(1)}/mqdefault.jpg"
 
                 if all_entries:
                     self.log(f"Playlist loaded: {len(all_entries)} entries total")
@@ -1631,6 +1636,19 @@ class WebStreamStation:
                                 self._queue_titles[track_url] = f"{uploader} - {title}"
                             else:
                                 self._queue_titles[track_url] = title
+
+                        # Extract thumbnail — try yt-dlp metadata first, then build from video ID
+                        thumb = video.get("thumbnail") or ""
+                        if not thumb:
+                            thumbs = video.get("thumbnails")
+                            if thumbs and isinstance(thumbs, list):
+                                thumb = thumbs[-1].get("url", "")
+                        if not thumb:
+                            vid_id = video.get("id", "")
+                            if vid_id:
+                                thumb = f"https://img.youtube.com/vi/{vid_id}/mqdefault.jpg"
+                        if thumb:
+                            self._queue_thumbnails[track_url] = thumb
 
                         if len(batch) >= 100:
                             with self._queue_lock:
