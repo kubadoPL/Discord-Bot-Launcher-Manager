@@ -11,6 +11,7 @@ API endpoints under /YouTubeDownloaderApi/api/...
 
 import os
 import sys
+import json
 import threading
 import time
 import uuid
@@ -240,7 +241,7 @@ def serve_static(filename):
 @limiter.limit("30 per minute")
 @cross_origin(**CORS_OPTIONS)
 def get_video_info():
-    """Get video metadata (title, thumbnail, duration, formats) without downloading."""
+    """Get video metadata. Auto-detects playlists and returns all entries."""
     data = request.get_json(silent=True)
     if not data or not data.get("url"):
         return jsonify({"error": "Missing 'url' parameter"}), 400
@@ -248,61 +249,291 @@ def get_video_info():
     url = data["url"].strip()
 
     # Basic URL validation
-    if not (
-        "youtube.com" in url
-        or "youtu.be" in url
-        or "music.youtube.com" in url
-    ):
-        return jsonify({"error": "Only YouTube URLs are supported"}), 400
+    is_youtube = "youtube.com" in url or "youtu.be" in url or "music.youtube.com" in url
+    is_spotify = "open.spotify.com" in url
+
+    if not is_youtube and not is_spotify:
+        return jsonify({"error": "Only YouTube and Spotify URLs are supported"}), 400
+
+    # Spotify handling
+    if is_spotify:
+        try:
+            return _handle_spotify_info(url)
+        except Exception as e:
+            return jsonify({"error": f"Failed to process Spotify link: {str(e)}"}), 500
+
+    # Convert YouTube Music URLs to regular YouTube (Music API caps playlists)
+    if "music.youtube.com" in url:
+        url = url.replace("music.youtube.com", "www.youtube.com")
+
+    # Strip si= tracking parameter (limits playlists to 100 items!)
+    if "si=" in url:
+        from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+        params.pop("si", None)
+        url = urlunparse(parsed._replace(query=urlencode(params, doseq=True)))
+
+    # Detect playlist URLs
+    is_playlist = "?list=" in url or "&list=" in url or "/playlist" in url
 
     try:
         import yt_dlp
 
+        if is_playlist:
+            return _handle_playlist_info(url)
+        else:
+            return _handle_single_video_info(url)
+
+    except Exception as e:
+        error_msg = str(e)
+        if "Sign in" in error_msg or "bot" in error_msg.lower():
+            error_msg = "YouTube is blocking this request. Try again later."
+        return jsonify({"error": f"Failed to fetch video info: {error_msg}"}), 500
+
+
+def _scrape_spotify_tracks(url):
+    """Extract track names from a Spotify playlist/album/track URL via scraping.
+    Ported from StreamerApi._get_spotify_tracks().
+    """
+    import requests
+    import re
+
+    try:
+        target_url = url
+        if "playlist" in url:
+            target_url = url.replace(
+                "open.spotify.com/playlist/", "open.spotify.com/embed/playlist/"
+            )
+        elif "album" in url:
+            target_url = url.replace(
+                "open.spotify.com/album/", "open.spotify.com/embed/album/"
+            )
+        elif "track" in url:
+            target_url = url.replace(
+                "open.spotify.com/track/", "open.spotify.com/embed/track/"
+            )
+
+        response = requests.get(
+            target_url,
+            headers={"User-Agent": "Mozilla/5.0 K5StudioYTDownloader/1.0"},
+            timeout=15,
+        )
+
+        # Primary: __NEXT_DATA__
+        next_data_match = re.search(
+            r'<script id="__NEXT_DATA__" type="application/json">(.+?)</script>',
+            response.text,
+        )
+        if next_data_match:
+            try:
+                data = json.loads(next_data_match.group(1))
+                tracks_data = (
+                    data.get("props", {})
+                    .get("pageProps", {})
+                    .get("state", {})
+                    .get("data", {})
+                    .get("entity", {})
+                    .get("trackList", [])
+                )
+                if not tracks_data:
+                    tracks_data = (
+                        data.get("props", {})
+                        .get("pageProps", {})
+                        .get("state", {})
+                        .get("data", {})
+                        .get("tracks", {})
+                        .get("items", [])
+                    )
+
+                # Get playlist/album title
+                entity_title = (
+                    data.get("props", {})
+                    .get("pageProps", {})
+                    .get("state", {})
+                    .get("data", {})
+                    .get("entity", {})
+                    .get("title", "")
+                ) or (
+                    data.get("props", {})
+                    .get("pageProps", {})
+                    .get("state", {})
+                    .get("data", {})
+                    .get("name", "")
+                )
+
+                if tracks_data:
+                    tracks = []
+                    for item in tracks_data:
+                        t = item.get("track", item)
+                        name = t.get("title") or t.get("name")
+                        if name:
+                            artists_str = ""
+                            if "subtitle" in t:
+                                artists_str = t["subtitle"]
+                            elif "artists" in t and t["artists"]:
+                                artists_str = ", ".join(
+                                    a.get("name", "")
+                                    for a in t["artists"]
+                                    if a.get("name")
+                                )
+
+                            duration_ms = t.get("duration", 0) or t.get("duration_ms", 0) or 0
+
+                            tracks.append({
+                                "name": name,
+                                "artist": artists_str,
+                                "full": f"{artists_str} - {name}" if artists_str else name,
+                                "search": f"{name} {artists_str}" if artists_str else name,
+                                "duration": duration_ms / 1000 if duration_ms else 0,
+                            })
+                    if tracks:
+                        return entity_title, tracks
+            except Exception as e:
+                print(f"Spotify NEXT_DATA parse error: {e}")
+
+        # Fallback: regex
+        matches = re.findall(
+            r"\"name\":\"([^\"]+?)\",\"artists\":\[\{\"name\":\"([^\"]+?)\"",
+            response.text,
+        )
+        if matches:
+            seen = set()
+            tracks = []
+            for name, artist in matches:
+                clean_name = name.replace("\\u0026", "&").replace("\\u0027", "'")
+                clean_artist = artist.replace("\\u0026", "&").replace("\\u0027", "'")
+                full = f"{clean_artist} - {clean_name}"
+                if full not in seen:
+                    if not any(
+                        x in full.lower()
+                        for x in ["spotify", "log in", "sign up", "terms of"]
+                    ):
+                        tracks.append({
+                            "name": clean_name,
+                            "artist": clean_artist,
+                            "full": full,
+                            "search": f"{clean_name} {clean_artist}",
+                            "duration": 0,
+                        })
+                        seen.add(full)
+            if tracks:
+                return "Spotify Playlist", tracks
+
+    except Exception as e:
+        print(f"Spotify Scrape Error: {e}")
+    return "", []
+
+
+def _handle_spotify_info(url):
+    """Handle Spotify URLs: scrape tracks and return as playlist-type response."""
+    entity_title, tracks = _scrape_spotify_tracks(url)
+
+    if not tracks:
+        return jsonify({"error": "Could not extract tracks from Spotify. The link may be private or invalid."}), 400
+
+    # Determine if it's a single track or a collection
+    is_single = "/track/" in url
+    is_album = "/album/" in url
+
+    if is_single and len(tracks) == 1:
+        t = tracks[0]
+        # For single tracks, resolve via YouTube search and return as single video
+        import yt_dlp
+        search_query = f"ytsearch1:{t['search']}"
         ydl_opts = {
             "quiet": True,
             "no_warnings": True,
-            "noplaylist": True,
             **_get_cookie_opts(),
         }
-
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+            info = ydl.extract_info(search_query, download=False)
 
-        if "entries" in info:
-            info = info["entries"][0]
+        if info and "entries" in info and info["entries"]:
+            video = info["entries"][0]
+            return _handle_single_video_info(video.get("webpage_url", video.get("url", "")))
 
-        # Extract available qualities
-        formats_list = []
-        seen_res = set()
-        for fmt in info.get("formats", []):
-            if fmt.get("vcodec") != "none" and fmt.get("acodec") != "none":
-                height = fmt.get("height")
-                if height and height not in seen_res:
-                    seen_res.add(height)
-                    formats_list.append({
-                        "quality": f"{height}p",
-                        "height": height,
-                        "ext": fmt.get("ext", "mp4"),
-                    })
+        return jsonify({"error": "Could not find this track on YouTube"}), 404
 
-        # Sort by quality descending
-        formats_list.sort(key=lambda x: x["height"], reverse=True)
+    # For playlists/albums, return as playlist type with YouTube search URLs
+    videos = []
+    total_duration = 0
+    for i, t in enumerate(tracks):
+        dur = t.get("duration", 0)
+        total_duration += dur
+        videos.append({
+            "title": t["full"],
+            "url": f"ytsearch1:{t['search']}",
+            "thumbnail": "",
+            "duration": dur,
+            "duration_formatted": _format_duration(dur),
+            "uploader": t.get("artist", ""),
+        })
 
-        # If no combined formats, check video-only formats
-        if not formats_list:
-            for fmt in info.get("formats", []):
-                if fmt.get("vcodec") != "none":
-                    height = fmt.get("height")
-                    if height and height not in seen_res:
-                        seen_res.add(height)
-                        formats_list.append({
-                            "quality": f"{height}p",
-                            "height": height,
-                            "ext": "mp4",
-                        })
-            formats_list.sort(key=lambda x: x["height"], reverse=True)
+    total_mins = int(total_duration // 60)
+    total_str = f"{total_mins // 60}h {total_mins % 60}m" if total_mins >= 60 else f"{total_mins}m"
 
-        duration = info.get("duration", 0)
+    label = "Album" if is_album else "Playlist"
+
+    return jsonify({
+        "type": "playlist",
+        "title": entity_title or f"Spotify {label}",
+        "thumbnail": "",
+        "uploader": "Spotify",
+        "video_count": len(videos),
+        "total_duration": total_duration,
+        "total_duration_formatted": total_str,
+        "videos": videos,
+        "url": url,
+        "source": "spotify",
+    })
+
+
+
+def _handle_playlist_info(url):
+    """Extract playlist entries using flat extraction (fast, like StreamerApi)."""
+    import yt_dlp
+
+    ydl_opts = {
+        "ignoreerrors": True,
+        "extract_flat": "in_playlist",
+        "playlist-end": 500,
+        "quiet": True,
+        "no_warnings": True,
+        **_get_cookie_opts(),
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+    if not info:
+        return jsonify({"error": "Could not load playlist"}), 500
+
+    entries = info.get("entries", [])
+    if not entries:
+        return jsonify({"error": "Playlist is empty or unavailable"}), 400
+
+    videos = []
+    for video in entries:
+        if video is None:
+            continue
+
+        entry_url = video.get("url", "")
+        title = video.get("title", "Unknown Title")
+
+        # Build proper YouTube URL from ie_key/id (same as StreamerApi)
+        if video.get("ie_key") == "Youtube":
+            if entry_url and "youtube.com/watch" not in entry_url:
+                entry_url = f"https://www.youtube.com/watch?v={entry_url}"
+        if not entry_url:
+            vid_id = video.get("id", "")
+            if vid_id:
+                entry_url = f"https://www.youtube.com/watch?v={vid_id}"
+            else:
+                continue
+
+        # Duration formatting
+        duration = video.get("duration") or 0
         duration_str = ""
         if duration:
             mins = int(duration // 60)
@@ -314,71 +545,153 @@ def get_video_info():
             else:
                 duration_str = f"{mins}:{secs:02d}"
 
-        # Estimate file sizes per quality
-        all_formats = info.get("formats", [])
+        # Uploader / channel
+        uploader = video.get("uploader") or video.get("channel") or ""
+        if uploader.endswith(" - Topic"):
+            uploader = uploader[:-8]
 
-        # Best audio size (for MP3 estimate)
-        best_audio_size = 0
-        for fmt in all_formats:
-            if fmt.get("acodec") != "none" and (fmt.get("vcodec") == "none" or fmt.get("vcodec") is None):
-                fs = fmt.get("filesize") or fmt.get("filesize_approx") or 0
-                if fs > best_audio_size:
-                    best_audio_size = fs
-        # Fallback: estimate from duration (128kbps MP3 ~ 1MB/min)
-        if best_audio_size == 0 and duration:
-            best_audio_size = int(duration * 128 * 1000 / 8)
-
-        # Add estimated sizes to format list
-        for fitem in formats_list:
-            h = fitem["height"]
-            best_size = 0
-            for fmt in all_formats:
-                fh = fmt.get("height")
-                if fh == h:
-                    fs = fmt.get("filesize") or fmt.get("filesize_approx") or 0
-                    if fs > best_size:
-                        best_size = fs
-            # Add audio track size for merge
-            fitem["filesize_approx"] = best_size + best_audio_size if best_size else 0
-
-        # Upload date formatting
-        upload_date_raw = info.get("upload_date", "")  # e.g. "20240315"
-        upload_date_formatted = ""
-        if upload_date_raw and len(upload_date_raw) == 8:
-            try:
-                from datetime import datetime
-                dt = datetime.strptime(upload_date_raw, "%Y%m%d")
-                upload_date_formatted = dt.strftime("%b %d, %Y")
-            except Exception:
-                upload_date_formatted = upload_date_raw
-
-        # Description — truncate for preview
-        description_raw = info.get("description", "") or ""
-        description_short = description_raw[:300]
-        if len(description_raw) > 300:
-            description_short += "..."
-
-        return jsonify({
-            "title": info.get("title", "Unknown"),
-            "thumbnail": info.get("thumbnail", ""),
+        videos.append({
+            "title": title,
+            "url": entry_url,
+            "thumbnail": video.get("thumbnails", [{}])[-1].get("url", "") if video.get("thumbnails") else "",
             "duration": duration,
             "duration_formatted": duration_str,
-            "uploader": info.get("uploader", "Unknown"),
-            "view_count": info.get("view_count", 0),
-            "like_count": info.get("like_count", 0),
-            "upload_date": upload_date_formatted,
-            "description": description_short,
-            "categories": info.get("categories", []),
-            "formats": formats_list,
-            "mp3_size_approx": best_audio_size,
-            "url": url,
+            "uploader": uploader,
         })
 
-    except Exception as e:
-        error_msg = str(e)
-        if "Sign in" in error_msg or "bot" in error_msg.lower():
-            error_msg = "YouTube is blocking this request. Try again later."
-        return jsonify({"error": f"Failed to fetch video info: {error_msg}"}), 500
+    # Estimate total duration
+    total_duration = sum(v["duration"] for v in videos if v["duration"])
+    total_mins = int(total_duration // 60)
+    total_str = f"{total_mins // 60}h {total_mins % 60}m" if total_mins >= 60 else f"{total_mins}m"
+
+    return jsonify({
+        "type": "playlist",
+        "title": info.get("title", "Unknown Playlist"),
+        "thumbnail": info.get("thumbnails", [{}])[-1].get("url", "") if info.get("thumbnails") else (videos[0]["thumbnail"] if videos else ""),
+        "uploader": info.get("uploader") or info.get("channel") or "",
+        "video_count": len(videos),
+        "total_duration": total_duration,
+        "total_duration_formatted": total_str,
+        "videos": videos,
+        "url": url,
+    })
+
+
+def _format_duration(duration):
+    """Format seconds to human-readable duration string."""
+    if not duration:
+        return ""
+    mins = int(duration // 60)
+    secs = int(duration % 60)
+    if mins >= 60:
+        hours = mins // 60
+        mins = mins % 60
+        return f"{hours}:{mins:02d}:{secs:02d}"
+    return f"{mins}:{secs:02d}"
+
+
+def _handle_single_video_info(url):
+    """Extract single video metadata (original behavior)."""
+    import yt_dlp
+
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        **_get_cookie_opts(),
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+    if "entries" in info:
+        info = info["entries"][0]
+
+    # Extract available qualities
+    formats_list = []
+    seen_res = set()
+    for fmt in info.get("formats", []):
+        if fmt.get("vcodec") != "none" and fmt.get("acodec") != "none":
+            height = fmt.get("height")
+            if height and height not in seen_res:
+                seen_res.add(height)
+                formats_list.append({
+                    "quality": f"{height}p",
+                    "height": height,
+                    "ext": fmt.get("ext", "mp4"),
+                })
+
+    formats_list.sort(key=lambda x: x["height"], reverse=True)
+
+    if not formats_list:
+        for fmt in info.get("formats", []):
+            if fmt.get("vcodec") != "none":
+                height = fmt.get("height")
+                if height and height not in seen_res:
+                    seen_res.add(height)
+                    formats_list.append({
+                        "quality": f"{height}p",
+                        "height": height,
+                        "ext": "mp4",
+                    })
+        formats_list.sort(key=lambda x: x["height"], reverse=True)
+
+    duration = info.get("duration", 0)
+    duration_str = _format_duration(duration)
+
+    # Estimate file sizes
+    all_formats = info.get("formats", [])
+    best_audio_size = 0
+    for fmt in all_formats:
+        if fmt.get("acodec") != "none" and (fmt.get("vcodec") == "none" or fmt.get("vcodec") is None):
+            fs = fmt.get("filesize") or fmt.get("filesize_approx") or 0
+            if fs > best_audio_size:
+                best_audio_size = fs
+    if best_audio_size == 0 and duration:
+        best_audio_size = int(duration * 128 * 1000 / 8)
+
+    for fitem in formats_list:
+        h = fitem["height"]
+        best_size = 0
+        for fmt in all_formats:
+            if fmt.get("height") == h:
+                fs = fmt.get("filesize") or fmt.get("filesize_approx") or 0
+                if fs > best_size:
+                    best_size = fs
+        fitem["filesize_approx"] = best_size + best_audio_size if best_size else 0
+
+    # Upload date
+    upload_date_raw = info.get("upload_date", "")
+    upload_date_formatted = ""
+    if upload_date_raw and len(upload_date_raw) == 8:
+        try:
+            from datetime import datetime
+            dt = datetime.strptime(upload_date_raw, "%Y%m%d")
+            upload_date_formatted = dt.strftime("%b %d, %Y")
+        except Exception:
+            upload_date_formatted = upload_date_raw
+
+    description_raw = info.get("description", "") or ""
+    description_short = description_raw[:300]
+    if len(description_raw) > 300:
+        description_short += "..."
+
+    return jsonify({
+        "type": "video",
+        "title": info.get("title", "Unknown"),
+        "thumbnail": info.get("thumbnail", ""),
+        "duration": duration,
+        "duration_formatted": duration_str,
+        "uploader": info.get("uploader", "Unknown"),
+        "view_count": info.get("view_count", 0),
+        "like_count": info.get("like_count", 0),
+        "upload_date": upload_date_formatted,
+        "description": description_short,
+        "categories": info.get("categories", []),
+        "formats": formats_list,
+        "mp3_size_approx": best_audio_size,
+        "url": url,
+    })
 
 
 @app.route("/api/download", methods=["POST"])
@@ -397,7 +710,7 @@ def start_download():
     if fmt not in ("mp3", "mp4"):
         return jsonify({"error": "Format must be 'mp3' or 'mp4'"}), 400
 
-    if not ("youtube.com" in url or "youtu.be" in url or "music.youtube.com" in url):
+    if not ("youtube.com" in url or "youtu.be" in url or "music.youtube.com" in url or url.startswith("ytsearch")):
         return jsonify({"error": "Only YouTube URLs are supported"}), 400
 
     # Track stats
