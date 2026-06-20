@@ -547,6 +547,7 @@ class WebStreamStation:
         self.mic_active = False
         self.mic_queue = queue.Queue(maxsize=100)
         self._queue_titles = {}  # url -> display title
+        self._queue_thumbnails = {}  # url -> thumbnail URL
         self._idle_since = None  # Timestamp when idle started (for auto-disconnect)
         self.auto_disconnect_empty = False  # Auto-disconnect when queue empties (no loop)
 
@@ -733,6 +734,11 @@ class WebStreamStation:
                             else:
                                 self._queue_titles[path] = title
 
+                            # Save thumbnail URL
+                            thumb = info.get("thumbnail") or ""
+                            if thumb:
+                                self._queue_thumbnails[path] = thumb
+
                         if os.path.exists(local_dest):
                             with self._preload_lock:
                                 self._preload_cache[path] = local_dest
@@ -822,6 +828,11 @@ class WebStreamStation:
                         self._queue_titles[url] = f"{uploader} - {title}"
                     elif title:
                         self._queue_titles[url] = title
+
+                    # Save thumbnail URL
+                    thumb = info.get("thumbnail") or ""
+                    if thumb:
+                        self._queue_thumbnails[url] = thumb
 
                     resolved += 1
                     if resolved == 20:
@@ -1885,16 +1896,27 @@ def public_status():
     for sid, station in stations.items():
         with station._queue_lock:
             queue_urls = list(station.manual_queue)
-        # Build display titles list from queue_titles map
+        # Build display titles and thumbnails lists from maps
         queue_display = []
         for url in queue_urls:
             title = station._queue_titles.get(url, url)
-            queue_display.append(title)
+            thumb = station._queue_thumbnails.get(url, "")
+            queue_display.append({"title": title, "thumbnail": thumb})
+
+        # Current song thumbnail — try matching current playing URL
+        current_thumb = ""
+        if station.running and station.current_song:
+            for url, t in station._queue_titles.items():
+                if t == station.current_song:
+                    current_thumb = station._queue_thumbnails.get(url, "")
+                    break
+
         result[str(sid)] = {
             "station_id": sid,
             "name": station.name,
             "streaming": station.running and station._established,
             "current_song": station.current_song if station.running else None,
+            "current_thumbnail": current_thumb,
             "queue": queue_display,
             "queue_length": len(queue_urls),
             "loop_mode": station.loop_mode,
