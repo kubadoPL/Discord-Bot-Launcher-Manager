@@ -591,6 +591,12 @@ class WebStreamStation:
         """Return current station status."""
         with self._queue_lock:
             queue_list = list(self.manual_queue)
+
+        # Only send titles/thumbnails for visible items (first 50) to reduce payload size
+        visible_urls = set(queue_list[:50])
+        visible_titles = {u: t for u, t in self._queue_titles.items() if u in visible_urls}
+        visible_thumbs = {u: t for u, t in self._queue_thumbnails.items() if u in visible_urls}
+
         return {
             "station_id": self.station_id,
             "name": self.name,
@@ -602,8 +608,8 @@ class WebStreamStation:
             "auto_disconnect_empty": self.auto_disconnect_empty,
             "queue": queue_list,
             "queue_length": len(queue_list),
-            "queue_titles": dict(self._queue_titles),
-            "queue_thumbnails": dict(self._queue_thumbnails),
+            "queue_titles": visible_titles,
+            "queue_thumbnails": visible_thumbs,
             "history": self.manual_history[:20],
             "log_count": len(self._log_buffer),
         }
@@ -1672,19 +1678,6 @@ class WebStreamStation:
                             else:
                                 self._queue_titles[track_url] = title
 
-                        # Extract thumbnail — try yt-dlp metadata first, then build from video ID
-                        thumb = video.get("thumbnail") or ""
-                        if not thumb:
-                            thumbs = video.get("thumbnails")
-                            if thumbs and isinstance(thumbs, list):
-                                thumb = thumbs[-1].get("url", "")
-                        if not thumb:
-                            vid_id = video.get("id", "")
-                            if vid_id:
-                                thumb = f"https://img.youtube.com/vi/{vid_id}/mqdefault.jpg"
-                        if thumb:
-                            self._queue_thumbnails[track_url] = thumb
-
                         if len(batch) >= 100:
                             with self._queue_lock:
                                 if instant and req_id == self._last_instant_id and is_first_batch:
@@ -1708,6 +1701,29 @@ class WebStreamStation:
                         total += len(batch)
 
                     self.log(f"Playlist fully loaded: {total} tracks total.")
+
+                    # Background: resolve thumbnails from entry metadata (instant, no API calls)
+                    def _resolve_thumbnails(entries_data, station_ref):
+                        for entry in entries_data:
+                            track_url = entry["url"]
+                            video = entry["video"]
+                            thumb = video.get("thumbnail") or ""
+                            if not thumb:
+                                thumbs = video.get("thumbnails")
+                                if thumbs and isinstance(thumbs, list):
+                                    thumb = thumbs[-1].get("url", "")
+                            if not thumb:
+                                vid_id = video.get("id", "")
+                                if vid_id:
+                                    thumb = f"https://img.youtube.com/vi/{vid_id}/mqdefault.jpg"
+                            if thumb:
+                                station_ref._queue_thumbnails[track_url] = thumb
+
+                    threading.Thread(
+                        target=_resolve_thumbnails,
+                        args=(list(all_entries), self),
+                        daemon=True,
+                    ).start()
 
                     # Start background title resolver only for large playlists (flat extract)
                     # Small playlists already have full metadata from non-flat extract
