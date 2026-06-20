@@ -603,6 +603,7 @@ class WebStreamStation:
             "queue": queue_list,
             "queue_length": len(queue_list),
             "queue_titles": dict(self._queue_titles),
+            "queue_thumbnails": dict(self._queue_thumbnails),
             "history": self.manual_history[:20],
             "log_count": len(self._log_buffer),
         }
