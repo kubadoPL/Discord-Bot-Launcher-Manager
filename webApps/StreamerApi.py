@@ -1555,7 +1555,7 @@ class WebStreamStation:
                 is_playlist = "?list=" in url or "&list=" in url or "/sets/" in url or "/playlist" in url
 
                 if is_playlist:
-                    # Phase 1: Fast flat extract to count entries
+                    # Phase 1: Fast flat extract to count entries and get basic metadata
                     flat_opts = {
                         "ignoreerrors": True,
                         "extract_flat": "in_playlist",
@@ -1565,13 +1565,13 @@ class WebStreamStation:
                         **cookie_opts,
                     }
 
-                    entry_count = 0
+                    flat_entries = []
                     with yt_dlp.YoutubeDL(flat_opts) as ydl:
                         flat_info = ydl.extract_info(url, download=False)
                         if flat_info and "entries" in flat_info:
                             flat_entries = [e for e in flat_info["entries"] if e is not None]
-                            entry_count = len(flat_entries)
 
+                    entry_count = len(flat_entries)
                     self.log(f"Playlist has {entry_count} entries")
 
                     # Phase 2: Choose strategy based on size
@@ -1611,48 +1611,30 @@ class WebStreamStation:
                                     all_entries.append({"url": entry_url, "title": title, "video": video})
 
                     else:
-                        # Large playlist — fast flat extract, resolve titles in background
-                        ydl_opts = {
-                            "ignoreerrors": True,
-                            "extract_flat": "in_playlist",
-                            "playlist-end": 2000,
-                            "extractaudio": True,
-                            "audioformat": "mp3",
-                            "format": "bestaudio/best",
-                            "verbose": True,
-                            "nocheckcertificate": True,
-                            **cookie_opts,
-                        }
+                        # Large playlist — reuse flat entries from Phase 1 (no second fetch!)
+                        for video in flat_entries:
+                            if len(all_entries) >= 2000:
+                                break
 
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            info = ydl.extract_info(url, download=False)
+                            entry_url = video.get("url")
+                            title = video.get("title", "Unknown Title")
 
-                            if info and "entries" in info:
-                                for video in info["entries"]:
-                                    if video is None:
-                                        continue
-                                    if len(all_entries) >= 2000:
-                                        break
+                            # Groovy ie_key handling
+                            if video.get("ie_key") == "Youtube":
+                                if entry_url and "youtube.com/watch" not in entry_url:
+                                    entry_url = f"https://www.youtube.com/watch?v={entry_url}"
 
-                                    entry_url = video.get("url")
-                                    title = video.get("title", "Unknown Title")
+                            if not entry_url:
+                                vid_id = video.get("id", "")
+                                if vid_id:
+                                    entry_url = f"https://www.youtube.com/watch?v={vid_id}"
+                                else:
+                                    continue
 
-                                    # Groovy ie_key handling
-                                    if video.get("ie_key") == "Youtube":
-                                        if entry_url and "youtube.com/watch" not in entry_url:
-                                            entry_url = f"https://www.youtube.com/watch?v={entry_url}"
+                            all_entries.append({"url": entry_url, "title": title, "video": video})
 
-                                    if not entry_url:
-                                        vid_id = video.get("id", "")
-                                        if vid_id:
-                                            entry_url = f"https://www.youtube.com/watch?v={vid_id}"
-                                        else:
-                                            continue
-
-                                    all_entries.append({"url": entry_url, "title": title, "video": video})
-
-                                    if len(all_entries) % 100 == 0:
-                                        self.log(f"Loaded {len(all_entries)} tracks so far...")
+                            if len(all_entries) % 100 == 0:
+                                self.log(f"Loaded {len(all_entries)} tracks so far...")
 
                 else:
                     # Single video
