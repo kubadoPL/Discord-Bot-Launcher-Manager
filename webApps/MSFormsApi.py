@@ -662,6 +662,18 @@ def api_stats():
     })
 
 
+@app.route("/track-visit", methods=["POST"])
+@limiter.limit("30 per minute")
+@cross_origin()
+def track_visit():
+    """Track a page visit. Body: {is_new: true/false}"""
+    data = request.json if request.is_json else {}
+    _increment_global_stat("total_visits")
+    if data.get("is_new"):
+        _increment_global_stat("unique_visitors")
+    return jsonify({"ok": True})
+
+
 @app.route("/update-ai-key", methods=["POST"])
 @limiter.limit("15 per minute")
 @cross_origin()
@@ -1727,6 +1739,18 @@ HOME_PAGE_HTML = r"""
     }
     sendHeartbeat();
     setInterval(sendHeartbeat, 15000);
+
+    // ─── Visit Tracking ──────────────────────────────────────
+    (function() {
+      var VISITED_KEY = 'formbot-visited';
+      var isNew = !localStorage.getItem(VISITED_KEY);
+      fetch('track-visit', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({is_new: isNew})
+      }).catch(function() {});
+      if (isNew) localStorage.setItem(VISITED_KEY, '1');
+    })();
 
     // ─── Server Uptime & Stats ────────────────────────────────
     var _uptimeSeconds = 0;
