@@ -934,35 +934,59 @@ class WebStreamStation:
 
     # ─── Icecast Metadata Update ──────────────────────────────────────────────
 
-    def _update_metadata(self, title, delay=0):
-        """Send HTTP GET to Icecast admin API to update song metadata."""
+    def _send_metadata_request(self, title):
+        """Send a single HTTP GET to Icecast admin API to update song metadata.
+        Returns True on success, False on failure."""
+        try:
+            mount_point = (
+                self.mount if self.mount.startswith("/") else f"/{self.mount}"
+            )
+            params = urllib.parse.urlencode(
+                {"mode": "updinfo", "mount": mount_point, "song": title}
+            )
+            url = f"http://{self.server}:{self.port}/admin/metadata?{params}"
+            auth_str = f"{self.user}:{self.password}"
+            encoded_auth = base64.b64encode(auth_str.encode()).decode()
+
+            req = urllib.request.Request(url)
+            req.add_header("Authorization", f"Basic {encoded_auth}")
+            req.add_header(
+                "User-Agent",
+                "Mozilla/5.0 RadioGamingWebStreamer/1.0",
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                return response.status == 200
+        except Exception as e:
+            print(f"[{self.name}] Metadata update error: {e}")
+            return False
+
+    def _update_metadata(self, title, delay=0, retry_delays=None):
+        """Send metadata to Icecast, then re-send after 5s and 10s for reliability.
+        Each retry checks that the station is still running and the song hasn't changed."""
         if not self.running:
             return
+
+        if retry_delays is None:
+            retry_delays = [5, 10]
 
         def task():
             if delay > 0:
                 time.sleep(delay)
-            try:
-                mount_point = (
-                    self.mount if self.mount.startswith("/") else f"/{self.mount}"
-                )
-                params = urllib.parse.urlencode(
-                    {"mode": "updinfo", "mount": mount_point, "song": title}
-                )
-                url = f"http://{self.server}:{self.port}/admin/metadata?{params}"
-                auth_str = f"{self.user}:{self.password}"
-                encoded_auth = base64.b64encode(auth_str.encode()).decode()
 
-                req = urllib.request.Request(url)
-                req.add_header("Authorization", f"Basic {encoded_auth}")
-                req.add_header(
-                    "User-Agent",
-                    "Mozilla/5.0 RadioGamingWebStreamer/1.0",
-                )
-                with urllib.request.urlopen(req, timeout=10) as response:
-                    pass
-            except Exception as e:
-                print(f"[{self.name}] Metadata update error: {e}")
+            # Guard: station may have stopped or song changed during delay
+            if not self.running or self.current_song != title:
+                return
+
+            # --- First (primary) send ---
+            self._send_metadata_request(title)
+
+            # --- Redundant retry sends for safety ---
+            for extra_delay in retry_delays:
+                time.sleep(extra_delay)
+                # Stop retrying if station stopped or a different song started playing
+                if not self.running or self.current_song != title:
+                    return
+                self._send_metadata_request(title)
 
         threading.Thread(target=task, daemon=True).start()
 
@@ -1018,7 +1042,7 @@ class WebStreamStation:
 
             self.log("Queue empty. Entering idle mode...")
             self.current_song = "RADIO GAMING Live/Idle"
-            self._update_metadata("RADIO GAMING Live/Idle", delay=1)
+            self._update_metadata("RADIO GAMING Live/Idle", delay=1, retry_delays=[])
 
         # Auto-disconnect after 2 minutes idle
         idle_seconds = time.time() - self._idle_since
