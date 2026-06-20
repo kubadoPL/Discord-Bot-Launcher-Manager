@@ -1429,12 +1429,9 @@ def claim_anonymous():
                 del online_users_cache[station_key]
 
     # Remove from unique set and decrement DB counter
-    # Always decrement even if anon_id not in set (set may be empty after server restart
-    # while _unique_anon_count is loaded from DB)
-    global _unique_anon_count
     if anon_id in all_unique_anon_ids:
         all_unique_anon_ids.discard(anon_id)
-    if _unique_anon_count > 0:
+        global _unique_anon_count
         _unique_anon_count = max(0, _unique_anon_count - 1)
         _db_enqueue(_do_increment_unique_anon_count, -1)
 
