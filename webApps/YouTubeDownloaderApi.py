@@ -341,6 +341,23 @@ def get_video_info():
             # Add audio track size for merge
             fitem["filesize_approx"] = best_size + best_audio_size if best_size else 0
 
+        # Upload date formatting
+        upload_date_raw = info.get("upload_date", "")  # e.g. "20240315"
+        upload_date_formatted = ""
+        if upload_date_raw and len(upload_date_raw) == 8:
+            try:
+                from datetime import datetime
+                dt = datetime.strptime(upload_date_raw, "%Y%m%d")
+                upload_date_formatted = dt.strftime("%b %d, %Y")
+            except Exception:
+                upload_date_formatted = upload_date_raw
+
+        # Description — truncate for preview
+        description_raw = info.get("description", "") or ""
+        description_short = description_raw[:300]
+        if len(description_raw) > 300:
+            description_short += "..."
+
         return jsonify({
             "title": info.get("title", "Unknown"),
             "thumbnail": info.get("thumbnail", ""),
@@ -348,6 +365,10 @@ def get_video_info():
             "duration_formatted": duration_str,
             "uploader": info.get("uploader", "Unknown"),
             "view_count": info.get("view_count", 0),
+            "like_count": info.get("like_count", 0),
+            "upload_date": upload_date_formatted,
+            "description": description_short,
+            "categories": info.get("categories", []),
             "formats": formats_list,
             "mp3_size_approx": best_audio_size,
             "url": url,
