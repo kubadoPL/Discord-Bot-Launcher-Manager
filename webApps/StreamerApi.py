@@ -1875,6 +1875,32 @@ def home():
     return jsonify({"service": "Radio GAMING Web Streamer", "status": "online"})
 
 
+@app.route("/public/status", methods=["GET"])
+@limiter.limit("30 per minute")
+@cross_origin(**CORS_OPTIONS)
+def public_status():
+    """Public endpoint: returns which stations are actively streaming and their queues.
+    No admin auth required — safe for the radio frontend to poll."""
+    result = {}
+    for sid, station in stations.items():
+        with station._queue_lock:
+            queue_urls = list(station.manual_queue)
+        # Build display titles list from queue_titles map
+        queue_display = []
+        for url in queue_urls:
+            title = station._queue_titles.get(url, url)
+            queue_display.append(title)
+        result[str(sid)] = {
+            "station_id": sid,
+            "name": station.name,
+            "streaming": station.running and station._established,
+            "current_song": station.current_song if station.running else None,
+            "queue": queue_display,
+            "queue_length": len(queue_urls),
+            "loop_mode": station.loop_mode,
+        }
+    return jsonify(result)
+
 @app.route("/status", methods=["GET"])
 @limiter.limit("30 per minute")
 @cross_origin(**CORS_OPTIONS)
