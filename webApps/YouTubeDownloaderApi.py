@@ -369,6 +369,8 @@ def start_download():
             "format": fmt,
             "error": None,
             "created_at": time.time(),
+            "downloaded_bytes": 0,
+            "total_bytes": 0,
         }
 
     # Run download in background thread
@@ -397,6 +399,8 @@ def _download_worker(job_id, url, fmt, quality):
                     if total > 0:
                         _jobs[job_id]["progress"] = int((downloaded / total) * 90)
                     _jobs[job_id]["status"] = "downloading"
+                    _jobs[job_id]["downloaded_bytes"] = downloaded
+                    _jobs[job_id]["total_bytes"] = total
                 elif d.get("status") == "finished":
                     _jobs[job_id]["progress"] = 90
                     _jobs[job_id]["status"] = "converting"
@@ -532,6 +536,8 @@ def get_job_status(job_id):
         "format": job["format"],
         "error": job["error"],
         "filename": job.get("filename", ""),
+        "downloaded_bytes": job.get("downloaded_bytes", 0),
+        "total_bytes": job.get("total_bytes", 0),
     })
 
 
