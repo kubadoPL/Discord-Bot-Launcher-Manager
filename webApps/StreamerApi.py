@@ -961,37 +961,33 @@ class WebStreamStation:
             return False
 
     def _update_metadata(self, title, delay=0, retry_delays=None):
-        """Send metadata to Icecast, then re-send after 5s and 10s for reliability.
-        Each retry checks that the station is still running and the song hasn't changed."""
+        """Send metadata to Icecast in separate threads for each attempt.
+        Each attempt runs independently so a slow/hanging request can't block the others."""
         if not self.running:
             return
 
         if retry_delays is None:
             retry_delays = [5, 10]
 
-        def task():
-            try:
-                if delay > 0:
-                    time.sleep(delay)
+        # Build list of absolute delays from start: [4, 9, 19] for delay=4, retries=[5,10]
+        all_delays = [delay]
+        cumulative = delay
+        for rd in retry_delays:
+            cumulative += rd
+            all_delays.append(cumulative)
 
-                # Guard: station may have stopped or song changed during delay
-                if not self.running or self.current_song != title:
-                    return
-
-                # --- First (primary) send ---
-                self._send_metadata_request(title)
-
-                # --- Redundant retry sends for safety ---
-                for extra_delay in retry_delays:
-                    time.sleep(extra_delay)
-                    # Stop retrying if station stopped or a different song started playing
+        for send_delay in all_delays:
+            def _single_send(d=send_delay):
+                try:
+                    if d > 0:
+                        time.sleep(d)
                     if not self.running or self.current_song != title:
                         return
                     self._send_metadata_request(title)
-            except Exception as e:
-                print(f"[{self.name}] Metadata task error: {e}")
+                except Exception as e:
+                    print(f"[{self.name}] Metadata task error: {e}")
 
-        threading.Thread(target=task, daemon=True).start()
+            threading.Thread(target=_single_send, daemon=True).start()
 
     # ─── Silence / Filler Feeding ─────────────────────────────────────────────
 
