@@ -314,6 +314,33 @@ def get_video_info():
             else:
                 duration_str = f"{mins}:{secs:02d}"
 
+        # Estimate file sizes per quality
+        all_formats = info.get("formats", [])
+
+        # Best audio size (for MP3 estimate)
+        best_audio_size = 0
+        for fmt in all_formats:
+            if fmt.get("acodec") != "none" and (fmt.get("vcodec") == "none" or fmt.get("vcodec") is None):
+                fs = fmt.get("filesize") or fmt.get("filesize_approx") or 0
+                if fs > best_audio_size:
+                    best_audio_size = fs
+        # Fallback: estimate from duration (128kbps MP3 ~ 1MB/min)
+        if best_audio_size == 0 and duration:
+            best_audio_size = int(duration * 128 * 1000 / 8)
+
+        # Add estimated sizes to format list
+        for fitem in formats_list:
+            h = fitem["height"]
+            best_size = 0
+            for fmt in all_formats:
+                fh = fmt.get("height")
+                if fh == h:
+                    fs = fmt.get("filesize") or fmt.get("filesize_approx") or 0
+                    if fs > best_size:
+                        best_size = fs
+            # Add audio track size for merge
+            fitem["filesize_approx"] = best_size + best_audio_size if best_size else 0
+
         return jsonify({
             "title": info.get("title", "Unknown"),
             "thumbnail": info.get("thumbnail", ""),
@@ -322,6 +349,7 @@ def get_video_info():
             "uploader": info.get("uploader", "Unknown"),
             "view_count": info.get("view_count", 0),
             "formats": formats_list,
+            "mp3_size_approx": best_audio_size,
             "url": url,
         })
 
