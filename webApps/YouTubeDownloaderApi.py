@@ -411,6 +411,22 @@ def start_download():
     return jsonify({"job_id": job_id, "status": "starting"})
 
 
+def _sanitize_filename(title):
+    """Sanitize a video title into a safe filename for the filesystem."""
+    # Remove emoji and non-BMP Unicode characters (block chars, special symbols)
+    clean = re.sub(r'[^\x00-\x7F]', '', title)
+    # Keep only alphanumeric, spaces, hyphens, underscores, dots, parens
+    clean = re.sub(r'[^\w\s\-\.\(\)]', '', clean)
+    # Collapse whitespace
+    clean = re.sub(r'\s+', ' ', clean).strip()
+    # Limit length (filesystems have path limits)
+    clean = clean[:100]
+    # Fallback if nothing left
+    if not clean:
+        clean = "download"
+    return clean
+
+
 def _download_worker(job_id, url, fmt, quality):
     """Background worker: download and convert the video."""
     import yt_dlp
