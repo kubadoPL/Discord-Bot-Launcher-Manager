@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Downloader | K5 Studio</title>
+    <meta name="description"
+        content="Free YouTube to MP3 and MP4 downloader. Convert videos and playlists to high quality audio and video files instantly.">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="stylesheet" href="style.css?v=2.3">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <!-- Animated background particles -->
+    <canvas id="particles-canvas"></canvas>
+
+    <!-- Gradient noise overlay -->
+    <div class="noise-overlay"></div>
+
+    <header>
+        <div class="header-inner">
+            <a href="https://k5studio.dev" class="logo" title="Back to K5 Studio">
+                <span class="logo-k5">K5</span>
+                <span class="logo-sep">·</span>
+                <span class="logo-label">YT Downloader</span>
+            </a>
+            <nav class="header-links">
+                <a href="https://k5studio.dev" class="nav-link" title="Portfolio">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="2" y1="12" x2="22" y2="12"/>
+                        <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+                    </svg>
+                </a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <!-- Hero / Search Section -->
+        <section id="hero" class="hero-section">
+            <div class="hero-glow"></div>
+            <h1 class="hero-title">
+                <span class="gradient-text">YouTube</span> Downloader
+            </h1>
+            <p class="hero-subtitle">Convert any YouTube video to MP3 or MP4 — fast, free, and high quality.</p>
+
+            <div class="search-container" id="search-container">
+                <div class="search-input-wrapper">
+                    <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <input type="text" id="url-input" class="search-input"
+                        placeholder="Paste URL here..."
+                        autocomplete="off" spellcheck="false">
+                    <button id="fetch-btn" class="fetch-btn" title="Fetch video info">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                            <polyline points="12 5 19 12 12 19"></polyline>
+                        </svg>
+                    </button>
+                </div>
+                <div id="search-error" class="search-error hidden"></div>
+                <div id="loading-status" class="loading-status hidden">
+                    <div class="loading-dots"><span></span><span></span><span></span></div>
+                    <span id="loading-text">Loading...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Inline Ad Banner (visible on all screens) -->
+        <div id="ad-inline" class="ad-inline"></div>
+
+        <!-- Video Preview Card -->
+        <section id="preview-section" class="preview-section hidden">
+            <div class="preview-card">
+                <div class="preview-thumbnail-wrapper">
+                    <img id="preview-thumbnail" src="" alt="Video Thumbnail" class="preview-thumbnail">
+                    <span id="preview-duration" class="preview-duration">0:00</span>
+                </div>
+                <div class="preview-info">
+                    <h2 id="preview-title" class="preview-title">Video Title</h2>
+                    <div class="preview-uploader-row">
+                        <span id="preview-uploader" class="preview-uploader">Channel Name</span>
+                        <span class="uploader-dot">·</span>
+                        <span id="preview-date" class="preview-date">Jan 1, 2024</span>
+                    </div>
+                    <div class="preview-meta">
+                        <span id="preview-views" class="meta-badge">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                            <span>0 views</span>
+                        </span>
+                        <span id="preview-likes" class="meta-badge">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                <path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14z"/>
+                                <path d="M7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3"/>
+                            </svg>
+                            <span>0 likes</span>
+                        </span>
+                    </div>
+
+                    <!-- Categories -->
+                    <div id="preview-categories" class="preview-categories hidden"></div>
+
+                    <!-- Description -->
+                    <div id="preview-description-wrapper" class="preview-description-wrapper hidden">
+                        <div id="preview-description" class="preview-description"></div>
+                        <button id="toggle-description" class="toggle-description-btn">Show more</button>
+                    </div>
+
+                    <!-- Format Toggle -->
+                    <div class="format-toggle">
+                        <button id="btn-mp3" class="format-btn active" data-format="mp3">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                                <path d="M9 18V5l12-2v13"/>
+                                <circle cx="6" cy="18" r="3"/>
+                                <circle cx="18" cy="16" r="3"/>
+                            </svg>
+                            MP3
+                        </button>
+                        <button id="btn-mp4" class="format-btn" data-format="mp4">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                                <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/>
+                                <line x1="7" y1="2" x2="7" y2="22"/>
+                                <line x1="17" y1="2" x2="17" y2="22"/>
+                                <line x1="2" y1="12" x2="22" y2="12"/>
+                                <line x1="2" y1="7" x2="7" y2="7"/>
+                                <line x1="2" y1="17" x2="7" y2="17"/>
+                                <line x1="17" y1="7" x2="22" y2="7"/>
+                                <line x1="17" y1="17" x2="22" y2="17"/>
+                            </svg>
+                            MP4
+                        </button>
+                    </div>
+
+                    <!-- Quality Selector (MP4 only) -->
+                    <div id="quality-selector" class="quality-selector hidden">
+                        <label class="quality-label">Quality:</label>
+                        <div id="quality-options" class="quality-options">
+                            <!-- Filled dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Download Button -->
+                    <button id="download-btn" class="download-btn">
+                        <svg class="download-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        <span class="download-btn-text">Download MP3</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Playlist Preview -->
+        <section id="playlist-section" class="playlist-section hidden">
+            <div class="playlist-card">
+                <div class="playlist-header">
+                    <img id="playlist-thumbnail" class="playlist-thumb" src="" alt="Playlist">
+                    <div class="playlist-header-info">
+                        <span class="playlist-badge">Playlist</span>
+                        <h2 id="playlist-title" class="playlist-title">Playlist Title</h2>
+                        <p id="playlist-uploader" class="playlist-uploader">Channel</p>
+                        <div class="playlist-meta">
+                            <span id="playlist-count" class="meta-badge">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                    <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/>
+                                    <line x1="7" y1="2" x2="7" y2="22"/>
+                                    <line x1="17" y1="2" x2="17" y2="22"/>
+                                    <line x1="2" y1="12" x2="22" y2="12"/>
+                                </svg>
+                                <span>0 videos</span>
+                            </span>
+                            <span id="playlist-duration" class="meta-badge">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <polyline points="12 6 12 12 16 14"/>
+                                </svg>
+                                <span>0m</span>
+                            </span>
+                        </div>
+                        <button id="playlist-download-all" class="download-btn playlist-download-all-btn">
+                            <svg class="download-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                                <polyline points="7 10 12 15 17 10"/>
+                                <line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            <span>Download All as MP3</span>
+                        </button>
+                    </div>
+                </div>
+                <div id="playlist-videos" class="playlist-videos"></div>
+            </div>
+        </section>
+
+        <!-- Progress Section -->
+        <section id="progress-section" class="progress-section hidden">
+            <div class="progress-card">
+                <div class="progress-header">
+                    <div class="progress-spinner"></div>
+                    <div class="progress-text">
+                        <h3 id="progress-title">Preparing download...</h3>
+                        <p id="progress-status">Starting...</p>
+                    </div>
+                </div>
+                <div class="progress-bar-wrapper">
+                    <div id="progress-bar" class="progress-bar" style="width: 0%"></div>
+                </div>
+                <span id="progress-percent" class="progress-percent">0%</span>
+                <!-- Completed downloads list (grows during queue) -->
+                <div id="completed-downloads" class="completed-downloads hidden">
+                    <div class="completed-header">Completed</div>
+                    <div id="completed-list" class="completed-list"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Done Section -->
+        <section id="done-section" class="done-section hidden">
+            <div class="done-card">
+                <div class="done-icon-wrapper">
+                    <svg class="done-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+                        <polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
+                </div>
+                <h3 class="done-title">Download Ready!</h3>
+                <p id="done-filename" class="done-filename">file.mp3</p>
+                <a id="done-download-link" href="#" class="done-download-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Save File
+                </a>
+                <button id="new-download-btn" class="new-download-btn">Convert Another Video</button>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <!-- Live Stats Bar -->
+        <div class="stats-bar" id="stats-bar">
+            <div class="stats-visible" id="stats-toggle">
+                <div class="stat-item stat-online">
+                    <span class="stat-dot"></span>
+                    <span id="stat-online" class="stat-value">0</span>
+                    <span class="stat-label">Online</span>
+                </div>
+                <div class="stat-divider"></div>
+                <div class="stat-item">
+                    <span class="stat-emoji">⏱️</span>
+                    <span id="stat-uptime" class="stat-value">...</span>
+                    <span class="stat-label">Uptime</span>
+                </div>
+                <span class="stats-chevron" id="stats-chevron">▾</span>
+            </div>
+            <div class="stats-expandable" id="stats-expandable">
+                <div class="stats-inner-extra">
+                    <div class="stat-item">
+                        <span class="stat-emoji">👁️</span>
+                        <span id="stat-visits" class="stat-value">...</span>
+                        <span class="stat-label">Visits</span>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                        <span class="stat-emoji">👤</span>
+                        <span id="stat-unique" class="stat-value">...</span>
+                        <span class="stat-label">Unique</span>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                        <span class="stat-emoji">🔍</span>
+                        <span id="stat-fetched" class="stat-value">...</span>
+                        <span class="stat-label">Fetched</span>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                        <span class="stat-emoji">🎵</span>
+                        <span id="stat-mp3" class="stat-value">...</span>
+                        <span class="stat-label">MP3</span>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                        <span class="stat-emoji">🎬</span>
+                        <span id="stat-mp4" class="stat-value">...</span>
+                        <span class="stat-label">MP4</span>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                        <span class="stat-emoji">📥</span>
+                        <span id="stat-downloaded" class="stat-value">...</span>
+                        <span class="stat-label">Downloaded</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer-inner">
+            <span class="footer-brand">K5 Studio © 2026</span>
+            <span class="footer-sep">·</span>
+            <a href="https://k5studio.dev" class="footer-link" title="Portfolio">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="2" y1="12" x2="22" y2="12"/>
+                    <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+                </svg>
+            </a>
+            <span class="footer-sep">·</span>
+            <span class="footer-disclaimer">For personal use only</span>
+        </div>
+    </footer>
+
+    <!-- Side Ads (visible on wide screens) -->
+    <div id="ad-left" class="side-ad side-ad-left"></div>
+    <div id="ad-right" class="side-ad side-ad-right"></div>
+
+    <script src="app.js?v=2.3"></script>
+</body>
+
+</html>
