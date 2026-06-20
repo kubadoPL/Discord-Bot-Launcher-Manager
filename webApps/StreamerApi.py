@@ -592,9 +592,8 @@ class WebStreamStation:
         with self._queue_lock:
             queue_list = list(self.manual_queue)
 
-        # Only send titles/thumbnails for visible items (first 50) to reduce payload size
+        # Only limit thumbnails (heavy URLs) to first 50; titles are lightweight strings
         visible_urls = set(queue_list[:50])
-        visible_titles = {u: t for u, t in self._queue_titles.items() if u in visible_urls}
         visible_thumbs = {u: t for u, t in self._queue_thumbnails.items() if u in visible_urls}
 
         return {
@@ -608,7 +607,7 @@ class WebStreamStation:
             "auto_disconnect_empty": self.auto_disconnect_empty,
             "queue": queue_list,
             "queue_length": len(queue_list),
-            "queue_titles": visible_titles,
+            "queue_titles": dict(self._queue_titles),
             "queue_thumbnails": visible_thumbs,
             "history": self.manual_history[:20],
             "log_count": len(self._log_buffer),
