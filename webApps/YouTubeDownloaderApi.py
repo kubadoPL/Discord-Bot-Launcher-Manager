@@ -22,11 +22,14 @@ parent_dir = os.path.abspath(os.path.join(script_dir, ".."))
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
+from queue import Queue
+
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import cross_origin
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from api.config import RESTRICT_CORS
+from api.FunctionsModule import get_db_connection, create_service_stats_table
 
 app = Flask(
     __name__,
@@ -52,6 +55,101 @@ limiter = Limiter(
     storage_uri="memory://",
     strategy="fixed-window",
 )
+
+# ─── Global Persistent Stats (saved to DB, same pattern as MSForms) ────────────
+YTDL_SERVICE_NAME = "ytdownloader"
+_global_stats_queue = Queue()
+_global_stats_cache = {}  # In-memory cache of global stats
+_global_stats_cache_lock = threading.Lock()
+
+
+def _global_stats_worker():
+    """Background thread that increments stats in the database."""
+    while True:
+        task = _global_stats_queue.get()
+        if task is None:
+            break
+        stat_name, amount = task
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO service_stats (service_name, stat_name, value)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE value = value + %s
+                """,
+                (YTDL_SERVICE_NAME, stat_name, amount, amount),
+            )
+            conn.commit()
+            conn.close()
+            with _global_stats_cache_lock:
+                _global_stats_cache[stat_name] = _global_stats_cache.get(stat_name, 0) + amount
+        except Exception as e:
+            print(f"[YTDownloader Stats] Error saving {stat_name}: {e}")
+        finally:
+            _global_stats_queue.task_done()
+
+
+_global_stats_thread = threading.Thread(target=_global_stats_worker, daemon=True, name="ytdl-global-stats")
+_global_stats_thread.start()
+
+
+def _increment_stat(stat_name, amount=1):
+    """Enqueue a global stat increment."""
+    _global_stats_queue.put((stat_name, amount))
+
+
+def _load_global_stats():
+    """Fetch all global stats from DB (startup only)."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT stat_name, value FROM service_stats WHERE service_name = %s",
+            (YTDL_SERVICE_NAME,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return {row["stat_name"]: row["value"] for row in rows}
+    except Exception as e:
+        print(f"[YTDownloader Stats] Error loading: {e}")
+        return {}
+
+
+def _init_stats():
+    try:
+        create_service_stats_table()
+        loaded = _load_global_stats()
+        with _global_stats_cache_lock:
+            _global_stats_cache.update(loaded)
+        print(f"[YTDownloader] Stats ready. Current: {loaded}")
+    except Exception as e:
+        print(f"[YTDownloader] Warning: Could not init stats: {e}")
+
+
+threading.Thread(target=_init_stats, daemon=True, name="ytdl-stats-init").start()
+
+
+# ─── Online Users Tracking ─────────────────────────────────────────────────────
+_online_users = {}  # session_id -> last_heartbeat_timestamp
+_online_lock = threading.Lock()
+ONLINE_TIMEOUT = 30  # seconds
+
+
+def _cleanup_online():
+    now = time.time()
+    with _online_lock:
+        stale = [sid for sid, ts in _online_users.items() if now - ts > ONLINE_TIMEOUT]
+        for sid in stale:
+            del _online_users[sid]
+
+
+def _get_online_count():
+    _cleanup_online()
+    with _online_lock:
+        return len(_online_users)
+
 
 # ─── Download Storage ─────────────────────────────────────────────────────────
 DOWNLOAD_DIR = os.path.join(script_dir, "yt_downloads")
@@ -253,6 +351,13 @@ def start_download():
     if not ("youtube.com" in url or "youtu.be" in url or "music.youtube.com" in url):
         return jsonify({"error": "Only YouTube URLs are supported"}), 400
 
+    # Track stats
+    _increment_stat("downloads_started")
+    if fmt == "mp3":
+        _increment_stat("mp3_started")
+    else:
+        _increment_stat("mp4_started")
+
     job_id = str(uuid.uuid4())[:8]
 
     with _jobs_lock:
@@ -388,10 +493,17 @@ def _download_worker(job_id, url, fmt, quality):
                 _jobs[job_id]["status"] = "done"
                 _jobs[job_id]["progress"] = 100
                 _jobs[job_id]["filename"] = os.path.basename(found_file)
+            # Track successful conversion stats
+            _increment_stat("downloads_completed")
+            if fmt == "mp3":
+                _increment_stat("mp3_converted")
+            else:
+                _increment_stat("mp4_converted")
         else:
             with _jobs_lock:
                 _jobs[job_id]["status"] = "error"
                 _jobs[job_id]["error"] = "Output file not found after conversion"
+            _increment_stat("downloads_failed")
 
     except Exception as e:
         error_msg = str(e)
@@ -400,6 +512,7 @@ def _download_worker(job_id, url, fmt, quality):
         with _jobs_lock:
             _jobs[job_id]["status"] = "error"
             _jobs[job_id]["error"] = error_msg
+        _increment_stat("downloads_failed")
 
 
 @app.route("/api/status/<job_id>", methods=["GET"])
@@ -443,6 +556,12 @@ def download_file(job_id):
     if clean_name.startswith(f"{job_id}_"):
         clean_name = clean_name[len(f"{job_id}_"):]
 
+    # Track file download stat
+    if job["format"] == "mp3":
+        _increment_stat("mp3_downloaded")
+    else:
+        _increment_stat("mp4_downloaded")
+
     mimetype = "audio/mpeg" if job["format"] == "mp3" else "video/mp4"
 
     return send_file(
@@ -451,3 +570,53 @@ def download_file(job_id):
         download_name=clean_name,
         mimetype=mimetype,
     )
+
+
+# ─── Stats & Online Endpoints ─────────────────────────────────────────────────
+
+
+@app.route("/api/stats", methods=["GET"])
+@cross_origin(**CORS_OPTIONS)
+def api_stats():
+    """Return global stats and online count."""
+    with _global_stats_cache_lock:
+        global_stats = dict(_global_stats_cache)
+    return jsonify({
+        "global": global_stats,
+        "online": _get_online_count(),
+    })
+
+
+@app.route("/api/heartbeat", methods=["POST"])
+@limiter.limit("60 per minute")
+@cross_origin(**CORS_OPTIONS)
+def heartbeat():
+    """Register a heartbeat from a connected client."""
+    data = request.get_json(silent=True) or {}
+    session_id = data.get("sid", "")
+    if not session_id:
+        return jsonify({"error": "no sid"}), 400
+    with _online_lock:
+        _online_users[session_id] = time.time()
+    return jsonify({"online": _get_online_count()})
+
+
+@app.route("/api/track-visit", methods=["POST"])
+@limiter.limit("30 per minute")
+@cross_origin(**CORS_OPTIONS)
+def track_visit():
+    """Track a page visit. Body: {is_new: true/false}"""
+    data = request.get_json(silent=True) or {}
+    _increment_stat("total_visits")
+    if data.get("is_new"):
+        _increment_stat("unique_visitors")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/track-fetch", methods=["POST"])
+@limiter.limit("30 per minute")
+@cross_origin(**CORS_OPTIONS)
+def track_fetch():
+    """Track a video info fetch."""
+    _increment_stat("videos_fetched")
+    return jsonify({"ok": True})
