@@ -1555,51 +1555,104 @@ class WebStreamStation:
                 is_playlist = "?list=" in url or "&list=" in url or "/sets/" in url or "/playlist" in url
 
                 if is_playlist:
-                    # Exact Groovy _playlist() options (line 1938)
-                    ydl_opts = {
+                    # Phase 1: Fast flat extract to count entries
+                    flat_opts = {
                         "ignoreerrors": True,
                         "extract_flat": "in_playlist",
                         "playlist-end": 2000,
-                        "extractaudio": True,
-                        "audioformat": "mp3",
-                        "format": "bestaudio/best",
-                        "verbose": True,
-                        "nocheckcertificate": True,
+                        "quiet": True,
+                        "no_warnings": True,
                         **cookie_opts,
                     }
 
-                    # Groovy: with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    #   playlist_dict = ydl.extract_info(search, download=False)
-                    #   for video in playlist_dict["entries"]:
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(url, download=False)
+                    entry_count = 0
+                    with yt_dlp.YoutubeDL(flat_opts) as ydl:
+                        flat_info = ydl.extract_info(url, download=False)
+                        if flat_info and "entries" in flat_info:
+                            flat_entries = [e for e in flat_info["entries"] if e is not None]
+                            entry_count = len(flat_entries)
 
-                        if info and "entries" in info:
-                            for video in info["entries"]:
-                                if video is None:
-                                    continue
-                                if len(all_entries) >= 2000:
-                                    break
+                    self.log(f"Playlist has {entry_count} entries")
 
-                                entry_url = video.get("url")
-                                title = video.get("title", "Unknown Title")
-
-                                # Groovy ie_key handling (line 1995)
-                                if video.get("ie_key") == "Youtube":
-                                    if entry_url and "youtube.com/watch" not in entry_url:
-                                        entry_url = f"https://www.youtube.com/watch?v={entry_url}"
-
-                                if not entry_url:
-                                    vid_id = video.get("id", "")
-                                    if vid_id:
-                                        entry_url = f"https://www.youtube.com/watch?v={vid_id}"
-                                    else:
+                    # Phase 2: Choose strategy based on size
+                    if entry_count <= 100 and entry_count > 0:
+                        # Small playlist — full extract for complete metadata (title, artist, thumbnail)
+                        self.log(f"Small playlist ({entry_count} items) — extracting full metadata...")
+                        full_opts = {
+                            "ignoreerrors": True,
+                            "extract_flat": False,
+                            "playlist-end": 2000,
+                            "format": "bestaudio/best",
+                            "quiet": True,
+                            "no_warnings": True,
+                            "nocheckcertificate": True,
+                            "skip_download": True,
+                            **cookie_opts,
+                        }
+                        with yt_dlp.YoutubeDL(full_opts) as ydl:
+                            info = ydl.extract_info(url, download=False)
+                            if info and "entries" in info:
+                                for video in info["entries"]:
+                                    if video is None:
                                         continue
+                                    if len(all_entries) >= 2000:
+                                        break
 
-                                all_entries.append({"url": entry_url, "title": title, "video": video})
+                                    entry_url = video.get("webpage_url") or video.get("url")
+                                    title = video.get("title", "Unknown Title")
 
-                                if len(all_entries) % 100 == 0:
-                                    self.log(f"Loaded {len(all_entries)} tracks so far...")
+                                    if not entry_url:
+                                        vid_id = video.get("id", "")
+                                        if vid_id:
+                                            entry_url = f"https://www.youtube.com/watch?v={vid_id}"
+                                        else:
+                                            continue
+
+                                    all_entries.append({"url": entry_url, "title": title, "video": video})
+
+                    else:
+                        # Large playlist — fast flat extract, resolve titles in background
+                        ydl_opts = {
+                            "ignoreerrors": True,
+                            "extract_flat": "in_playlist",
+                            "playlist-end": 2000,
+                            "extractaudio": True,
+                            "audioformat": "mp3",
+                            "format": "bestaudio/best",
+                            "verbose": True,
+                            "nocheckcertificate": True,
+                            **cookie_opts,
+                        }
+
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(url, download=False)
+
+                            if info and "entries" in info:
+                                for video in info["entries"]:
+                                    if video is None:
+                                        continue
+                                    if len(all_entries) >= 2000:
+                                        break
+
+                                    entry_url = video.get("url")
+                                    title = video.get("title", "Unknown Title")
+
+                                    # Groovy ie_key handling
+                                    if video.get("ie_key") == "Youtube":
+                                        if entry_url and "youtube.com/watch" not in entry_url:
+                                            entry_url = f"https://www.youtube.com/watch?v={entry_url}"
+
+                                    if not entry_url:
+                                        vid_id = video.get("id", "")
+                                        if vid_id:
+                                            entry_url = f"https://www.youtube.com/watch?v={vid_id}"
+                                        else:
+                                            continue
+
+                                    all_entries.append({"url": entry_url, "title": title, "video": video})
+
+                                    if len(all_entries) % 100 == 0:
+                                        self.log(f"Loaded {len(all_entries)} tracks so far...")
 
                 else:
                     # Single video
@@ -1674,12 +1727,16 @@ class WebStreamStation:
 
                     self.log(f"Playlist fully loaded: {total} tracks total.")
 
-                    # Start background title resolver for items without artist info
-                    threading.Thread(
-                        target=self._resolve_titles,
-                        args=(list(processed_tracks),),
-                        daemon=True,
-                    ).start()
+                    # Start background title resolver only for large playlists (flat extract)
+                    # Small playlists already have full metadata from non-flat extract
+                    if entry_count > 100:
+                        threading.Thread(
+                            target=self._resolve_titles,
+                            args=(list(processed_tracks),),
+                            daemon=True,
+                        ).start()
+                    else:
+                        self.log("Full metadata already extracted — skipping background resolve.")
 
                     return
 
