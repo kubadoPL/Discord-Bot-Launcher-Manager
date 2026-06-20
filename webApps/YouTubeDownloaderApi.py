@@ -649,12 +649,40 @@ def download_file(job_id):
 @app.route("/api/stats", methods=["GET"])
 @cross_origin(**CORS_OPTIONS)
 def api_stats():
-    """Return global stats and online count."""
+    """Return global stats, online count, and storage usage."""
     with _global_stats_cache_lock:
         global_stats = dict(_global_stats_cache)
+
+    # Calculate current download directory usage
+    storage_bytes = 0
+    file_count = 0
+    try:
+        for fname in os.listdir(DOWNLOAD_DIR):
+            fpath = os.path.join(DOWNLOAD_DIR, fname)
+            if os.path.isfile(fpath):
+                storage_bytes += os.path.getsize(fpath)
+                file_count += 1
+    except OSError:
+        pass
+
+    # Heroku disk info
+    try:
+        disk = shutil.disk_usage(DOWNLOAD_DIR)
+        disk_total = disk.total
+        disk_free = disk.free
+    except OSError:
+        disk_total = 0
+        disk_free = 0
+
     return jsonify({
         "global": global_stats,
         "online": _get_online_count(),
+        "storage": {
+            "used_bytes": storage_bytes,
+            "file_count": file_count,
+            "disk_total": disk_total,
+            "disk_free": disk_free,
+        },
     })
 
 
