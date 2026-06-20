@@ -28,7 +28,7 @@ from flask import Flask, request, jsonify, send_file, send_from_directory, make_
 from flask_cors import cross_origin
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from api.config import RESTRICT_CORS
+from api.config import RESTRICT_CORS, YTDL_PREFER_H264
 from api.FunctionsModule import get_db_connection, create_service_stats_table
 
 app = Flask(
@@ -494,8 +494,20 @@ def _download_worker(job_id, url, fmt, quality):
             # MP4
             output_file = f"{output_base}.mp4"
             height = int(quality) if quality.isdigit() else 720
+
+            if YTDL_PREFER_H264:
+                # Prefer H.264+AAC = fast remux, no transcoding
+                fmt_str = (
+                    f"bestvideo[height<={height}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
+                    f"bestvideo[height<={height}]+bestaudio/"
+                    f"best[height<={height}]/best"
+                )
+            else:
+                # Allow VP9/Opus = better compression, slower conversion
+                fmt_str = f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
+
             ydl_opts = {
-                "format": f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best",
+                "format": fmt_str,
                 "outtmpl": output_base + ".%(ext)s",
                 "merge_output_format": "mp4",
                 "postprocessors": [

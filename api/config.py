@@ -37,3 +37,8 @@ GAMBLING_CHANNEL = "🃏-czerepalnia-gambling"
 BLOXLINK_API_KEY_815660960097239040 = os.getenv("BLOXLINK_API_KEY_815660960097239040")
 BLOXLINK_API_KEY_637696690853511184 = os.getenv("BLOXLINK_API_KEY_637696690853511184")
 RESTRICT_CORS = True  # False = allow all origins, True = restrict to whitelisted origins only
+
+# ─── YouTube Downloader Config ──────────────────────────────────────────────
+# True  = Prefer H.264+AAC (fast remux, no transcoding, nearly instant)
+# False = Prefer VP9+Opus (slightly better compression, but slow FFmpeg conversion)
+YTDL_PREFER_H264 = True
