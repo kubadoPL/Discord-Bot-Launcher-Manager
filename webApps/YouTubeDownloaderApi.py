@@ -706,6 +706,7 @@ def start_download():
     url = data["url"].strip()
     fmt = data.get("format", "mp3")  # "mp3" or "mp4"
     quality = data.get("quality", "720")  # for mp4: "360", "480", "720", "1080"
+    override_title = data.get("title", "").strip()  # optional: override filename
 
     if fmt not in ("mp3", "mp4"):
         return jsonify({"error": "Format must be 'mp3' or 'mp4'"}), 400
@@ -738,7 +739,7 @@ def start_download():
     # Run download in background thread
     threading.Thread(
         target=_download_worker,
-        args=(job_id, url, fmt, quality),
+        args=(job_id, url, fmt, quality, override_title),
         daemon=True,
     ).start()
 
@@ -761,7 +762,7 @@ def _sanitize_filename(title):
     return clean
 
 
-def _download_worker(job_id, url, fmt, quality):
+def _download_worker(job_id, url, fmt, quality, override_title=""):
     """Background worker: download and convert the video."""
     import yt_dlp
 
@@ -794,7 +795,7 @@ def _download_worker(job_id, url, fmt, quality):
             if "entries" in info:
                 info = info["entries"][0]
 
-        title = info.get("title", "download")
+        title = override_title if override_title else info.get("title", "download")
         uploader = info.get("uploader", "")
         if uploader and uploader.endswith(" - Topic"):
             uploader = uploader[:-8]
