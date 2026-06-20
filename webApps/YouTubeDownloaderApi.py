@@ -572,12 +572,12 @@ def download_file(job_id):
 
     mimetype = "audio/mpeg" if job["format"] == "mp3" else "video/mp4"
 
-    # Use make_response to set Content-Disposition safely with ASCII filename
-    with open(filepath, 'rb') as f:
-        response = make_response(f.read())
-    response.headers['Content-Type'] = mimetype
+    # Stream file with send_file, then override Content-Disposition with sanitized name
+    response = send_file(
+        filepath,
+        mimetype=mimetype,
+    )
     response.headers['Content-Disposition'] = f'attachment; filename="{clean_name}"'
-    response.headers['Content-Length'] = os.path.getsize(filepath)
     return response
 
 
