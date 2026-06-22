@@ -1832,18 +1832,34 @@ class WebStreamStation:
         with self._queue_lock:
             if instant and req_id == self._last_instant_id:
                 self.manual_queue = processed_tracks + self.manual_queue
-                self.skip_requested = True
-                if self.feeder:
-                    try:
-                        self.feeder.kill()
-                    except Exception:
-                        pass
                 self.log(
-                    f"Instant Play (URL): {len(processed_tracks)} tracks added."
+                    f"Instant Play (URL): {len(processed_tracks)} tracks added. Waiting for preload..."
                 )
             else:
                 self.manual_queue.extend(processed_tracks)
                 self.log(f"Queued (URL): {len(processed_tracks)} tracks added.")
+                return
+
+        # Instant play: wait for the first track to be preloaded before skipping
+        first_track = processed_tracks[0]
+        while self.running:
+            with self._preload_lock:
+                if first_track in self._preload_cache:
+                    break
+            # Also break if it's not a URL (local file, already ready)
+            if not first_track.startswith("http") and not first_track.startswith("ytsearch"):
+                break
+            time.sleep(0.5)
+
+        # Now skip the current song
+        if self.running and req_id == self._last_instant_id:
+            self.skip_requested = True
+            if self.feeder:
+                try:
+                    self.feeder.kill()
+                except Exception:
+                    pass
+            self.log("Instant Play: preloaded, switching now!")
 
     def _get_spotify_tracks(self, url):
         """Extract track names from a Spotify playlist/album URL via scraping."""
