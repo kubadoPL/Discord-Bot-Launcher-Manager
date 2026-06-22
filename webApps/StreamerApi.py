@@ -1252,7 +1252,8 @@ class WebStreamStation:
                     if preloaded_path:
                         # Play from preloaded local MP3
                         play_path = preloaded_path
-                        clean_title = os.path.basename(preloaded_path).rsplit(".", 1)[0]
+                        # Use stored display title (not UUID filename)
+                        clean_title = self._queue_titles.get(file_path) or os.path.basename(preloaded_path).rsplit(".", 1)[0]
                         self.current_song = clean_title
                         is_url = False  # local file, no reconnect flags needed
                     elif is_url:
