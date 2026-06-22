@@ -1232,7 +1232,7 @@ class WebStreamStation:
                         self.current_song = clean_title
                         is_url = False  # local file, no reconnect flags needed
                     elif is_url:
-                        self.log(f"Fetching stream: {file_path}")
+                        self.log(f"Fetching info: {file_path}")
                         try:
                             import yt_dlp
 
@@ -1270,17 +1270,6 @@ class WebStreamStation:
                             if "entries" in info:
                                 info = info["entries"][0]
 
-                            play_path = info.get("url")
-                            if (
-                                not play_path
-                                and "formats" in info
-                                and info["formats"]
-                            ):
-                                play_path = info["formats"][-1].get("url")
-
-                            if not play_path:
-                                raise Exception("No playable URL found.")
-
                             # Build "Artist - Title" format
                             title = info.get("title", "Web Stream")
                             uploader = info.get("uploader", "")
@@ -1291,6 +1280,70 @@ class WebStreamStation:
                             else:
                                 clean_title = title
                             self.current_song = clean_title
+
+                            # Check if this is a live stream
+                            if info.get("is_live"):
+                                # Live stream — use direct URL streaming
+                                play_path = info.get("url")
+                                if (
+                                    not play_path
+                                    and "formats" in info
+                                    and info["formats"]
+                                ):
+                                    play_path = info["formats"][-1].get("url")
+                                if not play_path:
+                                    raise Exception("No playable URL found.")
+                                self.log(f"Live stream detected, streaming directly")
+                            else:
+                                # Not live — download as MP3 first, then play from local file
+                                self.log(f"Downloading: {clean_title}")
+                                import re as _re
+                                safe_name = _re.sub(r'[<>:"/\\|?*]', '_', clean_title)[:120]
+                                local_dest = os.path.join(self.preload_dir, f"{safe_name}.mp3")
+
+                                dl_opts = {
+                                    "format": "bestaudio/best",
+                                    "quiet": True,
+                                    "no_warnings": True,
+                                    "noplaylist": True,
+                                    "nocheckcertificate": True,
+                                    "outtmpl": local_dest.replace(".mp3", ".%(ext)s"),
+                                    "postprocessors": [{
+                                        "key": "FFmpegExtractAudio",
+                                        "preferredcodec": "mp3",
+                                        "preferredquality": "192",
+                                    }],
+                                    **get_cookie_opts(),
+                                }
+
+                                dl_res = {}
+
+                                def do_download():
+                                    try:
+                                        with yt_dlp.YoutubeDL(dl_opts) as ydl:
+                                            ydl.download([file_path])
+                                        dl_res["ok"] = True
+                                    except Exception as e:
+                                        dl_res["error"] = e
+
+                                dl_thread = threading.Thread(target=do_download, daemon=True)
+                                dl_thread.start()
+
+                                # Keep transmitter fed while downloading
+                                while dl_thread.is_alive():
+                                    self._feed_silence(0.1)
+
+                                if "error" in dl_res:
+                                    raise dl_res["error"]
+
+                                if not os.path.exists(local_dest):
+                                    raise Exception(f"Download completed but file not found: {local_dest}")
+
+                                play_path = local_dest
+                                preloaded_path = local_dest  # Mark for cleanup after playing
+                                is_url = False  # Local file, no reconnect flags needed
+                                self.log(f"Downloaded OK, playing from local file")
+
                         except Exception as e:
                             self.log(f"Stream expansion failed: {e}")
                             self._feed_silence(2.0)
