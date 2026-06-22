@@ -1630,10 +1630,16 @@ def save_user_data():
     Body: {"songHistory": [...], "songFavorites": [...], "listeningStats": {...}}
     """
     auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
+    token = None
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+    else:
+        # Fallback: accept token from body (for navigator.sendBeacon which can't set headers)
+        body = request.get_json(silent=True)
+        if body and isinstance(body, dict):
+            token = body.get("_token")
+    if not token:
         return jsonify({"error": "Unauthorized"}), 401
-
-    token = auth_header.split(" ")[1]
     session = validate_session(token)
     if not session:
         return jsonify({"error": "Invalid or expired session"}), 401
