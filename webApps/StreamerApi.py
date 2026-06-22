@@ -730,8 +730,14 @@ class WebStreamStation:
                                 clean_name = f"{uploader} - {title}"
                             else:
                                 clean_name = title
+                            import re as _re_pl
+                            clean_name = _re_pl.sub(r'[^\x20-\x7E]', '', clean_name)  # ASCII only
                             for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
                                 clean_name = clean_name.replace(ch, '_')
+                            clean_name = clean_name.strip()
+                            if not clean_name or len(clean_name) < 3:
+                                import hashlib
+                                clean_name = hashlib.md5(title.encode('utf-8')).hexdigest()[:16]
                             local_dest = os.path.join(self.preload_dir, f"{clean_name[:120]}.mp3")
 
                             # Update queue title with full artist info for frontend display & cover search
@@ -1298,7 +1304,12 @@ class WebStreamStation:
                                 # Not live — download as MP3 first, then play from local file
                                 self.log(f"Downloading: {clean_title}")
                                 import re as _re
-                                safe_name = _re.sub(r'[<>:"/\\|?*]', '_', clean_title)[:120]
+                                import hashlib as _hl
+                                # Strip non-ASCII (emoji, special chars) and filesystem-unsafe chars
+                                safe_name = _re.sub(r'[^\x20-\x7E]', '', clean_title)  # ASCII printable only
+                                safe_name = _re.sub(r'[<>:"/\\|?*]', '_', safe_name).strip()[:120]
+                                if not safe_name or len(safe_name) < 3:
+                                    safe_name = _hl.md5(clean_title.encode('utf-8')).hexdigest()[:16]
                                 local_dest = os.path.join(self.preload_dir, f"{safe_name}.mp3")
 
                                 dl_opts = {
