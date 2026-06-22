@@ -731,14 +731,11 @@ class WebStreamStation:
                             else:
                                 clean_name = title
                             import re as _re_pl
-                            clean_name = _re_pl.sub(r'[^\x20-\x7E]', '', clean_name)  # ASCII only
-                            for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
-                                clean_name = clean_name.replace(ch, '_')
-                            clean_name = clean_name.strip()
-                            if not clean_name or len(clean_name) < 3:
-                                import hashlib
-                                clean_name = hashlib.md5(title.encode('utf-8')).hexdigest()[:16]
-                            local_dest = os.path.join(self.preload_dir, f"{clean_name[:120]}.mp3")
+                            # Build display name for logging
+                            if uploader.lower() not in title.lower():
+                                clean_name = f"{uploader} - {title}"
+                            else:
+                                clean_name = title
 
                             # Update queue title with full artist info for frontend display & cover search
                             if uploader.lower() not in title.lower():
@@ -751,6 +748,11 @@ class WebStreamStation:
                             if thumb:
                                 self._queue_thumbnails[path] = thumb
 
+                        # Use UUID for filename to avoid emoji/encoding issues
+                        import uuid as _uuid_pl
+                        dl_id = _uuid_pl.uuid4().hex[:12]
+                        local_dest = os.path.join(self.preload_dir, f"{dl_id}.mp3")
+
                         if os.path.exists(local_dest):
                             with self._preload_lock:
                                 self._preload_cache[path] = local_dest
@@ -758,7 +760,7 @@ class WebStreamStation:
 
                         ydl_opts = {
                             "format": "bestaudio/best",
-                            "outtmpl": local_dest.replace(".mp3", ".%(ext)s"),
+                            "outtmpl": os.path.join(self.preload_dir, f"{dl_id}.%(ext)s"),
                             "postprocessors": [
                                 {
                                     "key": "FFmpegExtractAudio",
@@ -1109,6 +1111,28 @@ class WebStreamStation:
             if self.running:
                 jitter = random.uniform(1.0, 4.0)
                 time.sleep(jitter)
+
+            # Wait for first song to be preloaded before connecting to Icecast
+            if self.running:
+                self.log("Waiting for first song to be ready...")
+                waited = 0
+                while self.running and waited < 120:  # Max 2 min wait
+                    with self._queue_lock:
+                        first = self.manual_queue[0] if self.manual_queue else None
+                    if not first:
+                        break  # Empty queue, will handle in idle loop
+                    # If it's a local file (not URL), it's ready
+                    if not first.startswith("http") and not first.startswith("ytsearch"):
+                        break
+                    # Check if preloaded
+                    with self._preload_lock:
+                        if first in self._preload_cache:
+                            self.log("First song preloaded, connecting...")
+                            break
+                    time.sleep(0.5)
+                    waited += 0.5
+                if not self.running:
+                    break
 
             # Start FFmpeg transmitter → Icecast
             safe_user = urllib.parse.quote(self.user)
