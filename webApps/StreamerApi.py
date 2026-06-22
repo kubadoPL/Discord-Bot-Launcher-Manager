@@ -1163,7 +1163,7 @@ class WebStreamStation:
                     "-b:a",
                     self.bitrate,
                     "-bufsize",
-                    "384k",
+                    "320k",
                     "-f",
                     "mp3",
                     "-timeout",
@@ -1176,7 +1176,7 @@ class WebStreamStation:
                         trans_cmd,
                         stdin=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        bufsize=384 * 1024,
+                        bufsize=320 * 1024,
                     )
 
                     # Monitor stderr in background
@@ -1428,15 +1428,15 @@ class WebStreamStation:
                         self.feeder = subprocess.Popen(
                             feeder_cmd,
                             stdout=subprocess.PIPE,
-                            bufsize=256 * 1024,
+                            bufsize=192 * 1024,
                         )
 
-                        feeder_queue_local = queue.Queue(maxsize=10)
+                        feeder_queue_local = queue.Queue(maxsize=7)
 
                         def feeder_worker(proc, q):
                             while self.running and proc.poll() is None:
                                 try:
-                                    c = proc.stdout.read(49152)
+                                    c = proc.stdout.read(40960)
                                     if not c:
                                         break
                                     q.put(c)
