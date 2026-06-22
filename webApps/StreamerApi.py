@@ -725,6 +725,12 @@ class WebStreamStation:
                             if uploader.endswith(" - Topic"):
                                 uploader = uploader[:-8]
 
+                            # Clean filename — avoid duplicate artist
+                            if uploader.lower() not in title.lower():
+                                clean_name = f"{uploader} - {title}"
+                            else:
+                                clean_name = title
+                            import re as _re_pl
                             # Build display name for logging
                             if uploader.lower() not in title.lower():
                                 clean_name = f"{uploader} - {title}"
@@ -1157,7 +1163,7 @@ class WebStreamStation:
                     "-b:a",
                     self.bitrate,
                     "-bufsize",
-                    "512k",
+                    "256k",
                     "-f",
                     "mp3",
                     "-timeout",
@@ -1170,7 +1176,7 @@ class WebStreamStation:
                         trans_cmd,
                         stdin=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        bufsize=512 * 1024,
+                        bufsize=256 * 1024,
                     )
 
                     # Monitor stderr in background
@@ -1425,12 +1431,12 @@ class WebStreamStation:
                             bufsize=256 * 1024,
                         )
 
-                        feeder_queue_local = queue.Queue(maxsize=20)
+                        feeder_queue_local = queue.Queue(maxsize=5)
 
                         def feeder_worker(proc, q):
                             while self.running and proc.poll() is None:
                                 try:
-                                    c = proc.stdout.read(65536)
+                                    c = proc.stdout.read(32768)
                                     if not c:
                                         break
                                     q.put(c)
@@ -1487,7 +1493,7 @@ class WebStreamStation:
 
                             # ─── Normal Music Playback ───────────────────────────────────────
                             try:
-                                chunk = feeder_queue_local.get(timeout=0.05)
+                                chunk = feeder_queue_local.get(timeout=0.01)
                             except queue.Empty:
                                 if self.feeder.poll() is not None:
                                     break
@@ -1508,19 +1514,19 @@ class WebStreamStation:
                                 inner_running = False
                                 break
 
-                            # Realtime throttle — stay ~1.5s ahead of realtime
+                            # Realtime throttle
                             expected_elapsed = (
                                 self._conn_bytes_sent / bytes_per_sec
-                            ) - 1.5
+                            ) - 0.5
                             actual_elapsed = time.time() - self._conn_start_time
                             sleep_time = expected_elapsed - actual_elapsed
-                            if sleep_time > 0.005:
+                            if sleep_time > 0.01:
                                 time.sleep(min(sleep_time, 0.2))
                             elif sleep_time < -5.0:
                                 self._conn_start_time = time.time()
                                 self._conn_bytes_sent = 0
                             else:
-                                time.sleep(0.001)
+                                time.sleep(0.005)
 
                         # Finalize
                         try:
