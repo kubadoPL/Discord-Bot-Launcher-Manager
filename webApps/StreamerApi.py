@@ -1303,14 +1303,10 @@ class WebStreamStation:
                             else:
                                 # Not live — download as MP3 first, then play from local file
                                 self.log(f"Downloading: {clean_title}")
-                                import re as _re
-                                import hashlib as _hl
-                                # Strip non-ASCII (emoji, special chars) and filesystem-unsafe chars
-                                safe_name = _re.sub(r'[^\x20-\x7E]', '', clean_title)  # ASCII printable only
-                                safe_name = _re.sub(r'[<>:"/\\|?*]', '_', safe_name).strip()[:120]
-                                if not safe_name or len(safe_name) < 3:
-                                    safe_name = _hl.md5(clean_title.encode('utf-8')).hexdigest()[:16]
-                                local_dest = os.path.join(self.preload_dir, f"{safe_name}.mp3")
+                                import uuid as _uuid
+                                # Use UUID for filename to avoid all encoding/emoji/filesystem issues
+                                dl_id = _uuid.uuid4().hex[:12]
+                                local_dest = os.path.join(self.preload_dir, f"{dl_id}.mp3")
 
                                 dl_opts = {
                                     "format": "bestaudio/best",
@@ -1318,7 +1314,7 @@ class WebStreamStation:
                                     "no_warnings": True,
                                     "noplaylist": True,
                                     "nocheckcertificate": True,
-                                    "outtmpl": local_dest.replace(".mp3", ".%(ext)s"),
+                                    "outtmpl": os.path.join(self.preload_dir, f"{dl_id}.%(ext)s"),
                                     "postprocessors": [{
                                         "key": "FFmpegExtractAudio",
                                         "preferredcodec": "mp3",
