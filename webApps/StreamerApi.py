@@ -592,8 +592,10 @@ class WebStreamStation:
         with self._queue_lock:
             queue_list = list(self.manual_queue)
 
-        # Only limit thumbnails (heavy URLs) to first 50; titles are lightweight strings
+        # Limit both titles and thumbnails to items actually in queue (not old played songs)
+        queue_set = set(queue_list)
         visible_urls = set(queue_list[:50])
+        visible_titles = {u: t for u, t in self._queue_titles.items() if u in queue_set}
         visible_thumbs = {u: t for u, t in self._queue_thumbnails.items() if u in visible_urls}
 
         return {
@@ -607,7 +609,7 @@ class WebStreamStation:
             "auto_disconnect_empty": self.auto_disconnect_empty,
             "queue": queue_list,
             "queue_length": len(queue_list),
-            "queue_titles": dict(self._queue_titles),
+            "queue_titles": visible_titles,
             "queue_thumbnails": visible_thumbs,
             "history": self.manual_history[:20],
             "log_count": len(self._log_buffer),
@@ -693,10 +695,10 @@ class WebStreamStation:
                     time.sleep(3)
                     continue
 
-                # Get next 3 from queue
+                # Get next 2 from queue (reduced from 3 to limit memory when 3 stations run)
                 to_preload = []
                 with self._queue_lock:
-                    to_preload = list(self.manual_queue[:3])
+                    to_preload = list(self.manual_queue[:2])
 
                 # Filter already cached
                 targets = []
@@ -1602,6 +1604,21 @@ class WebStreamStation:
                                         del self._preload_cache[k]
                             except Exception:
                                 pass
+
+                        # Prune stale entries from title/thumbnail dicts (memory leak prevention)
+                        # Only keep entries for URLs still in queue + current song
+                        with self._queue_lock:
+                            active_urls = set(self.manual_queue)
+                        # Also keep current song's URL (may not be in queue anymore)
+                        for url, t in list(self._queue_titles.items()):
+                            if t == self.current_song:
+                                active_urls.add(url)
+                        stale_title_keys = [k for k in self._queue_titles if k not in active_urls]
+                        for k in stale_title_keys:
+                            del self._queue_titles[k]
+                        stale_thumb_keys = [k for k in self._queue_thumbnails if k not in active_urls]
+                        for k in stale_thumb_keys:
+                            del self._queue_thumbnails[k]
 
                         if not self.running or not inner_running:
                             break
