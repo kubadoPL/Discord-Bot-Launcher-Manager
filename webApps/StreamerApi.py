@@ -683,7 +683,10 @@ class WebStreamStation:
     # ─── Preload Worker ────────────────────────────────────────────────────────
 
     def _preload_loop(self):
-        """Background worker: downloads next 3 songs from queue as MP3 to local storage."""
+        """Background worker: downloads next 3 songs from queue as MP3 to local storage.
+        Uses a single yt_dlp call that downloads + extracts metadata in one pass."""
+        import gc
+
         while True:
             try:
                 if not self.running:
@@ -712,44 +715,8 @@ class WebStreamStation:
 
                     try:
                         import yt_dlp
-
-                        # First get metadata for filename
-                        with yt_dlp.YoutubeDL(
-                            {"quiet": True, "no_warnings": True, **get_cookie_opts()}
-                        ) as ydl:
-                            info = ydl.extract_info(path, download=False)
-                            if "entries" in info:
-                                info = info["entries"][0]
-                            title = info.get("title", "Unknown")
-                            uploader = info.get("uploader", "Unknown")
-                            if uploader.endswith(" - Topic"):
-                                uploader = uploader[:-8]
-
-                            # Clean filename — avoid duplicate artist
-                            if uploader.lower() not in title.lower():
-                                clean_name = f"{uploader} - {title}"
-                            else:
-                                clean_name = title
-                            import re as _re_pl
-                            # Build display name for logging
-                            if uploader.lower() not in title.lower():
-                                clean_name = f"{uploader} - {title}"
-                            else:
-                                clean_name = title
-
-                            # Update queue title with full artist info for frontend display & cover search
-                            if uploader.lower() not in title.lower():
-                                self._queue_titles[path] = f"{uploader} - {title}"
-                            else:
-                                self._queue_titles[path] = title
-
-                            # Save thumbnail URL
-                            thumb = info.get("thumbnail") or ""
-                            if thumb:
-                                self._queue_thumbnails[path] = thumb
-
-                        # Use UUID for filename to avoid emoji/encoding issues
                         import uuid as _uuid_pl
+
                         dl_id = _uuid_pl.uuid4().hex[:12]
                         local_dest = os.path.join(self.preload_dir, f"{dl_id}.mp3")
 
@@ -757,6 +724,17 @@ class WebStreamStation:
                             with self._preload_lock:
                                 self._preload_cache[path] = local_dest
                             continue
+
+                        # Single yt_dlp call: download + extract metadata in one pass
+                        # This halves the number of HTTP requests vs separate metadata+download
+                        _preload_info = {}
+
+                        def _progress_hook(d):
+                            if d.get("status") == "finished" and "info_dict" in d:
+                                info = d["info_dict"]
+                                _preload_info["title"] = info.get("title", "Unknown")
+                                _preload_info["uploader"] = info.get("uploader", "Unknown")
+                                _preload_info["thumbnail"] = info.get("thumbnail", "")
 
                         ydl_opts = {
                             "format": "bestaudio/best",
@@ -770,12 +748,37 @@ class WebStreamStation:
                             ],
                             "quiet": True,
                             "no_warnings": True,
+                            "progress_hooks": [_progress_hook],
                             **get_cookie_opts(),
                         }
 
                         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            self.log(f"Preloading: {clean_name}")
-                            ydl.download([path])
+                            # extract_info with download=True does metadata + download in one call
+                            info = ydl.extract_info(path, download=True)
+                            if info and "entries" in info:
+                                info = info["entries"][0]
+
+                            if info:
+                                title = info.get("title", "Unknown")
+                                uploader = info.get("uploader", "Unknown")
+                                if uploader.endswith(" - Topic"):
+                                    uploader = uploader[:-8]
+
+                                # Build display name
+                                if uploader.lower() not in title.lower():
+                                    clean_name = f"{uploader} - {title}"
+                                else:
+                                    clean_name = title
+
+                                # Update queue title for frontend display
+                                self._queue_titles[path] = clean_name
+
+                                # Save thumbnail URL
+                                thumb = info.get("thumbnail") or ""
+                                if thumb:
+                                    self._queue_thumbnails[path] = thumb
+
+                                self.log(f"Preloaded: {clean_name}")
 
                         if os.path.exists(local_dest):
                             with self._preload_lock:
@@ -795,6 +798,7 @@ class WebStreamStation:
                             self._preload_failures.pop(path, None)
 
                     time.sleep(1)  # Gap between downloads
+                    gc.collect()  # Free yt_dlp memory between downloads
 
             except Exception:
                 time.sleep(5)
@@ -803,61 +807,108 @@ class WebStreamStation:
     def _resolve_titles(self, urls):
         """Background: resolve proper 'Artist - Title' for queue items missing artist info.
         Prioritizes the first 20 (visible page) before resolving the rest.
+        Limited to max 80 items total to prevent memory exhaustion on the server.
+        Uses a single yt_dlp instance per batch to reduce overhead.
         """
         import yt_dlp
+        import gc
 
         # Prioritize first 20 items (visible queue page), then the rest
         priority = urls[:20]
         remaining = urls[20:]
         ordered = priority + remaining
 
-        resolved = 0
-        for url in ordered:
-            if not self.running:
-                break
+        # Cap total items to resolve — prevents server overload on huge playlists
+        MAX_RESOLVE = 80
+        if len(ordered) > MAX_RESOLVE:
+            self.log(f"Title resolve: capping at {MAX_RESOLVE}/{len(ordered)} items")
+            ordered = ordered[:MAX_RESOLVE]
 
-            # Skip if already has a dash (artist separator) in title
+        # Filter to only YouTube URLs that need resolving
+        to_resolve = []
+        for url in ordered:
             existing = self._queue_titles.get(url, "")
             if " - " in existing:
                 continue
-
-            # Only resolve YouTube URLs
             if not (url.startswith("http") and ("youtube" in url or "youtu.be" in url)):
                 continue
+            to_resolve.append(url)
+
+        if not to_resolve:
+            return
+
+        self.log(f"Resolving titles for {len(to_resolve)} items...")
+
+        # Process in batches with a single yt_dlp instance per batch
+        BATCH_SIZE = 10
+        resolved = 0
+
+        for batch_start in range(0, len(to_resolve), BATCH_SIZE):
+            if not self.running:
+                break
+
+            batch = to_resolve[batch_start:batch_start + BATCH_SIZE]
 
             try:
-                with yt_dlp.YoutubeDL(
-                    {"quiet": True, "no_warnings": True, "skip_download": True, **get_cookie_opts()}
-                ) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    if "entries" in info:
-                        info = info["entries"][0]
+                ydl_opts = {
+                    "quiet": True,
+                    "no_warnings": True,
+                    "skip_download": True,
+                    "extract_flat": False,
+                    "socket_timeout": 10,
+                    **get_cookie_opts(),
+                }
 
-                    title = info.get("title", "")
-                    uploader = info.get("uploader", "")
-                    if uploader and uploader.endswith(" - Topic"):
-                        uploader = uploader[:-8]
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    for url in batch:
+                        if not self.running:
+                            break
 
-                    if uploader and uploader.lower() not in title.lower():
-                        self._queue_titles[url] = f"{uploader} - {title}"
-                    elif title:
-                        self._queue_titles[url] = title
+                        try:
+                            info = ydl.extract_info(url, download=False)
+                            if info and "entries" in info:
+                                info = info["entries"][0]
+                            if not info:
+                                continue
 
-                    # Save thumbnail URL
-                    thumb = info.get("thumbnail") or ""
-                    if thumb:
-                        self._queue_thumbnails[url] = thumb
+                            title = info.get("title", "")
+                            uploader = info.get("uploader", "")
+                            if uploader and uploader.endswith(" - Topic"):
+                                uploader = uploader[:-8]
 
-                    resolved += 1
-                    if resolved == 20:
-                        self.log(f"Resolved titles for visible page (20 items)")
-                    elif resolved % 50 == 0:
-                        self.log(f"Resolved titles: {resolved}/{len(ordered)}")
+                            if uploader and uploader.lower() not in title.lower():
+                                self._queue_titles[url] = f"{uploader} - {title}"
+                            elif title:
+                                self._queue_titles[url] = title
+
+                            # Save thumbnail URL
+                            thumb = info.get("thumbnail") or ""
+                            if thumb:
+                                self._queue_thumbnails[url] = thumb
+
+                            resolved += 1
+
+                        except Exception:
+                            pass
+
+                        time.sleep(1.5)  # Rate limit between items
 
             except Exception:
                 pass
 
-            time.sleep(0.3)  # Rate limit — faster for priority items
+            # Free memory between batches
+            gc.collect()
+
+            if resolved == 20:
+                self.log(f"Resolved titles for visible page (20 items)")
+            elif resolved > 0 and resolved % 30 == 0:
+                self.log(f"Resolved titles: {resolved}/{len(to_resolve)}")
+
+            # Longer pause between batches
+            time.sleep(3)
+
+        self.log(f"Title resolve complete: {resolved} items")
+        gc.collect()
 
     def skip_song(self):
         self.skip_requested = True
@@ -1809,14 +1860,18 @@ class WebStreamStation:
                         daemon=True,
                     ).start()
 
-                    # Start background title resolver only for large playlists (flat extract)
-                    # Small playlists already have full metadata from non-flat extract
-                    if entry_count > 100:
+                    # Start background title resolver only for medium playlists (11-100)
+                    # that used flat extract but are small enough to resolve without killing the server.
+                    # Small playlists (<=10) already have full metadata from non-flat extract.
+                    # Large playlists (>100) are too big — titles come from preload as songs play.
+                    if 10 < entry_count <= 100:
                         threading.Thread(
                             target=self._resolve_titles,
                             args=(list(processed_tracks),),
                             daemon=True,
                         ).start()
+                    elif entry_count > 100:
+                        self.log(f"Large playlist ({entry_count} items) — titles will resolve via preload as songs play.")
                     else:
                         self.log("Full metadata already extracted — skipping background resolve.")
 
