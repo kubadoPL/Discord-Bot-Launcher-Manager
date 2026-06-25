@@ -1665,7 +1665,7 @@ class WebStreamStation:
                     self.log(f"Playlist has {entry_count} entries")
 
                     # Phase 2: Choose strategy based on size
-                    if entry_count <= 100 and entry_count > 0:
+                    if entry_count <= 10 and entry_count > 0:
                         # Small playlist — full extract for complete metadata (title, artist, thumbnail)
                         self.log(f"Small playlist ({entry_count} items) — extracting full metadata...")
                         full_opts = {
