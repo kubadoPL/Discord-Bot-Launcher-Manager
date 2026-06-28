@@ -558,7 +558,7 @@ def get_cookie_opts():
     return {}
 
 
-_itunes_cover_cache = {}  # (artist, album) -> cover URL or ""
+_itunes_cover_cache = {}  # (artist, album) -> cover URL or "" — capped at 200 entries
 
 
 def _pick_music_thumbnail(info):
@@ -621,10 +621,11 @@ def _pick_music_thumbnail(info):
                         )
                     if cover_url:
                         _itunes_cover_cache[cache_key] = cover_url
-                        # Keep cache bounded
-                        if len(_itunes_cover_cache) > 500:
-                            oldest = next(iter(_itunes_cover_cache))
-                            del _itunes_cover_cache[oldest]
+                        # Keep cache bounded — bulk evict when full
+                        if len(_itunes_cover_cache) > 10:
+                            to_remove = list(_itunes_cover_cache.keys())[:50]
+                            for k in to_remove:
+                                del _itunes_cover_cache[k]
                         return cover_url
 
                 # No results from iTunes
@@ -936,8 +937,8 @@ class WebStreamStation:
     def _resolve_titles(self, urls):
         """Background: resolve proper 'Artist - Title' for queue items missing artist info.
         Prioritizes the first 20 (visible page) before resolving the rest.
-        Limited to max 80 items total to prevent memory exhaustion on the server.
-        Uses a single yt_dlp instance per batch to reduce overhead.
+        Limited to max 40 items total to prevent memory exhaustion on the server.
+        Uses a single yt_dlp instance per batch of 5 to reduce overhead.
         """
         import yt_dlp
         import gc
@@ -948,7 +949,8 @@ class WebStreamStation:
         ordered = priority + remaining
 
         # Cap total items to resolve — prevents server overload on huge playlists
-        MAX_RESOLVE = 80
+        # Preload resolves titles anyway as songs play, so 40 is plenty
+        MAX_RESOLVE = 20
         if len(ordered) > MAX_RESOLVE:
             self.log(f"Title resolve: capping at {MAX_RESOLVE}/{len(ordered)} items")
             ordered = ordered[:MAX_RESOLVE]
@@ -972,8 +974,8 @@ class WebStreamStation:
 
         self.log(f"Resolving titles for {len(to_resolve)} items...")
 
-        # Process in batches with a single yt_dlp instance per batch
-        BATCH_SIZE = 10
+        # Process in smaller batches — less peak memory per yt_dlp instance
+        BATCH_SIZE = 5
         resolved = 0
 
         for batch_start in range(0, len(to_resolve), BATCH_SIZE):
@@ -1110,9 +1112,37 @@ class WebStreamStation:
                 daemon=True,
             ).start()
 
+    def _prune_queue_dicts(self):
+        """Remove stale entries from _queue_titles/_queue_thumbnails not in the current queue.
+        Also enforces a hard cap to prevent unbounded growth."""
+        with self._queue_lock:
+            active_urls = set(self.manual_queue)
+        # Also keep current song's URL (may not be in queue anymore)
+        for url, t in list(self._queue_titles.items()):
+            if t == self.current_song:
+                active_urls.add(url)
+        stale_title_keys = [k for k in self._queue_titles if k not in active_urls]
+        for k in stale_title_keys:
+            del self._queue_titles[k]
+        stale_thumb_keys = [k for k in self._queue_thumbnails if k not in active_urls]
+        for k in stale_thumb_keys:
+            del self._queue_thumbnails[k]
+        # Hard cap — safety net for very large playlists
+        if len(self._queue_titles) > 2500:
+            excess = list(self._queue_titles.keys())[:-2500]
+            for k in excess:
+                del self._queue_titles[k]
+        if len(self._queue_thumbnails) > 2500:
+            excess = list(self._queue_thumbnails.keys())[:-2500]
+            for k in excess:
+                del self._queue_thumbnails[k]
+
     def clear_queue(self):
         with self._queue_lock:
             self.manual_queue = []
+        # Free memory from title/thumbnail dicts for cleared items
+        self._queue_titles.clear()
+        self._queue_thumbnails.clear()
         self.log("Queue cleared.")
 
     def shuffle_queue(self):
@@ -1748,19 +1778,7 @@ class WebStreamStation:
                                 pass
 
                         # Prune stale entries from title/thumbnail dicts (memory leak prevention)
-                        # Only keep entries for URLs still in queue + current song
-                        with self._queue_lock:
-                            active_urls = set(self.manual_queue)
-                        # Also keep current song's URL (may not be in queue anymore)
-                        for url, t in list(self._queue_titles.items()):
-                            if t == self.current_song:
-                                active_urls.add(url)
-                        stale_title_keys = [k for k in self._queue_titles if k not in active_urls]
-                        for k in stale_title_keys:
-                            del self._queue_titles[k]
-                        stale_thumb_keys = [k for k in self._queue_thumbnails if k not in active_urls]
-                        for k in stale_thumb_keys:
-                            del self._queue_thumbnails[k]
+                        self._prune_queue_dicts()
 
                         if not self.running or not inner_running:
                             break
