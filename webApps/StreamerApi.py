@@ -558,6 +558,35 @@ def get_cookie_opts():
     return {}
 
 
+def _pick_music_thumbnail(info):
+    """Pick the best music-oriented thumbnail from yt-dlp info.
+
+    YouTube videos often have two sets of thumbnails:
+      - Standard video thumbnails (i.ytimg.com) — 16:9 aspect ratio
+      - YouTube Music album art (lh3.googleusercontent.com) — square covers
+
+    This function prefers the music/album cover when available,
+    falling back to the default thumbnail otherwise.
+    """
+    if not info:
+        return ""
+
+    thumbnails = info.get("thumbnails")
+    if thumbnails and isinstance(thumbnails, list):
+        # Priority 1: YouTube Music album art (hosted on lh3.googleusercontent.com)
+        music_thumbs = [
+            t for t in thumbnails
+            if t.get("url", "").startswith("https://lh3.googleusercontent.com")
+        ]
+        if music_thumbs:
+            # Pick the largest available music thumbnail
+            best = max(music_thumbs, key=lambda t: (t.get("width", 0) or 0) * (t.get("height", 0) or 0))
+            return best.get("url", "")
+
+    # Fallback: default thumbnail from yt-dlp
+    return info.get("thumbnail") or ""
+
+
 # ─── Stream Station Engine (ported from audio_streaming_system) ────────────────
 
 
@@ -785,7 +814,7 @@ class WebStreamStation:
                                 info = d["info_dict"]
                                 _preload_info["title"] = info.get("title", "Unknown")
                                 _preload_info["uploader"] = info.get("uploader", "Unknown")
-                                _preload_info["thumbnail"] = info.get("thumbnail", "")
+                                _preload_info["thumbnail"] = _pick_music_thumbnail(info)
 
                         ydl_opts = {
                             "format": "bestaudio/best",
@@ -825,7 +854,7 @@ class WebStreamStation:
                                 self._queue_titles[path] = clean_name
 
                                 # Save thumbnail URL
-                                thumb = info.get("thumbnail") or ""
+                                thumb = _pick_music_thumbnail(info)
                                 if thumb:
                                     self._queue_thumbnails[path] = thumb
 
@@ -937,7 +966,7 @@ class WebStreamStation:
                                 self._queue_titles[url] = title
 
                             # Save thumbnail URL
-                            thumb = info.get("thumbnail") or ""
+                            thumb = _pick_music_thumbnail(info)
                             if thumb:
                                 self._queue_thumbnails[url] = thumb
 
@@ -1419,7 +1448,7 @@ class WebStreamStation:
                                 clean_title = title
                             self.current_song = clean_title
                             # Store thumbnail from queue or from yt-dlp info
-                            self.current_thumbnail = self._queue_thumbnails.get(file_path, "") or info.get("thumbnail", "")
+                            self.current_thumbnail = self._queue_thumbnails.get(file_path, "") or _pick_music_thumbnail(info)
 
                             # Check if this is a live stream
                             if info.get("is_live"):
@@ -1920,11 +1949,8 @@ class WebStreamStation:
                         for entry in entries_data:
                             track_url = entry["url"]
                             video = entry["video"]
-                            thumb = video.get("thumbnail") or ""
-                            if not thumb:
-                                thumbs = video.get("thumbnails")
-                                if thumbs and isinstance(thumbs, list):
-                                    thumb = thumbs[-1].get("url", "")
+                            # Prefer YouTube Music album art over video thumbnails
+                            thumb = _pick_music_thumbnail(video)
                             if not thumb:
                                 vid_id = video.get("id", "")
                                 if vid_id:
