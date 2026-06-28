@@ -266,6 +266,69 @@ def _get_base_ydl_opts():
     return opts
 
 
+# ─── Temporary Debug Endpoint ─────────────────────────────────────────────────
+
+@app.route("/api/debug-formats", methods=["POST"])
+@cross_origin(**CORS_OPTIONS)
+def debug_formats():
+    """Temporary debug: show raw format data from yt-dlp for diagnosis."""
+    import yt_dlp
+
+    data = request.get_json(silent=True)
+    if not data or not data.get("url"):
+        return jsonify({"error": "Missing 'url'"}), 400
+
+    url = data["url"].strip()
+    results = {}
+
+    # Test with different player client combinations
+    client_combos = [
+        ("default (no override)", {}),
+        ("tv,web_safari,android_vr", {"extractor_args": {"youtube": {"player_client": ["tv,web_safari,android_vr"]}}}),
+        ("web,web_creator", {"extractor_args": {"youtube": {"player_client": ["web,web_creator"]}}}),
+        ("ios,android_vr", {"extractor_args": {"youtube": {"player_client": ["ios,android_vr"]}}}),
+    ]
+
+    cookie_status = "YES" if os.path.isfile(COOKIE_FILE_PATH) else "NO"
+
+    for label, extra_opts in client_combos:
+        try:
+            opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "noplaylist": True,
+                **_get_cookie_opts(),
+                **extra_opts,
+            }
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+            if "entries" in info:
+                info = info["entries"][0]
+
+            heights = []
+            for fmt in info.get("formats", []):
+                vcodec = fmt.get("vcodec") or "none"
+                if vcodec != "none" and fmt.get("height"):
+                    heights.append(fmt["height"])
+
+            unique_heights = sorted(set(heights), reverse=True)
+            total_formats = len(info.get("formats", []))
+
+            results[label] = {
+                "unique_heights": [f"{h}p" for h in unique_heights],
+                "total_formats": total_formats,
+                "age_limit": info.get("age_limit"),
+            }
+        except Exception as e:
+            results[label] = {"error": str(e)[:200]}
+
+    return jsonify({
+        "cookie_file_exists": cookie_status,
+        "cookie_file_path": COOKIE_FILE_PATH,
+        "results": results,
+    })
+
+
 # ─── API Routes ───────────────────────────────────────────────────────────────
 
 
