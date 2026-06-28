@@ -549,7 +549,7 @@ class WebStreamStation:
         self._queue_titles = {}  # url -> display title
         self._queue_thumbnails = {}  # url -> thumbnail URL
         self._idle_since = None  # Timestamp when idle started (for auto-disconnect)
-        self.auto_disconnect_empty = False  # Auto-disconnect when queue empties (no loop)
+        self.auto_disconnect_empty = True  # Auto-disconnect when queue empties (no loop)
 
         # Preload system — download next 3 queue songs ahead as MP3
         self._preload_cache = {}   # original_path -> local_mp3_path
