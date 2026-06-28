@@ -247,14 +247,21 @@ def _get_cookie_opts():
 
 
 def _get_base_ydl_opts():
-    """Return base yt-dlp options with cookies.
-    Does NOT override player_client — yt-dlp automatically selects optimal clients:
-    - With cookies: 'tv_downgraded, web_safari' (handles age-restricted content)
-    - Without cookies: 'android_vr, web_safari'"""
+    """Return base yt-dlp options with cookies and optimized player clients.
+    Overrides the default authed client 'tv_downgraded' (which returns degraded
+    formats — only 360p muxed for age-restricted videos) with full 'tv' client
+    and other clients that return all DASH streams."""
     opts = {
         "quiet": True,
         "no_warnings": True,
         **_get_cookie_opts(),
+        "extractor_args": {
+            "youtube": {
+                # Use full 'tv' (not 'tv_downgraded') + web_safari + android_vr
+                # to get all DASH format streams including higher resolutions
+                "player_client": ["tv,web_safari,android_vr"],
+            }
+        },
     }
     return opts
 
@@ -642,25 +649,55 @@ def _handle_single_video_info(url):
     if "entries" in info:
         info = info["entries"][0]
 
-    # Extract available qualities — include ALL video formats (muxed + video-only).
-    # YouTube serves resolutions above 720p as separate video-only DASH streams,
-    # so filtering by "has both vcodec and acodec" would miss 1080p, 1440p, 4K etc.
-    # The download worker merges bestvideo+bestaudio via ffmpeg, so all heights work.
-    formats_list = []
-    seen_res = set()
-    for fmt in info.get("formats", []):
-        vcodec = fmt.get("vcodec") or "none"
-        if vcodec != "none":
-            height = fmt.get("height")
-            if height and height not in seen_res:
-                seen_res.add(height)
-                formats_list.append({
-                    "quality": f"{height}p",
-                    "height": height,
-                    "ext": fmt.get("ext", "mp4"),
-                })
+    def _extract_heights(video_info):
+        """Extract unique video heights from format list."""
+        flist = []
+        seen = set()
+        for fmt in video_info.get("formats", []):
+            vcodec = fmt.get("vcodec") or "none"
+            if vcodec != "none":
+                height = fmt.get("height")
+                if height and height not in seen:
+                    seen.add(height)
+                    flist.append({
+                        "quality": f"{height}p",
+                        "height": height,
+                        "ext": fmt.get("ext", "mp4"),
+                    })
+        flist.sort(key=lambda x: x["height"], reverse=True)
+        return flist, seen
 
-    formats_list.sort(key=lambda x: x["height"], reverse=True)
+    formats_list, seen_res = _extract_heights(info)
+
+    # Retry for age-restricted videos: yt-dlp defaults to 'tv_downgraded' with cookies
+    # which returns degraded formats (only 360p muxed). Try full player clients to get
+    # DASH streams with all resolutions.
+    if len(formats_list) <= 1:
+        retry_clients = ["tv,android_vr,web_creator,ios"]
+        try:
+            retry_opts = {
+                **_get_base_ydl_opts(),
+                "noplaylist": True,
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": retry_clients,
+                    }
+                },
+            }
+            with yt_dlp.YoutubeDL(retry_opts) as ydl2:
+                info2 = ydl2.extract_info(url, download=False)
+            if "entries" in info2:
+                info2 = info2["entries"][0]
+
+            retry_formats, retry_seen = _extract_heights(info2)
+            if len(retry_formats) > len(formats_list):
+                # Retry gave more formats — use it
+                info = info2
+                formats_list = retry_formats
+                seen_res = retry_seen
+                print(f"[YTDownloader] Retry with {retry_clients} found {len(formats_list)} qualities")
+        except Exception as e:
+            print(f"[YTDownloader] Retry extraction failed: {e}")
 
     duration = info.get("duration", 0)
     duration_str = _format_duration(duration)
