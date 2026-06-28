@@ -668,44 +668,6 @@ def _handle_single_video_info(url):
 
     formats_list.sort(key=lambda x: x["height"], reverse=True)
 
-    # Fallback for age-restricted videos: YouTube API often only returns format 18
-    # (360p muxed) even though DASH streams ARE available during actual download.
-    # Infer max resolution from thumbnail URL and offer standard quality options.
-    max_detected = formats_list[0]["height"] if formats_list else 0
-    if max_detected <= 360:
-        # Infer likely max resolution from thumbnail or video metadata
-        thumbnail = info.get("thumbnail", "")
-        thumbnails = info.get("thumbnails", [])
-        inferred_max = 720  # Safe default — most YouTube videos have at least 720p
-
-        # Check thumbnail URLs for resolution hints
-        all_thumb_urls = [thumbnail] + [t.get("url", "") for t in thumbnails]
-        for t_url in all_thumb_urls:
-            if "maxresdefault" in t_url:
-                inferred_max = max(inferred_max, 1080)
-                break
-            elif "sddefault" in t_url:
-                inferred_max = max(inferred_max, 480)
-            elif "hqdefault" in t_url:
-                inferred_max = max(inferred_max, 360)
-
-        # Also check if video metadata hints at higher resolution
-        if info.get("width") and info.get("height"):
-            inferred_max = max(inferred_max, info["height"])
-
-        # Standard YouTube quality ladder
-        standard_heights = [2160, 1440, 1080, 720, 480, 360, 240, 144]
-        for h in standard_heights:
-            if h <= inferred_max and h not in seen_res:
-                seen_res.add(h)
-                formats_list.append({
-                    "quality": f"{h}p",
-                    "height": h,
-                    "ext": "mp4",
-                })
-
-        formats_list.sort(key=lambda x: x["height"], reverse=True)
-
     duration = info.get("duration", 0)
     duration_str = _format_duration(duration)
 
