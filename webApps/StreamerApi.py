@@ -1495,9 +1495,9 @@ class WebStreamStation:
                                 clean_title = f"{uploader} - {title}"
                             else:
                                 clean_title = title
-                            self.current_song = clean_title
-                            # Store thumbnail from queue or from yt-dlp info
-                            self.current_thumbnail = self._queue_thumbnails.get(file_path, "") or _pick_music_thumbnail(info)
+                            # Don't update current_song yet — wait until file is ready to play
+                            # Store thumbnail early so it's available when we do update
+                            _pending_thumbnail = self._queue_thumbnails.get(file_path, "") or _pick_music_thumbnail(info)
 
                             # Check if this is a live stream
                             if info.get("is_live"):
@@ -1512,6 +1512,9 @@ class WebStreamStation:
                                 if not play_path:
                                     raise Exception("No playable URL found.")
                                 self.log(f"Live stream detected, streaming directly")
+                                # Live streams are ready immediately
+                                self.current_song = clean_title
+                                self.current_thumbnail = _pending_thumbnail
                             else:
                                 # Not live — download as MP3 first, then play from local file
                                 self.log(f"Downloading: {clean_title}")
@@ -1562,6 +1565,9 @@ class WebStreamStation:
                                 preloaded_path = local_dest  # Mark for cleanup after playing
                                 is_url = False  # Local file, no reconnect flags needed
                                 self.log(f"Downloaded OK, playing from local file")
+                                # NOW update song info — file is ready to play
+                                self.current_song = clean_title
+                                self.current_thumbnail = _pending_thumbnail
 
                         except Exception as e:
                             self.log(f"Stream expansion failed: {e}")
