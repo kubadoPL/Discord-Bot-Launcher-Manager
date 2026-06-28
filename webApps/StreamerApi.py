@@ -1693,7 +1693,10 @@ class WebStreamStation:
                     f"Found {len(tracks)} Spotify tracks. Searching YouTube..."
                 )
                 for track in tracks:
-                    processed_tracks.append(f"ytsearch1:{track}")
+                    search_key = f"ytsearch1:{track}"
+                    processed_tracks.append(search_key)
+                    # Store clean Spotify title for display in queue
+                    self._queue_titles[search_key] = track
             else:
                 self.log("Could not extract Spotify tracks. Trying yt-dlp direct...")
 
