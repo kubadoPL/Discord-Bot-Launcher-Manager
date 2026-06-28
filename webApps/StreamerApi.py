@@ -528,6 +528,7 @@ class WebStreamStation:
         self.transmitter = None
         self.feeder = None
         self.current_song = "None"
+        self.current_thumbnail = ""  # Thumbnail URL for currently playing song
         self.loop_mode = "off"  # "off", "single", "queue"
         self.bitrate = "128k"
         self.skip_requested = False
@@ -1318,6 +1319,7 @@ class WebStreamStation:
                         # Use stored display title (not UUID filename)
                         clean_title = self._queue_titles.get(file_path) or os.path.basename(preloaded_path).rsplit(".", 1)[0]
                         self.current_song = clean_title
+                        self.current_thumbnail = self._queue_thumbnails.get(file_path, "")
                         is_url = False  # local file, no reconnect flags needed
                     elif is_url:
                         self.log(f"Fetching info: {file_path}")
@@ -1368,6 +1370,8 @@ class WebStreamStation:
                             else:
                                 clean_title = title
                             self.current_song = clean_title
+                            # Store thumbnail from queue or from yt-dlp info
+                            self.current_thumbnail = self._queue_thumbnails.get(file_path, "") or info.get("thumbnail", "")
 
                             # Check if this is a live stream
                             if info.get("is_live"):
@@ -1446,6 +1450,8 @@ class WebStreamStation:
                     clean_title = re.sub(r'\s*\([^)]*\)', '', clean_title).strip()
                     clean_title = clean_title.replace('"', '').strip()
                     self.current_song = clean_title
+                    if not self.current_thumbnail:
+                        self.current_thumbnail = self._queue_thumbnails.get(file_path, "")
 
                     self.log(f"Playing: {clean_title}")
                     self._update_metadata(clean_title, delay=4)
@@ -1915,24 +1921,24 @@ class WebStreamStation:
                     f"Instant Play (URL): {len(processed_tracks)} tracks added. Waiting for preload..."
                 )
                 # Resolve thumbnails for ytsearch entries (Spotify tracks)
-                ytsearch_tracks = [t for t in processed_tracks if t.startswith("ytsearch")]
-                if ytsearch_tracks:
-                    threading.Thread(
-                        target=self._resolve_titles,
-                        args=(ytsearch_tracks,),
-                        daemon=True,
-                    ).start()
+                #  ytsearch_tracks = [t for t in processed_tracks if t.startswith("ytsearch")]
+                #  if ytsearch_tracks:
+                #      threading.Thread(
+                #          target=self._resolve_titles,
+                #          args=(ytsearch_tracks,),
+                #          daemon=True,
+               #     ).start()
             else:
                 self.manual_queue.extend(processed_tracks)
                 self.log(f"Queued (URL): {len(processed_tracks)} tracks added.")
                 # Resolve thumbnails for ytsearch entries (Spotify tracks)
-                ytsearch_tracks = [t for t in processed_tracks if t.startswith("ytsearch")]
-                if ytsearch_tracks:
-                    threading.Thread(
-                        target=self._resolve_titles,
-                        args=(ytsearch_tracks,),
-                        daemon=True,
-                    ).start()
+              #  ytsearch_tracks = [t for t in processed_tracks if t.startswith("ytsearch")]
+              #  if ytsearch_tracks:
+               #     threading.Thread(
+                #        target=self._resolve_titles,
+                  #      args=(ytsearch_tracks,),
+                  #      daemon=True,
+                  #  ).start()
                 return
 
         # Instant play: wait for the first track to be preloaded before skipping
@@ -2172,13 +2178,8 @@ def public_status():
             thumb = station._queue_thumbnails.get(url, "")
             queue_display.append({"title": title, "thumbnail": thumb})
 
-        # Current song thumbnail — try matching current playing URL
-        current_thumb = ""
-        if station.running and station.current_song:
-            for url, t in station._queue_titles.items():
-                if t == station.current_song:
-                    current_thumb = station._queue_thumbnails.get(url, "")
-                    break
+        # Current song thumbnail — stored directly on playback start
+        current_thumb = station.current_thumbnail or ""
 
         result[str(sid)] = {
             "station_id": sid,
