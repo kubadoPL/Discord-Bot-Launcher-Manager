@@ -54,8 +54,12 @@ def load_flask_app(filepath):
     module_name = os.path.basename(filepath)[:-3]
     spec = importlib.util.spec_from_file_location(module_name, filepath)
     module = importlib.util.module_from_spec(spec)
+    # Register in sys.modules so other webApps can access the SAME instance
+    # (e.g. StreamerApi needs DiscordAuthChatApi's live user_sessions)
+    sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return getattr(module, "app", None)
+
 
 
 apps = {}

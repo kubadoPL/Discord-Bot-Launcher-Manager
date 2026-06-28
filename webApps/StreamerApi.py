@@ -54,22 +54,64 @@ limiter = Limiter(
 
 # ─── Admin Auth ────────────────────────────────────────────────────────────────
 # Reuse the session store from DiscordAuthChatApi (shared process via DispatcherMiddleware)
-# We import the module dynamically at runtime to get the live reference
+# The module MUST be registered in sys.modules by webAppsLauncher.py
 
 _chat_api_module = None
 
 
 def _get_chat_api():
-    """Lazy import of DiscordAuthChatApi to access shared session data."""
+    """Get the DiscordAuthChatApi module from sys.modules (shared instance).
+    Falls back to importlib if not found, but that path won't share sessions."""
     global _chat_api_module
     if _chat_api_module is None:
-        import importlib.util
+        # First try sys.modules — this is the SAME instance loaded by webAppsLauncher
+        import sys as _sys
+        _chat_api_module = _sys.modules.get("DiscordAuthChatApi")
 
-        chat_path = os.path.join(script_dir, "DiscordAuthChatApi.py")
-        spec = importlib.util.spec_from_file_location("DiscordAuthChatApi", chat_path)
-        _chat_api_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(_chat_api_module)
+        if _chat_api_module is None:
+            # Fallback: dynamic import (will NOT share in-memory sessions)
+            print("[StreamerApi] WARNING: DiscordAuthChatApi not in sys.modules, using fallback import")
+            import importlib.util
+            chat_path = os.path.join(script_dir, "DiscordAuthChatApi.py")
+            spec = importlib.util.spec_from_file_location("DiscordAuthChatApi", chat_path)
+            _chat_api_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(_chat_api_module)
     return _chat_api_module
+
+
+def _validate_session_from_db(token):
+    """Fallback: validate session directly from the database.
+    Used when DiscordAuthChatApi's in-memory store is unavailable."""
+    from datetime import datetime
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT s.session_token, s.user_id, s.expires_at,
+                   p.username, p.global_name, p.avatar_url,
+                   p.banner_url, p.accent_color
+            FROM chat_user_sessions s
+            LEFT JOIN chat_user_profiles p ON s.user_id = p.user_id
+            WHERE s.session_token = %s AND s.expires_at > NOW()
+        """, (token,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return None
+
+        return {
+            "id": row["user_id"],
+            "username": row["username"] or "Unknown",
+            "global_name": row["global_name"] or row["username"] or "Unknown",
+            "avatar_url": row["avatar_url"],
+            "banner_url": row["banner_url"],
+            "accent_color": row["accent_color"],
+            "expires_at": row["expires_at"].strftime("%Y-%m-%dT%H:%M:%SZ") if row["expires_at"] else "",
+        }
+    except Exception as e:
+        print(f"[StreamerApi] DB session validation error: {e}")
+        return None
 
 
 ## RADIO_ADMIN_USER_IDS imported from api.config (centralized)
@@ -110,13 +152,18 @@ def get_admin_session():
         return None, (jsonify({"error": "Unauthorized"}), 401)
 
     token = auth_header.split(" ")[1]
+    session = None
 
     # Try to use the shared session store from DiscordAuthChatApi
     try:
         chat_api = _get_chat_api()
         session = chat_api.validate_session(token)
-    except Exception:
-        session = None
+    except Exception as e:
+        print(f"[StreamerApi] In-memory session lookup failed: {e}")
+
+    # Fallback: validate directly from DB
+    if not session:
+        session = _validate_session_from_db(token)
 
     if not session:
         return None, (jsonify({"error": "Invalid or expired session"}), 401)
