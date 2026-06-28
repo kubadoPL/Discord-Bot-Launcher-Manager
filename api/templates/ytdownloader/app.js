@@ -297,6 +297,10 @@
     // ─── Render Preview Card ────────────────────────────────────────────────
     function renderPreview(info) {
         currentVideoInfo = info;
+        // Reset UI state from previous download
+        doneSection.classList.add('hidden');
+        progressSection.classList.add('hidden');
+        downloadBtn.disabled = false;
         previewThumbnail.src = info.thumbnail || '';
         previewDuration.textContent = info.duration_formatted || '0:00';
         previewTitle.textContent = info.title || 'Unknown Title';

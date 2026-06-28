@@ -160,9 +160,9 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 _jobs = {}
 _jobs_lock = threading.Lock()
 
-# Auto-cleanup: delete files older than 10 minutes
+# Auto-cleanup: delete files older than 5 minutes
 CLEANUP_INTERVAL = 120  # seconds
-FILE_MAX_AGE = 600  # seconds (10 min)
+FILE_MAX_AGE = 300  # seconds (5 min)
 
 
 def _cleanup_loop():
