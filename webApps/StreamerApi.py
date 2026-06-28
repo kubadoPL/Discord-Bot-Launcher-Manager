@@ -558,30 +558,79 @@ def get_cookie_opts():
     return {}
 
 
+_itunes_cover_cache = {}  # (artist, album) -> cover URL or ""
+
+
 def _pick_music_thumbnail(info):
     """Pick the best music-oriented thumbnail from yt-dlp info.
 
-    YouTube videos often have two sets of thumbnails:
-      - Standard video thumbnails (i.ytimg.com) — 16:9 aspect ratio
-      - YouTube Music album art (lh3.googleusercontent.com) — square covers
+    yt-dlp doesn't expose YouTube Music album art (square covers) —
+    all thumbnails it returns are standard video frames from i.ytimg.com.
+    However, for music tracks yt-dlp DOES provide album/artist metadata.
 
-    This function prefers the music/album cover when available,
-    falling back to the default thumbnail otherwise.
+    Strategy:
+      1. If info has 'album' + 'artist' metadata → fetch album cover from
+         iTunes Search API (free, no key required, returns square covers).
+      2. Fallback → default yt-dlp thumbnail (video frame).
     """
     if not info:
         return ""
 
-    thumbnails = info.get("thumbnails")
-    if thumbnails and isinstance(thumbnails, list):
-        # Priority 1: YouTube Music album art (hosted on lh3.googleusercontent.com)
-        music_thumbs = [
-            t for t in thumbnails
-            if t.get("url", "").startswith("https://lh3.googleusercontent.com")
-        ]
-        if music_thumbs:
-            # Pick the largest available music thumbnail
-            best = max(music_thumbs, key=lambda t: (t.get("width", 0) or 0) * (t.get("height", 0) or 0))
-            return best.get("url", "")
+    album = info.get("album") or ""
+    artist = info.get("artist") or info.get("creator") or ""
+
+    if album and artist:
+        # Clean artist: take first artist if comma-separated
+        artist_clean = artist.split(",")[0].strip()
+        cache_key = (artist_clean.lower(), album.lower())
+
+        if cache_key in _itunes_cover_cache:
+            cached = _itunes_cover_cache[cache_key]
+            if cached:
+                return cached
+            # cached == "" means iTunes had no result, fall through
+        else:
+            try:
+                query = f"{artist_clean} {album}"
+                params = urllib.parse.urlencode({
+                    "term": query,
+                    "media": "music",
+                    "entity": "album",
+                    "limit": "5",
+                })
+                url = f"https://itunes.apple.com/search?{params}"
+                req = urllib.request.Request(url, headers={"User-Agent": "RadioGaming/1.0"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = json.loads(resp.read())
+
+                results = data.get("results", [])
+                if results:
+                    # Try to find exact album match
+                    cover_url = ""
+                    for r in results:
+                        r_album = (r.get("collectionName") or "").lower()
+                        if r_album == album.lower():
+                            cover_url = (r.get("artworkUrl100") or "").replace(
+                                "100x100bb", "600x600bb"
+                            )
+                            break
+                    # If no exact match, use first result
+                    if not cover_url:
+                        cover_url = (results[0].get("artworkUrl100") or "").replace(
+                            "100x100bb", "600x600bb"
+                        )
+                    if cover_url:
+                        _itunes_cover_cache[cache_key] = cover_url
+                        # Keep cache bounded
+                        if len(_itunes_cover_cache) > 500:
+                            oldest = next(iter(_itunes_cover_cache))
+                            del _itunes_cover_cache[oldest]
+                        return cover_url
+
+                # No results from iTunes
+                _itunes_cover_cache[cache_key] = ""
+            except Exception:
+                pass  # Network error, fall through to default thumbnail
 
     # Fallback: default thumbnail from yt-dlp
     return info.get("thumbnail") or ""
