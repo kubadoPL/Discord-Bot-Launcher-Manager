@@ -607,11 +607,15 @@ def _handle_single_video_info(url):
     if "entries" in info:
         info = info["entries"][0]
 
-    # Extract available qualities
+    # Extract available qualities — include ALL video formats (muxed + video-only).
+    # YouTube serves resolutions above 720p as separate video-only DASH streams,
+    # so filtering by "has both vcodec and acodec" would miss 1080p, 1440p, 4K etc.
+    # The download worker merges bestvideo+bestaudio via ffmpeg, so all heights work.
     formats_list = []
     seen_res = set()
     for fmt in info.get("formats", []):
-        if fmt.get("vcodec") != "none" and fmt.get("acodec") != "none":
+        vcodec = fmt.get("vcodec") or "none"
+        if vcodec != "none":
             height = fmt.get("height")
             if height and height not in seen_res:
                 seen_res.add(height)
@@ -622,19 +626,6 @@ def _handle_single_video_info(url):
                 })
 
     formats_list.sort(key=lambda x: x["height"], reverse=True)
-
-    if not formats_list:
-        for fmt in info.get("formats", []):
-            if fmt.get("vcodec") != "none":
-                height = fmt.get("height")
-                if height and height not in seen_res:
-                    seen_res.add(height)
-                    formats_list.append({
-                        "quality": f"{height}p",
-                        "height": height,
-                        "ext": "mp4",
-                    })
-        formats_list.sort(key=lambda x: x["height"], reverse=True)
 
     duration = info.get("duration", 0)
     duration_str = _format_duration(duration)
