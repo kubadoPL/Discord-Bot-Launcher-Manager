@@ -1495,10 +1495,12 @@ class WebStreamStation:
 
                             def do_fetch():
                                 try:
+                                    import gc as _gc
                                     with yt_dlp.YoutubeDL(ydl_opts_fetch) as ydl:
                                         fetch_res["info"] = ydl.extract_info(
                                             file_path, download=False
                                         )
+                                    _gc.collect()
                                 except Exception as e:
                                     fetch_res["error"] = e
 
@@ -1572,8 +1574,10 @@ class WebStreamStation:
 
                                 def do_download():
                                     try:
+                                        import gc as _gc
                                         with yt_dlp.YoutubeDL(dl_opts) as ydl:
                                             ydl.download([file_path])
+                                        _gc.collect()
                                         dl_res["ok"] = True
                                     except Exception as e:
                                         dl_res["error"] = e
@@ -1891,6 +1895,8 @@ class WebStreamStation:
                         flat_info = ydl.extract_info(url, download=False)
                         if flat_info and "entries" in flat_info:
                             flat_entries = [e for e in flat_info["entries"] if e is not None]
+                    import gc as _gc
+                    _gc.collect()
 
                     entry_count = len(flat_entries)
                     self.log(f"Playlist has {entry_count} entries")
@@ -1930,6 +1936,7 @@ class WebStreamStation:
                                             continue
 
                                     all_entries.append({"url": entry_url, "title": title, "video": video})
+                        _gc.collect()
 
                     else:
                         # Large playlist — reuse flat entries from Phase 1 (no second fetch!)
