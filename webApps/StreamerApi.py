@@ -826,13 +826,17 @@ class WebStreamStation:
             self.log(f"Title resolve: capping at {MAX_RESOLVE}/{len(ordered)} items")
             ordered = ordered[:MAX_RESOLVE]
 
-        # Filter to only YouTube URLs that need resolving
+        # Filter to items that need resolving (YouTube URLs or ytsearch queries)
         to_resolve = []
         for url in ordered:
             existing = self._queue_titles.get(url, "")
-            if " - " in existing:
+            # Skip if already has "Artist - Title" format AND has a thumbnail
+            if " - " in existing and url in self._queue_thumbnails:
                 continue
-            if not (url.startswith("http") and ("youtube" in url or "youtu.be" in url)):
+            # Accept YouTube URLs and ytsearch queries (from Spotify)
+            is_yt = url.startswith("http") and ("youtube" in url or "youtu.be" in url)
+            is_search = url.startswith("ytsearch")
+            if not (is_yt or is_search):
                 continue
             to_resolve.append(url)
 
@@ -1910,9 +1914,25 @@ class WebStreamStation:
                 self.log(
                     f"Instant Play (URL): {len(processed_tracks)} tracks added. Waiting for preload..."
                 )
+                # Resolve thumbnails for ytsearch entries (Spotify tracks)
+                ytsearch_tracks = [t for t in processed_tracks if t.startswith("ytsearch")]
+                if ytsearch_tracks:
+                    threading.Thread(
+                        target=self._resolve_titles,
+                        args=(ytsearch_tracks,),
+                        daemon=True,
+                    ).start()
             else:
                 self.manual_queue.extend(processed_tracks)
                 self.log(f"Queued (URL): {len(processed_tracks)} tracks added.")
+                # Resolve thumbnails for ytsearch entries (Spotify tracks)
+                ytsearch_tracks = [t for t in processed_tracks if t.startswith("ytsearch")]
+                if ytsearch_tracks:
+                    threading.Thread(
+                        target=self._resolve_titles,
+                        args=(ytsearch_tracks,),
+                        daemon=True,
+                    ).start()
                 return
 
         # Instant play: wait for the first track to be preloaded before skipping
