@@ -605,6 +605,7 @@ class WebStreamStation:
             "running": self.running,
             "established": self._established,
             "current_song": self.current_song,
+            "current_thumbnail": self.current_thumbnail,
             "loop_mode": self.loop_mode,
             "mic_active": self.mic_active,
             "auto_disconnect_empty": self.auto_disconnect_empty,
