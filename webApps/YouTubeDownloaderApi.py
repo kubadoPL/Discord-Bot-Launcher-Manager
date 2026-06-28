@@ -207,8 +207,36 @@ def _sanitize_filename(name):
     return name[:200] if name else "download"
 
 
-# ─── Cookie Support (shared with StreamerApi if available) ────────────────────
-COOKIE_FILE_PATH = os.path.join(script_dir, "streamer_data", "cookies.txt")
+# ─── Cookie Support (restore from DB, same as StreamerApi) ────────────────────
+COOKIE_DIR = os.path.join(script_dir, "streamer_data")
+os.makedirs(COOKIE_DIR, exist_ok=True)
+COOKIE_FILE_PATH = os.path.join(COOKIE_DIR, "cookies.txt")
+
+
+def _restore_cookies_from_db():
+    """On startup, restore cookies.txt from database if local file is missing.
+    Uses the same streamer_cookies table as StreamerApi."""
+    if os.path.isfile(COOKIE_FILE_PATH):
+        print("[YTDownloader Cookies] Local cookies.txt exists, skipping DB restore.")
+        return
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT cookie_data FROM streamer_cookies WHERE id = 1")
+        row = cursor.fetchone()
+        conn.close()
+        if row and row[0]:
+            with open(COOKIE_FILE_PATH, "w", encoding="utf-8") as f:
+                f.write(row[0])
+            print(f"[YTDownloader Cookies] Restored cookies.txt from DB ({len(row[0])} bytes)")
+        else:
+            print("[YTDownloader Cookies] No cookies in DB.")
+    except Exception as e:
+        print(f"[YTDownloader Cookies] DB restore error: {e}")
+
+
+# Restore cookies on module load (in background to not block startup)
+threading.Thread(target=_restore_cookies_from_db, daemon=True, name="ytdl-cookie-restore").start()
 
 
 def _get_cookie_opts():
@@ -216,6 +244,25 @@ def _get_cookie_opts():
     if os.path.isfile(COOKIE_FILE_PATH):
         return {"cookiefile": COOKIE_FILE_PATH}
     return {}
+
+
+def _get_base_ydl_opts():
+    """Return base yt-dlp options with cookies and YouTube extractor args.
+    Uses 'default,web_creator' player clients to bypass age-gate restrictions
+    and retrieve all available format streams (including DASH video-only)."""
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        **_get_cookie_opts(),
+        "extractor_args": {
+            "youtube": {
+                # 'default' for normal videos, 'tv' bypasses age-gate and returns
+                # full DASH format lists (all resolutions) for age-restricted content
+                "player_client": ["default,tv"],
+            }
+        },
+    }
+    return opts
 
 
 # ─── API Routes ───────────────────────────────────────────────────────────────
@@ -442,9 +489,7 @@ def _handle_spotify_info(url):
         import yt_dlp
         search_query = f"ytsearch1:{t['search']}"
         ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            **_get_cookie_opts(),
+            **_get_base_ydl_opts(),
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(search_query, download=False)
@@ -495,12 +540,10 @@ def _handle_playlist_info(url):
     import yt_dlp
 
     ydl_opts = {
+        **_get_base_ydl_opts(),
         "ignoreerrors": True,
         "extract_flat": "in_playlist",
         "playlist-end": 500,
-        "quiet": True,
-        "no_warnings": True,
-        **_get_cookie_opts(),
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -595,10 +638,8 @@ def _handle_single_video_info(url):
     import yt_dlp
 
     ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
+        **_get_base_ydl_opts(),
         "noplaylist": True,
-        **_get_cookie_opts(),
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -777,10 +818,8 @@ def _download_worker(job_id, url, fmt, quality, override_title=""):
 
         # First pass: get title for filename
         with yt_dlp.YoutubeDL({
-            "quiet": True,
-            "no_warnings": True,
+            **_get_base_ydl_opts(),
             "noplaylist": True,
-            **_get_cookie_opts(),
         }) as ydl:
             info = ydl.extract_info(url, download=False)
             if "entries" in info:
@@ -801,6 +840,7 @@ def _download_worker(job_id, url, fmt, quality, override_title=""):
         if fmt == "mp3":
             output_file = f"{output_base}.mp3"
             ydl_opts = {
+                **_get_base_ydl_opts(),
                 "format": "bestaudio/best",
                 "outtmpl": output_base + ".%(ext)s",
                 "postprocessors": [
@@ -810,11 +850,8 @@ def _download_worker(job_id, url, fmt, quality, override_title=""):
                         "preferredquality": "320",
                     }
                 ],
-                "quiet": True,
-                "no_warnings": True,
                 "noplaylist": True,
                 "progress_hooks": [progress_hook],
-                **_get_cookie_opts(),
             }
         else:
             # MP4
@@ -833,6 +870,7 @@ def _download_worker(job_id, url, fmt, quality, override_title=""):
                 fmt_str = f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
 
             ydl_opts = {
+                **_get_base_ydl_opts(),
                 "format": fmt_str,
                 "outtmpl": output_base + ".%(ext)s",
                 "merge_output_format": "mp4",
@@ -842,11 +880,8 @@ def _download_worker(job_id, url, fmt, quality, override_title=""):
                         "preferedformat": "mp4",
                     }
                 ],
-                "quiet": True,
-                "no_warnings": True,
                 "noplaylist": True,
                 "progress_hooks": [progress_hook],
-                **_get_cookie_opts(),
             }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
