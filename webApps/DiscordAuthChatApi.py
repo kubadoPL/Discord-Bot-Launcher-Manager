@@ -1292,6 +1292,7 @@ def anonymous_heartbeat():
         return jsonify({"error": "Invalid station"}), 400
 
     now = datetime.utcnow()
+    user_agent = request.headers.get("User-Agent", "")[:500]  # Capture UA for bot detection
     if station not in anonymous_listeners:
         anonymous_listeners[station] = {}
     anonymous_listeners[station][anon_id] = now
@@ -1327,12 +1328,15 @@ def anonymous_heartbeat():
             "history": [],
             "first_seen": now.isoformat() + "Z",
             "last_seen": now.isoformat() + "Z",
+            "user_agent": user_agent,
         }
 
     stats = anon_stats[anon_id]
     stats["station"] = station
     stats["current_song"] = current_song
     stats["last_seen"] = now.isoformat() + "Z"
+    if user_agent:
+        stats["user_agent"] = user_agent  # Update on every heartbeat (UA can change)
 
     # Store favorites and history from client (same as logged-in users)
     if isinstance(client_favorites, list):
@@ -2396,6 +2400,7 @@ def get_anon_stats():
             "favorites": stats.get("favorites", []),
             "history": stats.get("history", []),
             "favoritesCount": len(stats.get("favorites", [])),
+            "user_agent": stats.get("user_agent", ""),
         })
 
     result.sort(key=lambda x: x["totalTime"], reverse=True)
