@@ -1293,6 +1293,8 @@ def anonymous_heartbeat():
 
     now = datetime.utcnow()
     user_agent = request.headers.get("User-Agent", "")[:500]  # Capture UA for bot detection
+    accept_lang = request.headers.get("Accept-Language", "")[:200]  # Browser language
+    referer = request.headers.get("Referer", "")[:500]  # Where they came from
     if station not in anonymous_listeners:
         anonymous_listeners[station] = {}
     anonymous_listeners[station][anon_id] = now
@@ -1329,6 +1331,8 @@ def anonymous_heartbeat():
             "first_seen": now.isoformat() + "Z",
             "last_seen": now.isoformat() + "Z",
             "user_agent": user_agent,
+            "accept_language": accept_lang,
+            "referer": referer,
         }
 
     stats = anon_stats[anon_id]
@@ -1337,6 +1341,10 @@ def anonymous_heartbeat():
     stats["last_seen"] = now.isoformat() + "Z"
     if user_agent:
         stats["user_agent"] = user_agent  # Update on every heartbeat (UA can change)
+    if accept_lang:
+        stats["accept_language"] = accept_lang
+    if referer:
+        stats["referer"] = referer
 
     # Store favorites and history from client (same as logged-in users)
     if isinstance(client_favorites, list):
@@ -2401,6 +2409,8 @@ def get_anon_stats():
             "history": stats.get("history", []),
             "favoritesCount": len(stats.get("favorites", [])),
             "user_agent": stats.get("user_agent", ""),
+            "accept_language": stats.get("accept_language", ""),
+            "referer": stats.get("referer", ""),
         })
 
     result.sort(key=lambda x: x["totalTime"], reverse=True)
