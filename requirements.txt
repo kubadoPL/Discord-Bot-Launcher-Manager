@@ -22,7 +22,7 @@ spotipy==2.19.0
 typing-extensions
 tzlocal==2.1
 urllib3==1.26.3
-yt-dlp==2026.7.4
+yt-dlp==2026.8.19
 yt-dlp-ejs
 colorlog
 pymysql
