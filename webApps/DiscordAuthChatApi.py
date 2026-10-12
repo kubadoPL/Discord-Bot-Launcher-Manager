@@ -4,7 +4,7 @@ import secrets
 import re
 import threading
 import queue
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Set the script and parent directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -30,12 +30,14 @@ if RESTRICT_CORS:
         "origins": ["https://radio-gaming.stream", "https://k5studio.dev"],
         "allow_headers": ["Authorization", "Content-Type", "X-Playing-Station"],
         "methods": ["GET", "POST", "DELETE", "OPTIONS"],
+        "max_age": 86400,  # cache CORS preflight for a day (halves request count)
     }
 else:
     CORS_OPTIONS = {
         "origins": "*",
         "allow_headers": ["Authorization", "Content-Type", "X-Playing-Station"],
         "methods": ["GET", "POST", "DELETE", "OPTIONS"],
+        "max_age": 86400,
     }
 
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2MB max request size
@@ -849,13 +851,28 @@ def normalize_station(name):
 
 
 def safe_parse_datetime(dt_str):
-    """Safely parse ISO datetime strings, handling 'Z' suffix."""
+    """Parse an ISO datetime string ('Z' suffix ok) or an epoch value
+    (seconds or milliseconds) into a timezone-aware UTC datetime.
+    Returns datetime.min when the value cannot be parsed.
+
+    Note: the radio frontend polls with `since=<epoch ms>`. Before this
+    accepted epochs, that parsed as datetime.min, the `since` filter was
+    skipped and every poll returned the station's whole history (~200KB).
+    """
     if not dt_str:
         return datetime.min
+    s = str(dt_str).strip()
     try:
-        # Handle 'Z' by replacing with '+00:00' for older Python versions
-        clean_str = dt_str.replace("Z", "+00:00")
-        return datetime.fromisoformat(clean_str)
+        if s.isdigit():
+            val = int(s)
+            if val > 10_000_000_000:  # milliseconds
+                val = val / 1000.0
+            return datetime.fromtimestamp(val, tz=timezone.utc)
+        clean_str = s.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(clean_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except Exception:
         return datetime.min
 
@@ -1494,7 +1511,7 @@ def poll_messages(station):
     other_mentions = []
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
-        if token in user_sessions and since:
+        if token in user_sessions and since and since_time != datetime.min:
             try:
                 current_user = user_sessions[token]
                 user_id = current_user["id"]

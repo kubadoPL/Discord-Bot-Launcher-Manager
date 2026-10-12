@@ -618,7 +618,7 @@ def home():
 
 
 @app.route("/queue-status")
-@cross_origin()
+@cross_origin(max_age=86400)
 def queue_status():
     """Return current queue status as JSON."""
     return jsonify(browser_queue.get_status())
@@ -626,7 +626,7 @@ def queue_status():
 
 @app.route("/heartbeat", methods=["POST"])
 @limiter.limit("60 per minute")
-@cross_origin()
+@cross_origin(max_age=86400)
 def heartbeat():
     """Register a heartbeat from a connected client."""
     data = request.json if request.is_json else {}
@@ -639,14 +639,14 @@ def heartbeat():
 
 
 @app.route("/online-count")
-@cross_origin()
+@cross_origin(max_age=86400)
 def online_count():
     """Return the number of currently online users."""
     return jsonify({"online": _get_online_count()})
 
 
 @app.route("/api/stats")
-@cross_origin()
+@cross_origin(max_age=86400)
 def api_stats():
     """Return FormBot session (daily) and global (all-time) statistics."""
     with _session_stats_lock:
@@ -664,7 +664,7 @@ def api_stats():
 
 @app.route("/track-visit", methods=["POST"])
 @limiter.limit("30 per minute")
-@cross_origin()
+@cross_origin(max_age=86400)
 def track_visit():
     """Track a page visit. Body: {is_new: true/false}"""
     data = request.json if request.is_json else {}
@@ -676,7 +676,7 @@ def track_visit():
 
 @app.route("/update-ai-key", methods=["POST"])
 @limiter.limit("15 per minute")
-@cross_origin()
+@cross_origin(max_age=86400)
 def update_ai_key():
     """Receive a new API key from user during quota exhaustion."""
     new_key = request.json.get("key", "").strip() if request.is_json else ""
@@ -695,7 +695,7 @@ _stored_weights = {}
 
 @app.route("/store-weights", methods=["POST"])
 @limiter.limit("30 per minute")
-@cross_origin()
+@cross_origin(max_age=86400)
 def store_weights():
     """Store weights + settings server-side and return a token to reference them."""
     data = request.json if request.is_json else {}
@@ -2697,7 +2697,7 @@ HOME_PAGE_HTML = r"""
 @app.route("/fill-form", methods=["GET"], defaults={"form_url": None})
 @app.route("/fill-form/<path:form_url>", methods=["GET"])
 @limiter.limit("3 per minute")
-@cross_origin()
+@cross_origin(max_age=86400)
 def fill_form(form_url):
     if not form_url:
         return jsonify({"error": "Podaj URL formularza, np. /fill-form/https://docs.google.com/forms/d/e/.../viewform"}), 400

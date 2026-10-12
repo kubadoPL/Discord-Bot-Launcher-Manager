@@ -42,7 +42,14 @@ CORS_OPTIONS = {
     "origins": _CORS_ORIGINS,
     "allow_headers": ["Authorization", "Content-Type"],
     "methods": ["GET", "POST", "OPTIONS"],
+    "max_age": 86400,  # cache CORS preflight for a day (halves request count)
 }
+
+# How many queue items the polled status endpoints include. The full queue can
+# be thousands of URLs (~250KB per poll); the UIs only show the first page(s)
+# and fetch deeper pages on demand via /queue/<id>?offset=&limit=.
+STATUS_QUEUE_PREVIEW = 60
+PUBLIC_STATUS_CACHE_TTL = 5.0
 
 limiter = Limiter(
     get_remote_address,
@@ -732,11 +739,11 @@ class WebStreamStation:
         with self._queue_lock:
             queue_list = list(self.manual_queue)
 
-        # Limit both titles and thumbnails to items actually in queue (not old played songs)
-        queue_set = set(queue_list)
-        visible_urls = set(queue_list[:50])
-        visible_titles = {u: t for u, t in self._queue_titles.items() if u in queue_set}
-        visible_thumbs = {u: t for u, t in self._queue_thumbnails.items() if u in visible_urls}
+        # Only the first STATUS_QUEUE_PREVIEW items travel with every poll;
+        # the panel fetches deeper pages via /queue/<id>?offset=&limit=.
+        preview = queue_list[:STATUS_QUEUE_PREVIEW]
+        visible_titles = {u: self._queue_titles[u] for u in preview if u in self._queue_titles}
+        visible_thumbs = {u: self._queue_thumbnails[u] for u in preview if u in self._queue_thumbnails}
 
         return {
             "station_id": self.station_id,
@@ -748,7 +755,7 @@ class WebStreamStation:
             "loop_mode": self.loop_mode,
             "mic_active": self.mic_active,
             "auto_disconnect_empty": self.auto_disconnect_empty,
-            "queue": queue_list,
+            "queue": preview,
             "queue_length": len(queue_list),
             "queue_titles": visible_titles,
             "queue_thumbnails": visible_thumbs,
@@ -2402,16 +2409,27 @@ def home():
     return jsonify({"service": "Radio GAMING Web Streamer", "status": "online"})
 
 
+_public_status_lock = threading.Lock()
+_public_status_cache = {"body": None, "ts": 0.0}
+
+
 @app.route("/public/status", methods=["GET"])
 @limiter.limit("30 per minute")
 @cross_origin(**CORS_OPTIONS)
 def public_status():
     """Public endpoint: returns which stations are actively streaming and their queues.
-    No admin auth required — safe for the radio frontend to poll."""
+    No admin auth required — safe for the radio frontend to poll.
+    Cached for PUBLIC_STATUS_CACHE_TTL seconds so N listeners cost one build."""
+    now = time.time()
+    with _public_status_lock:
+        if _public_status_cache["body"] is not None and now - _public_status_cache["ts"] < PUBLIC_STATUS_CACHE_TTL:
+            return app.response_class(_public_status_cache["body"], mimetype="application/json")
+
     result = {}
     for sid, station in stations.items():
         with station._queue_lock:
-            queue_urls = list(station.manual_queue)
+            queue_len = len(station.manual_queue)
+            queue_urls = station.manual_queue[:STATUS_QUEUE_PREVIEW]
         # Build display titles and thumbnails lists from maps
         queue_display = []
         for url in queue_urls:
@@ -2429,10 +2447,15 @@ def public_status():
             "current_song": station.current_song if station.running else None,
             "current_thumbnail": current_thumb,
             "queue": queue_display,
-            "queue_length": len(queue_urls),
+            "queue_length": queue_len,
             "loop_mode": station.loop_mode,
         }
-    return jsonify(result)
+
+    body = json.dumps(result)
+    with _public_status_lock:
+        _public_status_cache["body"] = body
+        _public_status_cache["ts"] = now
+    return app.response_class(body, mimetype="application/json")
 
 @app.route("/status", methods=["GET"])
 @limiter.limit("30 per minute")
@@ -2547,7 +2570,11 @@ def enqueue_song(station_id):
 @limiter.limit("30 per minute")
 @cross_origin(**CORS_OPTIONS)
 def get_queue(station_id):
-    """Get current queue."""
+    """Get current queue.
+    Without params: full list of URLs (legacy).
+    With ?offset=&limit=: a page of URLs plus titles/thumbnails for that page
+    and the total length — used by the panel for pages beyond the status preview.
+    """
     session, err = get_admin_session()
     if err:
         return err
@@ -2555,7 +2582,26 @@ def get_queue(station_id):
     if station_id not in stations:
         return jsonify({"error": "Invalid station ID"}), 400
 
-    return jsonify({"queue": stations[station_id].get_queue()})
+    station = stations[station_id]
+    if "offset" not in request.args and "limit" not in request.args:
+        return jsonify({"queue": station.get_queue()})
+
+    try:
+        offset = max(0, int(request.args.get("offset", 0)))
+        limit = max(1, min(200, int(request.args.get("limit", 20))))
+    except ValueError:
+        return jsonify({"error": "offset/limit must be integers"}), 400
+
+    with station._queue_lock:
+        total = len(station.manual_queue)
+        page = station.manual_queue[offset:offset + limit]
+    return jsonify({
+        "queue": page,
+        "offset": offset,
+        "total": total,
+        "titles": {u: station._queue_titles[u] for u in page if u in station._queue_titles},
+        "thumbnails": {u: station._queue_thumbnails[u] for u in page if u in station._queue_thumbnails},
+    })
 
 
 @app.route("/queue/<int:station_id>/clear", methods=["POST"])

@@ -349,7 +349,7 @@ def download_any_roblox_asset():
 
 
 @app.route("/steam/workshop-stats", methods=["GET"])
-@cross_origin()
+@cross_origin(max_age=86400)
 @cache.cached(timeout=600, query_string=True)
 def steam_workshop_stats():
     """Fetch Steam Workshop item stats (subscribers, favorites, views).
@@ -393,7 +393,7 @@ def steam_workshop_stats():
 
 
 @app.route("/api/uptime")
-@cross_origin()
+@cross_origin(max_age=86400)
 def api_uptime():
     """Return server uptime in seconds, formatted string, and start timestamp."""
     uptime_sec = _time.time() - _server_start_time
@@ -417,7 +417,7 @@ def api_uptime():
 
 
 @app.route("/api/running-services")
-@cross_origin()
+@cross_origin(max_age=86400)
 @cache.cached(timeout=30)
 def api_running_services():
     """Return the count of currently running Discord bots and web services."""
@@ -510,7 +510,7 @@ except Exception as _e:
 
 
 @app.route("/stats/<service_name>", methods=["GET"])
-@cross_origin()
+@cross_origin(max_age=86400)
 def get_all_service_stats(service_name):
     """Return all stats for a given service.
     Usage: GET /stats/k5portfolio
@@ -541,7 +541,7 @@ def get_all_service_stats(service_name):
 
 
 @app.route("/stats/<service_name>/<stat_name>", methods=["GET"])
-@cross_origin()
+@cross_origin(max_age=86400)
 def get_service_stat(service_name, stat_name):
     """Return a single stat for a service.
     Usage: GET /stats/k5portfolio/totalvisits

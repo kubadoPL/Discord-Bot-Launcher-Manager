@@ -47,6 +47,7 @@ CORS_OPTIONS = {
     "origins": _CORS_ORIGINS,
     "allow_headers": ["Content-Type"],
     "methods": ["GET", "POST", "OPTIONS"],
+    "max_age": 86400,
 }
 
 limiter = Limiter(
