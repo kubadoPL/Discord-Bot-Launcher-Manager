@@ -948,6 +948,13 @@ def get_online_data(station_key):
             p = user_profiles[uid].copy()
             station_val = user_last_station.get(uid, "Radio GAMING")
             p["current_station"] = STATION_NAMES.get(station_val, station_val)
+            # "Last seen" must be the user's most recent activity anywhere, not
+            # the last time they touched THIS station. The footer widget merges
+            # the three station lists, and the per-station value made someone
+            # active 41 min ago on DARK show as "3h ago" (their last GAMING visit).
+            global_ts = all_user_activity.get(uid)
+            if global_ts is not None and global_ts > last_ts:
+                last_ts = global_ts
             p["last_seen"] = last_ts.isoformat() + "Z"
             p["is_online"] = is_online
             p["is_anonymous"] = False
