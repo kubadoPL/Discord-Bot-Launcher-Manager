@@ -3,7 +3,9 @@ import json
 import requests
 from functools import wraps
 import requests
+import threading
 import mysql.connector
+from mysql.connector import pooling
 
 from flask import Flask, request, jsonify
 import sys
@@ -129,20 +131,51 @@ def require_api_key(func):
 
     return wrapper
 
-# Database connection function
+# ─── Database connection pool ─────────────────────────────────────────────────
+# Opening a fresh TLS connection to MySQL costs ~0.5s and, before pooling, every
+# request did it. In the single-process web dyno that stall also froze the
+# Icecast streaming loop (audible as dropouts during live DJ). The pool keeps a
+# handful of connections warm; conn.close() on a pooled connection just returns
+# it to the pool. If the pool is exhausted (callers that forgot to close), we
+# fall back to a direct connection so nothing ever hard-fails.
+_DB_CONFIG = dict(
+    host=config.HOST,
+    user=config.USER,
+    password=config.PASSWORD,
+    database=config.DATABASE,
+    port=config.PORT,
+    autocommit=True,
+    connection_timeout=10,
+)
+_DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "8"))
+_db_pool = None
+_db_pool_lock = threading.Lock()
+
+
+def _get_db_pool():
+    global _db_pool
+    if _db_pool is None:
+        with _db_pool_lock:
+            if _db_pool is None:
+                print(f"[INFO] Creating MySQL connection pool (size={_DB_POOL_SIZE})...")
+                _db_pool = pooling.MySQLConnectionPool(
+                    pool_name="k5_main",
+                    pool_size=_DB_POOL_SIZE,
+                    pool_reset_session=True,
+                    **_DB_CONFIG,
+                )
+    return _db_pool
+
+
 def get_db_connection():
-    print("[INFO] Connecting to the database...")
-    conn = mysql.connector.connect(
-        host=config.HOST,
-        user=config.USER,
-        password=config.PASSWORD,
-        database=config.DATABASE,
-        port=config.PORT,
-        autocommit=True,
-        connection_timeout=10,
-    )
-    print("[INFO] Database connection established.")
-    return conn
+    """Return a pooled MySQL connection. Callers keep calling conn.close()."""
+    try:
+        return _get_db_pool().get_connection()
+    except pooling.PoolError:
+        print("[WARN] DB pool exhausted, opening a direct connection.")
+    except Exception as e:
+        print(f"[WARN] DB pool unavailable ({e}), opening a direct connection.")
+    return mysql.connector.connect(**_DB_CONFIG)
 
 def createtable():
     conn = get_db_connection()

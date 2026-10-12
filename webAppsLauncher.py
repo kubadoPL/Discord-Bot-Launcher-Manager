@@ -1,7 +1,12 @@
 import os
 
-# Apply gevent monkey patching before any other imports
-if os.environ.get("PORT"):  # Only patch if running on Heroku/Production
+# gevent monkey patching is OFF by default. With patch_all() every thread
+# became a greenlet, so a blocking MySQL connect (C extension, not gevent-aware)
+# or heavy JSON serialization froze the Icecast streaming loop in StreamerApi
+# along with the HTTP handlers. The web dyno now runs gunicorn's gthread worker
+# (see Procfile) and the streaming loop lives in a real OS thread.
+# Set USE_GEVENT=1 to restore the old behaviour.
+if os.environ.get("USE_GEVENT") == "1":
     from gevent import monkey
 
     monkey.patch_all()

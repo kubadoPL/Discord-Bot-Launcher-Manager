@@ -673,6 +673,19 @@ class WebStreamStation:
         self._log_lock = threading.Lock()
         self.mic_active = False
         self.mic_queue = queue.Queue(maxsize=100)
+        # Jitter buffer for live mic. Browser sends ~370ms chunks over HTTP, so
+        # arrival is bursty. We hold ~1s before playing and only inject silence
+        # after the buffer has truly run dry; if latency piles up we drop back.
+        self._mic_lock = threading.Lock()
+        self._mic_buffered_bytes = 0
+        self._mic_prebuffering = True
+        self._mic_prebuffer_started = None
+        self._mic_underruns = 0
+        self.MIC_BYTES_PER_SEC = 44100 * 2 * 2
+        self.MIC_PREBUFFER_BYTES = int(self.MIC_BYTES_PER_SEC * 1.0)
+        self.MIC_PREBUFFER_MAX_WAIT = 2.0  # s; start anyway after this
+        self.MIC_MAX_LATENCY_BYTES = int(self.MIC_BYTES_PER_SEC * 3.0)
+        self.MIC_CATCHUP_TARGET_BYTES = int(self.MIC_BYTES_PER_SEC * 1.0)
         self._queue_titles = {}  # url -> display title
         self._queue_thumbnails = {}  # url -> thumbnail URL
         self._idle_since = None  # Timestamp when idle started (for auto-disconnect)
@@ -1061,14 +1074,28 @@ class WebStreamStation:
     def set_mic(self, active):
         """Toggle microphone broadcasting."""
         self.mic_active = active
-        # Drain any leftover mic data when turning off
-        if not active:
-            while not self.mic_queue.empty():
-                try:
-                    self.mic_queue.get_nowait()
-                except queue.Empty:
-                    break
+        # Fresh buffer state on every toggle
+        self._drain_mic_queue()
+        with self._mic_lock:
+            self._mic_prebuffering = True
+            self._mic_prebuffer_started = None
+            self._mic_underruns = 0
         self.log(f"Microphone: {'ON' if active else 'OFF'}")
+
+    def _drain_mic_queue(self):
+        while True:
+            try:
+                self.mic_queue.get_nowait()
+            except queue.Empty:
+                break
+        with self._mic_lock:
+            self._mic_buffered_bytes = 0
+
+    def _mic_get(self, timeout):
+        chunk = self.mic_queue.get(timeout=timeout)
+        with self._mic_lock:
+            self._mic_buffered_bytes = max(0, self._mic_buffered_bytes - len(chunk))
+        return chunk
 
     def feed_mic_data(self, pcm_bytes):
         """Accept raw PCM data from browser mic (s16le, 44100Hz, stereo)."""
@@ -1079,13 +1106,19 @@ class WebStreamStation:
         except queue.Full:
             # Drop oldest chunk to prevent backpressure
             try:
-                self.mic_queue.get_nowait()
+                dropped = self.mic_queue.get_nowait()
+                with self._mic_lock:
+                    self._mic_buffered_bytes = max(0, self._mic_buffered_bytes - len(dropped))
             except queue.Empty:
                 pass
             try:
                 self.mic_queue.put_nowait(pcm_bytes)
             except queue.Full:
-                pass
+                return
+        with self._mic_lock:
+            self._mic_buffered_bytes += len(pcm_bytes)
+            if self._mic_prebuffering and self._mic_prebuffer_started is None:
+                self._mic_prebuffer_started = time.time()
 
     def enqueue(self, file_path, instant=False):
         """Add a song (URL or search query) to the queue."""
@@ -1688,11 +1721,65 @@ class WebStreamStation:
 
                             # ─── Mic Priority: when mic is ON, feed mic data instead of music ───
                             if self.mic_active:
+                                with self._mic_lock:
+                                    buffered = self._mic_buffered_bytes
+                                    prebuffering = self._mic_prebuffering
+                                    prebuf_started = self._mic_prebuffer_started
+
+                                if prebuffering:
+                                    # Hold until ~1s of audio is queued (or we waited long enough),
+                                    # feeding realtime silence so Icecast stays alive.
+                                    waited = (time.time() - prebuf_started) if prebuf_started else 0.0
+                                    if buffered >= self.MIC_PREBUFFER_BYTES or waited >= self.MIC_PREBUFFER_MAX_WAIT:
+                                        with self._mic_lock:
+                                            self._mic_prebuffering = False
+                                        self.log(f"Mic buffer ready ({buffered / self.MIC_BYTES_PER_SEC:.2f}s)")
+                                    else:
+                                        chunk = b"\x00" * 4096
+                                        try:
+                                            self.transmitter.stdin.write(chunk)
+                                            self._conn_bytes_sent += len(chunk)
+                                        except Exception:
+                                            inner_running = False
+                                            break
+                                        try:
+                                            feeder_queue_local.get_nowait()
+                                        except queue.Empty:
+                                            pass
+                                        expected_elapsed = (self._conn_bytes_sent / bytes_per_sec) - 0.5
+                                        actual_elapsed = time.time() - self._conn_start_time
+                                        sleep_time = expected_elapsed - actual_elapsed
+                                        if sleep_time > 0.01:
+                                            time.sleep(min(sleep_time, 0.2))
+                                        else:
+                                            time.sleep(0.005)
+                                        continue
+
+                                # Latency crept up (silence was injected earlier) — drop back to ~1s.
+                                if buffered > self.MIC_MAX_LATENCY_BYTES:
+                                    dropped_bytes = 0
+                                    while buffered - dropped_bytes > self.MIC_CATCHUP_TARGET_BYTES:
+                                        try:
+                                            dropped_bytes += len(self._mic_get(timeout=0))
+                                        except queue.Empty:
+                                            break
+                                    self.log(f"Mic latency catch-up: dropped {dropped_bytes / self.MIC_BYTES_PER_SEC:.2f}s")
+
                                 try:
-                                    chunk = self.mic_queue.get(timeout=0.02)
+                                    # Generous wait: the transmitter already has ~0.5s queued ahead,
+                                    # so a late HTTP chunk does not need instant silence.
+                                    chunk = self._mic_get(timeout=0.35)
                                 except queue.Empty:
-                                    # No mic data yet — send silence to keep stream alive
+                                    # Real underrun — pad with silence and re-arm prebuffering
+                                    # so playback resumes smoothly instead of chunk-by-chunk.
                                     chunk = b"\x00" * 4096
+                                    with self._mic_lock:
+                                        self._mic_underruns += 1
+                                        self._mic_prebuffering = True
+                                        self._mic_prebuffer_started = None
+                                        underruns = self._mic_underruns
+                                    if underruns <= 5 or underruns % 20 == 0:
+                                        self.log(f"Mic underrun #{underruns} — rebuffering")
 
                                 try:
                                     self.transmitter.stdin.write(chunk)
