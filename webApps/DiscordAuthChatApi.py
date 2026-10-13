@@ -1555,6 +1555,56 @@ def poll_all_stations():
 _process_start_time = time.time()
 
 
+def _mention_patterns(user):
+    """Regexes that mean "this message mentions `user`" (same rules as the
+    cross-station mention check in _build_poll_payload)."""
+    username = (user.get("username") or "").lower()
+    global_name = (user.get("global_name") or "").lower()
+    patterns = [r"@everyone", r"@here"]
+    if username:
+        patterns.append(r"@" + re.escape(username) + r"(?![a-zA-Z0-9])")
+    if global_name:
+        patterns.append(r"@" + re.escape(global_name) + r"(?![a-zA-Z0-9])")
+    return patterns
+
+
+def _count_unread(user, read_at):
+    """Unread messages / mentions for `user` on every chat station.
+
+    `read_at` maps station key -> when the user last looked at that chat
+    (epoch ms or ISO). A station without a value counts as fully read.
+    Counts come straight from the in-memory message lists, so deleting a
+    message removes it from the counters and reactions/edits never count
+    (only the original `timestamp` is compared, not `last_update`).
+    """
+    uid = user.get("id")
+    patterns = _mention_patterns(user)
+    total_messages = 0
+    total_mentions = 0
+    stations = {}
+    if not isinstance(read_at, dict):
+        read_at = {}
+    for station_key, msgs in chat_messages.items():
+        raw = read_at.get(station_key)
+        since_time = safe_parse_datetime(raw) if raw not in (None, "") else datetime.min
+        n_msgs = 0
+        n_mentions = 0
+        if since_time != datetime.min:
+            for m in msgs:
+                if (m.get("user") or {}).get("id") == uid:
+                    continue
+                if safe_parse_datetime(m.get("timestamp")) <= since_time:
+                    continue
+                n_msgs += 1
+                content = (m.get("content") or "").lower()
+                if any(re.search(pat, content) for pat in patterns):
+                    n_mentions += 1
+        stations[station_key] = {"messages": n_msgs, "mentions": n_mentions}
+        total_messages += n_msgs
+        total_mentions += n_mentions
+    return {"messages": total_messages, "mentions": total_mentions, "stations": stations}
+
+
 def _section_etag(obj):
     """Short content hash so /radio/tick can skip sections the client already has."""
     raw = json.dumps(obj, sort_keys=True, default=str, separators=(",", ":"))
@@ -1577,7 +1627,9 @@ def radio_tick():
       streamer - same as /StreamerApi/public/status
       roles    - same as /user/roles
       uptime   - {started_at}
-    online/streamer/roles carry an etag; if the client sends the same etag the
+      unread   - {messages, mentions, stations:{key:{messages,mentions}}}
+                 counted since body.read_at[station] (logged-in users only)
+    online/streamer/roles/unread carry an etag; if the client sends the same etag the
     section is left out and its name listed in `unchanged`.
     """
     try:
@@ -1633,6 +1685,9 @@ def radio_tick():
             "owners": sorted(str(x) for x in OWNER_USER_IDS),
             "admins": sorted(str(x) for x in (ADMIN_USER_IDS | dynamic_admin_ids)),
         })
+
+    if "unread" in want and token in user_sessions:
+        put("unread", _count_unread(user_sessions[token], body.get("read_at") or {}))
 
     if "uptime" in want:
         k5 = sys.modules.get("K5ApiManager")
