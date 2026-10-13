@@ -51,6 +51,16 @@ CORS_OPTIONS = {
 STATUS_QUEUE_PREVIEW = 60
 PUBLIC_STATUS_CACHE_TTL = 5.0
 
+# How far ahead of real time the audio loop pushes PCM into ffmpeg/Icecast.
+# The lead ends up in listeners' buffers, so the loop can lose the CPU for
+# up to this long (GIL contention, GC, a busy request) without an audible gap.
+# Costs the same amount of extra latency for live DJ.
+STREAM_LEAD_SECONDS = float(os.environ.get("STREAM_LEAD_SECONDS", "2.5"))
+
+# The audio loop shares the interpreter with Flask and background workers.
+# A shorter switch interval lets it grab the GIL every 1ms instead of 5ms.
+sys.setswitchinterval(0.001)
+
 limiter = Limiter(
     get_remote_address,
     app=app,
@@ -565,6 +575,105 @@ def get_cookie_opts():
     return {}
 
 
+# ─── yt-dlp out of process ───────────────────────────────────────────────────
+# yt-dlp is pure Python and CPU heavy (page parsing, JS challenges, playlist
+# walks). Run in-process it competes with the audio loop for the GIL and was
+# the main remaining source of stream hiccups. Every call now spawns
+# `python -m yt_dlp` and reads the info JSON it prints, so the web process
+# keeps only the parsed result (also fixes the memory growth gc.collect()
+# was papering over).
+
+_ytdlp_version_cache = {"v": None}
+
+
+def _ytdlp_version():
+    if _ytdlp_version_cache["v"] is None:
+        try:
+            out = subprocess.run(
+                [sys.executable, "-m", "yt_dlp", "--version"],
+                capture_output=True, text=True, timeout=30,
+            )
+            _ytdlp_version_cache["v"] = (out.stdout or "").strip() or "unknown"
+        except Exception:
+            _ytdlp_version_cache["v"] = "unknown"
+    return _ytdlp_version_cache["v"]
+
+
+def _ytdlp_run(
+    url,
+    *,
+    download=False,
+    outtmpl=None,
+    audio_mp3=False,
+    fmt=None,
+    flat=False,
+    noplaylist=False,
+    playlist_end=None,
+    ignore_errors=False,
+    timeout=300,
+):
+    """Run yt-dlp in a subprocess and return its info dict (or list of dicts).
+
+    download=False -> `-J`: one JSON object (a video, or a playlist with "entries").
+    download=True  -> `--print-json`: one JSON object per downloaded video; the
+                      first one is returned (callers pass --no-playlist or a
+                      single video).
+    Raises RuntimeError with yt-dlp's last stderr line on failure.
+    """
+    cmd = [
+        sys.executable, "-m", "yt_dlp",
+        "--quiet", "--no-warnings", "--no-progress", "--no-color",
+        "--no-check-certificates", "--socket-timeout", "15",
+    ]
+    if ignore_errors:
+        cmd.append("--ignore-errors")
+    if noplaylist:
+        cmd.append("--no-playlist")
+    if flat:
+        cmd.append("--flat-playlist")
+    if playlist_end:
+        cmd += ["--playlist-end", str(playlist_end)]
+    if fmt:
+        cmd += ["-f", fmt]
+    cookie_file = get_cookie_opts().get("cookiefile")
+    if cookie_file:
+        cmd += ["--cookies", cookie_file]
+    if download:
+        cmd += ["-o", outtmpl, "--print-json"]
+        if audio_mp3:
+            cmd += ["-x", "--audio-format", "mp3", "--audio-quality", "192"]
+    else:
+        cmd += ["--skip-download", "-J"]
+    cmd += ["--", url]
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"yt-dlp timed out after {timeout}s")
+
+    stdout = (proc.stdout or "").strip()
+    results = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            results.append(json.loads(line))
+        except json.JSONDecodeError:
+            pass
+    if not results and stdout.startswith("{"):
+        try:
+            results.append(json.loads(stdout))
+        except json.JSONDecodeError:
+            pass
+
+    if not results:
+        err_lines = [l for l in (proc.stderr or "").splitlines() if l.strip()]
+        msg = err_lines[-1].strip() if err_lines else f"yt-dlp exit {proc.returncode}"
+        raise RuntimeError(msg.replace("ERROR: ", ""))
+    return results[0]
+
+
 _itunes_cover_cache = {}  # (artist, album) -> cover URL or "" — capped at 200 entries
 
 
@@ -834,8 +943,7 @@ class WebStreamStation:
 
     def _preload_loop(self):
         """Background worker: downloads next 3 songs from queue as MP3 to local storage.
-        Uses a single yt_dlp call that downloads + extracts metadata in one pass."""
-        import gc
+        Runs yt-dlp as a subprocess: download + metadata in one pass."""
 
         while True:
             try:
@@ -864,7 +972,6 @@ class WebStreamStation:
                         continue
 
                     try:
-                        import yt_dlp
                         import uuid as _uuid_pl
 
                         dl_id = _uuid_pl.uuid4().hex[:12]
@@ -875,36 +982,18 @@ class WebStreamStation:
                                 self._preload_cache[path] = local_dest
                             continue
 
-                        # Single yt_dlp call: download + extract metadata in one pass
-                        # This halves the number of HTTP requests vs separate metadata+download
-                        _preload_info = {}
-
-                        def _progress_hook(d):
-                            if d.get("status") == "finished" and "info_dict" in d:
-                                info = d["info_dict"]
-                                _preload_info["title"] = info.get("title", "Unknown")
-                                _preload_info["uploader"] = info.get("uploader", "Unknown")
-                                _preload_info["thumbnail"] = _pick_music_thumbnail(info)
-
-                        ydl_opts = {
-                            "format": "bestaudio/best",
-                            "outtmpl": os.path.join(self.preload_dir, f"{dl_id}.%(ext)s"),
-                            "postprocessors": [
-                                {
-                                    "key": "FFmpegExtractAudio",
-                                    "preferredcodec": "mp3",
-                                    "preferredquality": "192",
-                                }
-                            ],
-                            "quiet": True,
-                            "no_warnings": True,
-                            "progress_hooks": [_progress_hook],
-                            **get_cookie_opts(),
-                        }
-
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            # extract_info with download=True does metadata + download in one call
-                            info = ydl.extract_info(path, download=True)
+                        # One yt-dlp subprocess: download + metadata in one pass,
+                        # outside this process so it never touches the audio loop.
+                        info = _ytdlp_run(
+                            path,
+                            download=True,
+                            outtmpl=os.path.join(self.preload_dir, f"{dl_id}.%(ext)s"),
+                            audio_mp3=True,
+                            fmt="bestaudio/best",
+                            noplaylist=True,
+                            timeout=600,
+                        )
+                        if True:
                             if info and "entries" in info:
                                 info = info["entries"][0]
 
@@ -948,7 +1037,6 @@ class WebStreamStation:
                             self._preload_failures.pop(path, None)
 
                     time.sleep(1)  # Gap between downloads
-                    gc.collect()  # Free yt_dlp memory between downloads
 
             except Exception:
                 time.sleep(5)
@@ -958,11 +1046,8 @@ class WebStreamStation:
         """Background: resolve proper 'Artist - Title' for queue items missing artist info.
         Prioritizes the first 20 (visible page) before resolving the rest.
         Limited to max 40 items total to prevent memory exhaustion on the server.
-        Uses a single yt_dlp instance per batch of 5 to reduce overhead.
+        Each lookup runs yt-dlp as a subprocess (see _ytdlp_run).
         """
-        import yt_dlp
-        import gc
-
         # Prioritize first 20 items (visible queue page), then the rest
         priority = urls[:20]
         remaining = urls[20:]
@@ -1005,22 +1090,13 @@ class WebStreamStation:
             batch = to_resolve[batch_start:batch_start + BATCH_SIZE]
 
             try:
-                ydl_opts = {
-                    "quiet": True,
-                    "no_warnings": True,
-                    "skip_download": True,
-                    "extract_flat": False,
-                    "socket_timeout": 10,
-                    **get_cookie_opts(),
-                }
-
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                if True:
                     for url in batch:
                         if not self.running:
                             break
 
                         try:
-                            info = ydl.extract_info(url, download=False)
+                            info = _ytdlp_run(url, download=False, timeout=90)
                             if info and "entries" in info:
                                 info = info["entries"][0]
                             if not info:
@@ -1051,9 +1127,6 @@ class WebStreamStation:
             except Exception:
                 pass
 
-            # Free memory between batches
-            gc.collect()
-
             if resolved == 20:
                 self.log(f"Resolved titles for visible page (20 items)")
             elif resolved > 0 and resolved % 30 == 0:
@@ -1063,7 +1136,6 @@ class WebStreamStation:
             time.sleep(3)
 
         self.log(f"Title resolve complete: {resolved} items")
-        gc.collect()
 
     def skip_song(self):
         self.skip_requested = True
@@ -1296,7 +1368,7 @@ class WebStreamStation:
             except Exception:
                 pass
 
-            expected = (self._conn_bytes_sent / bytes_per_sec) - 0.5
+            expected = (self._conn_bytes_sent / bytes_per_sec) - STREAM_LEAD_SECONDS
             actual = time.time() - self._conn_start_time
             if expected > actual:
                 time.sleep(min(expected - actual, 0.01))
@@ -1352,7 +1424,7 @@ class WebStreamStation:
             except Exception:
                 break
 
-            expected = (self._conn_bytes_sent / bytes_per_sec) - 0.5
+            expected = (self._conn_bytes_sent / bytes_per_sec) - STREAM_LEAD_SECONDS
             actual = time.time() - self._conn_start_time
             if expected > actual:
                 time.sleep(min(expected - actual, 0.1))
@@ -1520,27 +1592,17 @@ class WebStreamStation:
                     elif is_url:
                         self.log(f"Fetching info: {file_path}")
                         try:
-                            import yt_dlp
-
-                            ydl_opts_fetch = {
-                                "format": "bestaudio/best",
-                                "quiet": True,
-                                "no_warnings": True,
-                                "noplaylist": True,
-                                "nocheckcertificate": True,
-                                **get_cookie_opts(),
-                            }
-
                             fetch_res = {}
 
                             def do_fetch():
                                 try:
-                                    import gc as _gc
-                                    with yt_dlp.YoutubeDL(ydl_opts_fetch) as ydl:
-                                        fetch_res["info"] = ydl.extract_info(
-                                            file_path, download=False
-                                        )
-                                    _gc.collect()
+                                    fetch_res["info"] = _ytdlp_run(
+                                        file_path,
+                                        download=False,
+                                        fmt="bestaudio/best",
+                                        noplaylist=True,
+                                        timeout=120,
+                                    )
                                 except Exception as e:
                                     fetch_res["error"] = e
 
@@ -1595,29 +1657,19 @@ class WebStreamStation:
                                 dl_id = _uuid.uuid4().hex[:12]
                                 local_dest = os.path.join(self.preload_dir, f"{dl_id}.mp3")
 
-                                dl_opts = {
-                                    "format": "bestaudio/best",
-                                    "quiet": True,
-                                    "no_warnings": True,
-                                    "noplaylist": True,
-                                    "nocheckcertificate": True,
-                                    "outtmpl": os.path.join(self.preload_dir, f"{dl_id}.%(ext)s"),
-                                    "postprocessors": [{
-                                        "key": "FFmpegExtractAudio",
-                                        "preferredcodec": "mp3",
-                                        "preferredquality": "192",
-                                    }],
-                                    **get_cookie_opts(),
-                                }
-
                                 dl_res = {}
 
                                 def do_download():
                                     try:
-                                        import gc as _gc
-                                        with yt_dlp.YoutubeDL(dl_opts) as ydl:
-                                            ydl.download([file_path])
-                                        _gc.collect()
+                                        _ytdlp_run(
+                                            file_path,
+                                            download=True,
+                                            outtmpl=os.path.join(self.preload_dir, f"{dl_id}.%(ext)s"),
+                                            audio_mp3=True,
+                                            fmt="bestaudio/best",
+                                            noplaylist=True,
+                                            timeout=600,
+                                        )
                                         dl_res["ok"] = True
                                     except Exception as e:
                                         dl_res["error"] = e
@@ -1753,7 +1805,7 @@ class WebStreamStation:
                                             feeder_queue_local.get_nowait()
                                         except queue.Empty:
                                             pass
-                                        expected_elapsed = (self._conn_bytes_sent / bytes_per_sec) - 0.5
+                                        expected_elapsed = (self._conn_bytes_sent / bytes_per_sec) - STREAM_LEAD_SECONDS
                                         actual_elapsed = time.time() - self._conn_start_time
                                         sleep_time = expected_elapsed - actual_elapsed
                                         if sleep_time > 0.01:
@@ -1802,7 +1854,7 @@ class WebStreamStation:
                                     pass
 
                                 # Throttle
-                                expected_elapsed = (self._conn_bytes_sent / bytes_per_sec) - 0.5
+                                expected_elapsed = (self._conn_bytes_sent / bytes_per_sec) - STREAM_LEAD_SECONDS
                                 actual_elapsed = time.time() - self._conn_start_time
                                 sleep_time = expected_elapsed - actual_elapsed
                                 if sleep_time > 0.01:
@@ -1840,7 +1892,7 @@ class WebStreamStation:
                             # Realtime throttle
                             expected_elapsed = (
                                 self._conn_bytes_sent / bytes_per_sec
-                            ) - 0.5
+                            ) - STREAM_LEAD_SECONDS
                             actual_elapsed = time.time() - self._conn_start_time
                             sleep_time = expected_elapsed - actual_elapsed
                             if sleep_time > 0.01:
@@ -1962,11 +2014,9 @@ class WebStreamStation:
             try:
                 self.log("Loading playlist entries...")
 
-                import yt_dlp
-
                 cookie_opts = get_cookie_opts()
                 has_cookies = "cookiefile" in cookie_opts
-                self.log(f"yt-dlp v{yt_dlp.version.__version__}, cookies={'yes' if has_cookies else 'NO'}")
+                self.log(f"yt-dlp v{_ytdlp_version()}, cookies={'yes' if has_cookies else 'NO'}")
 
                 all_entries = []
 
@@ -1975,22 +2025,13 @@ class WebStreamStation:
 
                 if is_playlist:
                     # Phase 1: Fast flat extract to count entries and get basic metadata
-                    flat_opts = {
-                        "ignoreerrors": True,
-                        "extract_flat": "in_playlist",
-                        "playlist-end": 2000,
-                        "quiet": True,
-                        "no_warnings": True,
-                        **cookie_opts,
-                    }
-
                     flat_entries = []
-                    with yt_dlp.YoutubeDL(flat_opts) as ydl:
-                        flat_info = ydl.extract_info(url, download=False)
-                        if flat_info and "entries" in flat_info:
-                            flat_entries = [e for e in flat_info["entries"] if e is not None]
-                    import gc as _gc
-                    _gc.collect()
+                    flat_info = _ytdlp_run(
+                        url, download=False, flat=True, playlist_end=2000,
+                        ignore_errors=True, timeout=600,
+                    )
+                    if flat_info and "entries" in flat_info:
+                        flat_entries = [e for e in flat_info["entries"] if e is not None]
 
                     entry_count = len(flat_entries)
                     self.log(f"Playlist has {entry_count} entries")
@@ -1999,19 +2040,11 @@ class WebStreamStation:
                     if entry_count <= 10 and entry_count > 0:
                         # Small playlist — full extract for complete metadata (title, artist, thumbnail)
                         self.log(f"Small playlist ({entry_count} items) — extracting full metadata...")
-                        full_opts = {
-                            "ignoreerrors": True,
-                            "extract_flat": False,
-                            "playlist-end": 2000,
-                            "format": "bestaudio/best",
-                            "quiet": True,
-                            "no_warnings": True,
-                            "nocheckcertificate": True,
-                            "skip_download": True,
-                            **cookie_opts,
-                        }
-                        with yt_dlp.YoutubeDL(full_opts) as ydl:
-                            info = ydl.extract_info(url, download=False)
+                        info = _ytdlp_run(
+                            url, download=False, fmt="bestaudio/best",
+                            playlist_end=2000, ignore_errors=True, timeout=600,
+                        )
+                        if True:
                             if info and "entries" in info:
                                 for video in info["entries"]:
                                     if video is None:
@@ -2030,7 +2063,6 @@ class WebStreamStation:
                                             continue
 
                                     all_entries.append({"url": entry_url, "title": title, "video": video})
-                        _gc.collect()
 
                     else:
                         # Large playlist — reuse flat entries from Phase 1 (no second fetch!)
