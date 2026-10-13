@@ -1848,6 +1848,98 @@ def save_user_data():
 # --- Public User Profile (for viewing other users) ---
 
 
+ANON_AVATAR_URL = "https://radio-gaming.stream/Images/Logos/Radio%20Gaming%20Logo%20with%20miodzix%20planet.png"
+
+
+@chat_api.route("/user/anon-profile/<anon_id>")
+@cross_origin(**CORS_OPTIONS)
+def get_anon_profile(anon_id):
+    """Public profile of an anonymous listener, same shape as /user/profile so
+    the radio page can show it in the regular profile modal. Exposes only
+    listening data (no user agent / language / referer — those stay admin-only
+    in /chat/anon-stats)."""
+    stats = anon_stats.get(anon_id)
+    if not stats:
+        return jsonify({"error": "Listener not found"}), 404
+
+    songs = stats.get("songs") or {}
+    station_breakdown = {}
+    top_tracks = []
+    for title, s in songs.items():
+        if not isinstance(s, dict):
+            continue
+        raw_station = s.get("station") or stats.get("station") or "Unknown"
+        station = STATION_NAMES.get(raw_station, raw_station)
+        listen_time = s.get("listeningTime", 0) or 0
+        play_count = s.get("playCount", 0) or 0
+        if station not in station_breakdown:
+            station_breakdown[station] = {"time": 0, "songs": 0}
+        station_breakdown[station]["time"] += listen_time
+        station_breakdown[station]["songs"] += 1
+        top_tracks.append({
+            "title": title,
+            "playCount": play_count,
+            "listeningTime": listen_time,
+            "cover": s.get("cover", ""),
+            "station": station,
+        })
+    # Fallback for server-side-only tracking (no per-song station info)
+    if not station_breakdown and stats.get("station_times"):
+        for raw_station, t in stats["station_times"].items():
+            station_breakdown[STATION_NAMES.get(raw_station, raw_station)] = {"time": t, "songs": 0}
+
+    top_tracks.sort(key=lambda x: (x["playCount"], x["listeningTime"]), reverse=True)
+    sorted_stations = sorted(station_breakdown.items(), key=lambda x: x[1]["time"], reverse=True)
+
+    favorites = stats.get("favorites") or []
+    if not isinstance(favorites, list):
+        favorites = []
+    history = stats.get("history") or []
+    if not isinstance(history, list):
+        history = []
+
+    now = datetime.utcnow()
+    is_online = False
+    for listeners in anonymous_listeners.values():
+        ts = listeners.get(anon_id)
+        if ts is not None and (now - ts).total_seconds() < ONLINE_THRESHOLD_SECONDS:
+            is_online = True
+            break
+    raw_current = stats.get("station") or ""
+    current_station = STATION_NAMES.get(raw_current, raw_current) if raw_current else None
+
+    return jsonify({
+        "success": True,
+        "is_anonymous": True,
+        "user": {
+            "id": anon_id,
+            "username": anon_id[:12],
+            "global_name": "Anonymous Listener",
+            "avatar_url": ANON_AVATAR_URL,
+            "banner_url": "",
+            "accent_color": "#7300ff",
+        },
+        "stats": {
+            "total_time": stats.get("totalTime", 0) or 0,
+            "song_count": len(songs),
+            "station_breakdown": [
+                {"station": name, "time": d["time"], "songs": d["songs"]} for name, d in sorted_stations
+            ],
+            "top_tracks": top_tracks[:10],
+            "ranking_position": None,
+        },
+        "favorites": favorites[:10],
+        "total_favorites_count": len(favorites),
+        "history": history[:10],
+        "guilds": [],
+        "online": {
+            "is_online": is_online,
+            "current_station": current_station if is_online else None,
+            "last_seen": stats.get("last_seen") or None,
+        },
+    })
+
+
 @chat_api.route("/user/profile/<user_id>")
 @cross_origin(**CORS_OPTIONS)
 def get_user_profile(user_id):
