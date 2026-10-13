@@ -4,9 +4,10 @@ import requests
 from functools import wraps
 import requests
 import atexit
+import time
 import threading
 import mysql.connector
-from mysql.connector import pooling
+
 
 from flask import Flask, request, jsonify
 import sys
@@ -148,9 +149,139 @@ _DB_CONFIG = dict(
     autocommit=True,
     connection_timeout=10,
 )
-_DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "8"))
+# The MySQL user is capped at max_user_connections=10 and that budget is
+# shared with the bots on the worker dyno AND with the old web dyno during a
+# Heroku restart overlap. So the pool must be SMALL and LAZY: connections are
+# opened one at a time, only when actually needed, never pre-filled.
+_DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "3"))
 _db_pool = None
 _db_pool_lock = threading.Lock()
+
+
+# Idle connections are really closed after this many seconds, so at rest the
+# web dyno holds ZERO MySQL sessions — exactly like the old connect/close-per-
+# request behaviour — while bursts of requests still reuse a warm connection.
+_DB_POOL_IDLE_SECONDS = float(os.environ.get("DB_POOL_IDLE_SECONDS", "30"))
+
+
+class PoolExhausted(Exception):
+    pass
+
+
+class _PooledConn:
+    """Proxy returned to callers; close() hands the socket back to the pool."""
+
+    __slots__ = ("_cnx", "_pool")
+
+    def __init__(self, cnx, pool):
+        self._cnx = cnx
+        self._pool = pool
+
+    def close(self):
+        cnx, self._cnx = self._cnx, None
+        if cnx is not None:
+            self._pool.release(cnx)
+
+    def __getattr__(self, name):
+        cnx = object.__getattribute__(self, "_cnx")
+        if cnx is None:
+            raise mysql.connector.errors.OperationalError("Connection already closed")
+        return getattr(cnx, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+    def __del__(self):
+        # Caller forgot close(): still give the socket back instead of leaking it.
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
+class _LazyMySQLPool:
+    """Small on-demand pool with idle reaping and explicit shutdown.
+
+    - opens a connection only when none is idle (never pre-fills)
+    - at most `size` connections exist at any time
+    - a connection idle for longer than `idle_ttl` seconds is closed for real
+    - close_all() disconnects everything (used at process exit)
+    """
+
+    def __init__(self, size, cfg, idle_ttl):
+        self._size = size
+        self._cfg = cfg
+        self._idle_ttl = idle_ttl
+        self._idle = []  # list of (cnx, last_used_ts)
+        self._opened = 0
+        self._lock = threading.Lock()
+        self._closed = False
+        t = threading.Thread(target=self._reaper, daemon=True, name="db-pool-reaper")
+        t.start()
+
+    def get_connection(self):
+        with self._lock:
+            while self._idle:
+                cnx, _ = self._idle.pop()
+                try:
+                    if cnx.is_connected():
+                        return _PooledConn(cnx, self)
+                except Exception:
+                    pass
+                self._opened -= 1
+                self._disconnect(cnx)
+            if self._opened < self._size:
+                self._opened += 1
+                try:
+                    cnx = mysql.connector.connect(**self._cfg)
+                except Exception:
+                    self._opened -= 1
+                    raise
+                return _PooledConn(cnx, self)
+        raise PoolExhausted("all pooled connections are busy")
+
+    def release(self, cnx):
+        with self._lock:
+            if self._closed:
+                self._opened -= 1
+                self._disconnect(cnx)
+                return
+            self._idle.append((cnx, time.time()))
+
+    def _reaper(self):
+        while not self._closed:
+            time.sleep(5)
+            cutoff = time.time() - self._idle_ttl
+            to_close = []
+            with self._lock:
+                keep = []
+                for cnx, ts in self._idle:
+                    (to_close if ts < cutoff else keep).append(cnx)
+                self._idle = [(c, t) for c, t in self._idle if c in keep]
+                self._opened -= len(to_close)
+            for cnx in to_close:
+                self._disconnect(cnx)
+
+    def close_all(self):
+        with self._lock:
+            self._closed = True
+            conns = [c for c, _ in self._idle]
+            self._idle = []
+            self._opened -= len(conns)
+        for cnx in conns:
+            self._disconnect(cnx)
+        return len(conns)
+
+    @staticmethod
+    def _disconnect(cnx):
+        try:
+            cnx.close()  # sends COM_QUIT -> MySQL frees the session immediately
+        except Exception:
+            pass
 
 
 def _get_db_pool():
@@ -158,13 +289,11 @@ def _get_db_pool():
     if _db_pool is None:
         with _db_pool_lock:
             if _db_pool is None:
-                print(f"[INFO] Creating MySQL connection pool (size={_DB_POOL_SIZE})...")
-                _db_pool = pooling.MySQLConnectionPool(
-                    pool_name="k5_main",
-                    pool_size=_DB_POOL_SIZE,
-                    pool_reset_session=True,
-                    **_DB_CONFIG,
+                print(
+                    f"[INFO] MySQL pool: max {_DB_POOL_SIZE} connection(s), "
+                    f"idle ones closed after {_DB_POOL_IDLE_SECONDS:.0f}s"
                 )
+                _db_pool = _LazyMySQLPool(_DB_POOL_SIZE, _DB_CONFIG, _DB_POOL_IDLE_SECONDS)
     return _db_pool
 
 
@@ -181,18 +310,7 @@ def close_db_pool():
         pool, _db_pool = _db_pool, None
     if pool is None:
         return
-    closed = 0
-    try:
-        # mysql-connector 8.x: drains the queue and disconnects each socket
-        closed = pool._remove_connections()
-    except Exception:
-        q = getattr(pool, "_cnx_queue", None)
-        while q is not None and not q.empty():
-            try:
-                q.get_nowait().disconnect()
-                closed += 1
-            except Exception:
-                break
+    closed = pool.close_all()
     print(f"[INFO] Closed {closed} pooled MySQL connection(s).")
 
 
@@ -203,11 +321,10 @@ def get_db_connection():
     """Return a pooled MySQL connection. Callers keep calling conn.close()."""
     try:
         return _get_db_pool().get_connection()
-    except pooling.PoolError:
-        print("[WARN] DB pool exhausted, opening a direct connection.")
-    except Exception as e:
-        print(f"[WARN] DB pool unavailable ({e}), opening a direct connection.")
-    return mysql.connector.connect(**_DB_CONFIG)
+    except PoolExhausted:
+        # All pooled connections are busy: open a short-lived direct one.
+        # Its close() really closes, so it does not hold the user's quota.
+        return mysql.connector.connect(**_DB_CONFIG)
 
 def createtable():
     conn = get_db_connection()
