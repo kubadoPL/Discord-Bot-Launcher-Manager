@@ -315,9 +315,49 @@ def _do_increment_unique_anon_count(delta):
         print(f"[DB] Error updating unique anon count: {e}")
 
 
+def _do_set_unique_anon_count(value):
+    """Overwrite the unique anonymous users counter in service_stats (reconciliation)."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO service_stats (service_name, stat_name, value)
+            VALUES ('radio', 'unique_anonymous_users', %s)
+            ON DUPLICATE KEY UPDATE value = %s
+            """,
+            (value, value),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Error setting unique anon count: {e}")
+
+
+def _unique_anon_total():
+    """Unique anonymous listeners ever tracked.
+
+    The persisted counter in service_stats is only a cache; the source of
+    truth is the set of anon_listener_stats rows loaded into `anon_stats`.
+    Returning the max of both means the footer can never show 0/1 after a
+    restart while the admin stats page shows hundreds of tracked listeners.
+    """
+    return max(_unique_anon_count, len(anon_stats))
+
+
 def _load_unique_anon_count():
-    """Load the unique_anonymous_users count from DB into the in-memory counter (startup only)."""
+    """Reconcile the unique_anonymous_users counter with the DB at startup.
+
+    Must run AFTER _load_anon_stats_from_db so the tracked listeners are known.
+    Also seeds `all_unique_anon_ids` from them so returning listeners are not
+    counted as new again after every restart (that is how the counter drifted
+    to 527 while only 476 listeners were actually tracked).
+    """
     global _unique_anon_count
+    tracked_ids = set(anon_stats.keys())
+    all_unique_anon_ids.update(tracked_ids)
+
+    db_value = 0
     last_err = None
     for attempt in range(3):
         try:
@@ -329,16 +369,21 @@ def _load_unique_anon_count():
             row = cursor.fetchone()
             conn.close()
             db_value = int(row["value"]) if row and row["value"] is not None else 0
-            # Heartbeats may already have bumped the in-memory counter while we
-            # were loading; never move it backwards.
-            _unique_anon_count = max(_unique_anon_count, db_value)
-            print(f"[DB] Loaded unique anon count from DB: {db_value} (in-memory now {_unique_anon_count})")
-            return
+            last_err = None
+            break
         except Exception as e:
             last_err = e
             time.sleep(1 + attempt)
-    # Keep whatever we have (default 0) rather than clobbering a live counter.
-    print(f"[DB] Error loading unique anon count after retries: {last_err}")
+    if last_err is not None:
+        print(f"[DB] Error loading unique anon count after retries: {last_err}")
+
+    # Heartbeats may already have bumped the in-memory counter while loading;
+    # never move it backwards, and never below the number of tracked listeners.
+    reconciled = max(_unique_anon_count, db_value, len(tracked_ids))
+    _unique_anon_count = reconciled
+    print(f"[DB] Unique anon count: db={db_value}, tracked={len(tracked_ids)} -> using {reconciled}")
+    if reconciled != db_value:
+        _db_enqueue(_do_set_unique_anon_count, reconciled)
 
 
 def _do_save_session(session_token, session_data):
@@ -765,8 +810,8 @@ def _init_chat_db():
         create_chat_tables,
         _create_radio_admins_table,
         _load_chat_data_from_db,
+        _load_anon_stats_from_db,   # must precede the counter reconciliation
         _load_unique_anon_count,
-        _load_anon_stats_from_db,
         _load_dynamic_admins,
     ):
         try:
@@ -2212,7 +2257,7 @@ def get_ranking():
             "favorites_count": fav_count_map,
             "total_users": len(user_totals),
             "total_unique_songs": len(global_songs),
-            "total_unique_anonymous_users": _unique_anon_count,
+            "total_unique_anonymous_users": _unique_anon_total(),
             "generated_at": now.isoformat() + "Z",
         }
 
@@ -2267,7 +2312,7 @@ def get_radio_stats():
             "top_listener_time_seconds": top_time,
             "unique_songs_tracked": unique_songs,
             "total_listening_time_seconds": total_time,
-            "total_unique_anonymous_users": _unique_anon_count,
+            "total_unique_anonymous_users": _unique_anon_total(),
         })
 
     # No cache — do a direct lightweight query
@@ -2309,7 +2354,7 @@ def get_radio_stats():
             "top_listener_time_seconds": top_time,
             "unique_songs_tracked": len(all_song_titles),
             "total_listening_time_seconds": total_time,
-            "total_unique_anonymous_users": _unique_anon_count,
+            "total_unique_anonymous_users": _unique_anon_total(),
         })
 
     except Exception as e:
