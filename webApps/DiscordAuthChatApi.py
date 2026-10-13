@@ -315,6 +315,12 @@ def _do_increment_unique_anon_count(delta):
         print(f"[DB] Error updating unique anon count: {e}")
 
 
+# True once the startup loaders (chat data, anon stats, counters) finished.
+# Endpoints expose it as `stats_ready` so the frontend does not cache a 0
+# that was read while the process was still loading after a restart.
+_chat_db_ready = False
+
+
 def _load_unique_anon_count():
     """Load the unique_anonymous_users count from DB into the in-memory counter (startup only)."""
     global _unique_anon_count
@@ -758,21 +764,26 @@ def _load_chat_data_from_db():
 
 # Create tables and load data on startup (in background to avoid blocking gunicorn)
 def _init_chat_db():
+    global _chat_db_ready
     # Each step is isolated: one failing loader must not skip the others
     # (previously a failure in create_chat_tables left the unique-anon counter
     # at 0, so the footer showed "1 anonymous" after a restart).
+    # Counter + anon stats go BEFORE the (slow) chat history load so the
+    # footer numbers are correct within seconds of a restart, not minutes.
     for step in (
         create_chat_tables,
         _create_radio_admins_table,
-        _load_chat_data_from_db,
         _load_unique_anon_count,
         _load_anon_stats_from_db,
+        _load_chat_data_from_db,
         _load_dynamic_admins,
     ):
         try:
             step()
         except Exception as e:
             print(f"[DB] Error during startup init ({step.__name__}): {e}")
+    _chat_db_ready = True
+    print("[DB] Startup init complete — stats ready")
 
 threading.Thread(target=_init_chat_db, daemon=True, name="chat-db-init").start()
 
@@ -2213,6 +2224,7 @@ def get_ranking():
             "total_users": len(user_totals),
             "total_unique_songs": len(global_songs),
             "total_unique_anonymous_users": _unique_anon_count,
+            "stats_ready": _chat_db_ready,
             "generated_at": now.isoformat() + "Z",
         }
 
@@ -2268,6 +2280,7 @@ def get_radio_stats():
             "unique_songs_tracked": unique_songs,
             "total_listening_time_seconds": total_time,
             "total_unique_anonymous_users": _unique_anon_count,
+            "stats_ready": _chat_db_ready,
         })
 
     # No cache — do a direct lightweight query
@@ -2310,6 +2323,7 @@ def get_radio_stats():
             "unique_songs_tracked": len(all_song_titles),
             "total_listening_time_seconds": total_time,
             "total_unique_anonymous_users": _unique_anon_count,
+            "stats_ready": _chat_db_ready,
         })
 
     except Exception as e:
