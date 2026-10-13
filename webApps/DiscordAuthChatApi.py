@@ -1800,6 +1800,10 @@ def _build_poll_payload(station_key, since, include_full_users, auth_header, pla
 
 # Allowed keys that can be synced to DB
 SYNCABLE_KEYS = {"songHistory", "songFavorites", "listeningStats", "savedWebhooks"}
+# Latest data each client pushed, kept in memory ahead of the DB write queue so
+# /user/profile shows fresh stats/history the moment they are synced.
+_PROFILE_LIVE_KEYS = ("listeningStats", "songFavorites", "songHistory")
+_user_data_live = {}  # user_id -> {key: parsed value}
 
 
 def _do_save_user_data(user_id, data_key, data_value):
@@ -1896,6 +1900,13 @@ def save_user_data():
         json_value = json.dumps(value) if not isinstance(value, str) else value
         _db_save_user_data(user_id, key, json_value)
         saved_keys.append(key)
+        if key in _PROFILE_LIVE_KEYS:
+            try:
+                _user_data_live.setdefault(user_id, {})[key] = (
+                    json.loads(value) if isinstance(value, str) else value
+                )
+            except (json.JSONDecodeError, TypeError):
+                pass
 
     return jsonify({"success": True, "saved": saved_keys})
 
@@ -2016,20 +2027,26 @@ def get_user_profile(user_id):
                 conn.close()
                 return jsonify({"error": "User not found"}), 404
 
-        # Get user data (listening stats, favorites, song history)
-        cursor.execute(
-            "SELECT data_key, data_value FROM user_data WHERE user_id = %s",
-            (user_id,),
-        )
-        data_rows = cursor.fetchall()
-        conn.close()
-
+        # Get user data (listening stats, favorites, song history).
+        # Prefer what the client synced since startup (in memory, may still be
+        # waiting in the DB write queue); hit the DB only for what is missing.
+        live = _user_data_live.get(user_id) or {}
         user_data = {}
-        for row in data_rows:
-            try:
-                user_data[row["data_key"]] = json.loads(row["data_value"]) if row["data_value"] else None
-            except (json.JSONDecodeError, TypeError):
-                user_data[row["data_key"]] = None
+        if all(k in live for k in _PROFILE_LIVE_KEYS):
+            conn.close()
+        else:
+            cursor.execute(
+                "SELECT data_key, data_value FROM user_data WHERE user_id = %s",
+                (user_id,),
+            )
+            data_rows = cursor.fetchall()
+            conn.close()
+            for row in data_rows:
+                try:
+                    user_data[row["data_key"]] = json.loads(row["data_value"]) if row["data_value"] else None
+                except (json.JSONDecodeError, TypeError):
+                    user_data[row["data_key"]] = None
+        user_data.update(live)
 
         # Parse listening stats (safely handle None)
         listening_stats = user_data.get("listeningStats") or {}
