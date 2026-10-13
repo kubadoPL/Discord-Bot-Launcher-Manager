@@ -161,7 +161,7 @@ _db_pool_lock = threading.Lock()
 # Idle connections are really closed after this many seconds, so at rest the
 # web dyno holds ZERO MySQL sessions — exactly like the old connect/close-per-
 # request behaviour — while bursts of requests still reuse a warm connection.
-_DB_POOL_IDLE_SECONDS = float(os.environ.get("DB_POOL_IDLE_SECONDS", "30"))
+_DB_POOL_IDLE_SECONDS = float(os.environ.get("DB_POOL_IDLE_SECONDS", "120"))
 
 
 class PoolExhausted(Exception):
@@ -253,6 +253,11 @@ class _LazyMySQLPool:
             self._idle.append((cnx, time.time()))
 
     def _reaper(self):
+        # idle_ttl <= 0 -> never close idle connections; they live until the
+        # server drops them (detected by is_connected() on next checkout) or
+        # until process exit. Costs up to `size` permanent sessions.
+        if self._idle_ttl <= 0:
+            return
         while not self._closed:
             time.sleep(5)
             cutoff = time.time() - self._idle_ttl
@@ -289,10 +294,12 @@ def _get_db_pool():
     if _db_pool is None:
         with _db_pool_lock:
             if _db_pool is None:
-                print(
-                    f"[INFO] MySQL pool: max {_DB_POOL_SIZE} connection(s), "
+                idle_desc = (
                     f"idle ones closed after {_DB_POOL_IDLE_SECONDS:.0f}s"
+                    if _DB_POOL_IDLE_SECONDS > 0
+                    else "idle ones kept until broken"
                 )
+                print(f"[INFO] MySQL pool: max {_DB_POOL_SIZE} connection(s), {idle_desc}")
                 _db_pool = _LazyMySQLPool(_DB_POOL_SIZE, _DB_CONFIG, _DB_POOL_IDLE_SECONDS)
     return _db_pool
 
