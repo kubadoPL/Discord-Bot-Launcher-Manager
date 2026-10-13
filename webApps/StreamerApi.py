@@ -15,6 +15,7 @@ import time
 import random
 import queue
 import json
+import hashlib
 import secrets
 import urllib.request
 import urllib.parse
@@ -80,6 +81,10 @@ def _get_chat_api():
     """Get the DiscordAuthChatApi module from sys.modules (shared instance).
     Falls back to importlib if not found, but that path won't share sessions."""
     global _chat_api_module
+    if os.environ.get("STREAMER_STANDALONE") == "1":
+        # Separate engine process (streamerLauncher.py): the chat module and its
+        # in-memory sessions live in the web process; sessions come from the DB.
+        return None
     if _chat_api_module is None:
         # First try sys.modules — this is the SAME instance loaded by webAppsLauncher
         import sys as _sys
@@ -96,10 +101,28 @@ def _get_chat_api():
     return _chat_api_module
 
 
+_db_session_cache = {}  # token -> (session, expires_monotonic); standalone mode only
+_DB_SESSION_CACHE_TTL = 60.0
+
+
 def _validate_session_from_db(token):
     """Fallback: validate session directly from the database.
-    Used when DiscordAuthChatApi's in-memory store is unavailable."""
+    Used when DiscordAuthChatApi's in-memory store is unavailable.
+    Cached for a minute per token so the panel's 5 s status poll does not
+    cost a DB round-trip each time."""
     from datetime import datetime
+    hit = _db_session_cache.get(token)
+    if hit and hit[1] > time.monotonic():
+        return hit[0]
+    session = _validate_session_from_db_uncached(token)
+    if session:
+        _db_session_cache[token] = (session, time.monotonic() + _DB_SESSION_CACHE_TTL)
+        if len(_db_session_cache) > 500:
+            _db_session_cache.clear()
+    return session
+
+
+def _validate_session_from_db_uncached(token):
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
@@ -174,7 +197,8 @@ def get_admin_session():
     # Try to use the shared session store from DiscordAuthChatApi
     try:
         chat_api = _get_chat_api()
-        session = chat_api.validate_session(token)
+        if chat_api is not None:
+            session = chat_api.validate_session(token)
     except Exception as e:
         print(f"[StreamerApi] In-memory session lookup failed: {e}")
 
@@ -2483,7 +2507,20 @@ def build_public_status():
     with _public_status_lock:
         _public_status_cache["data"] = result
         _public_status_cache["ts"] = now
+        _public_status_cache["etag"] = None  # recomputed lazily by public_status_with_etag
     return result
+
+
+def public_status_with_etag():
+    """(status dict, etag) with the etag hashed once per rebuild instead of on
+    every /radio/tick that asks for the streamer section."""
+    data = build_public_status()
+    with _public_status_lock:
+        if _public_status_cache.get("etag") is None or _public_status_cache.get("etag_for") is not data:
+            raw = json.dumps(data, sort_keys=True, default=str, separators=(",", ":"))
+            _public_status_cache["etag"] = hashlib.md5(raw.encode("utf-8")).hexdigest()[:12]
+            _public_status_cache["etag_for"] = data
+        return data, _public_status_cache["etag"]
 
 
 @app.route("/public/status", methods=["GET"])

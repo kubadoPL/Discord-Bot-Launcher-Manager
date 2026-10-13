@@ -80,17 +80,28 @@ def enable_compression(flask_app):
     if _Compress is None:
         return
     flask_app.config.setdefault("COMPRESS_MIN_SIZE", 1024)
-    flask_app.config.setdefault("COMPRESS_LEVEL", 6)
+    flask_app.config.setdefault("COMPRESS_LEVEL", 3)  # JSON: ~same size as 6 at half the CPU
     _Compress(flask_app)
 
 
 enable_compression(main_app)
+
+# When start_web.sh runs the streaming engine as its own process it sets
+# STREAMER_UPSTREAM (http://127.0.0.1:PORT). StreamerApi is then NOT imported
+# here; /StreamerApi/* is reverse-proxied to that process instead, so the
+# Icecast feed never competes with these HTTP handlers for the GIL.
+STREAMER_UPSTREAM = os.environ.get("STREAMER_UPSTREAM", "").rstrip("/")
 
 apps = {}
 for filename in os.listdir(WEBAPPS_DIR):
     if filename.endswith(".py"):
         name = filename[:-3]
         path = os.path.join(WEBAPPS_DIR, filename)
+        if name == "StreamerApi" and STREAMER_UPSTREAM:
+            from api.streamer_proxy import StreamerProxy
+            apps[f"/{name}"] = StreamerProxy(STREAMER_UPSTREAM)
+            print(f"[INFO] /StreamerApi proxied to {STREAMER_UPSTREAM} (engine runs in its own process)")
+            continue
         app = load_flask_app(path)
         if app:
             enable_compression(app)

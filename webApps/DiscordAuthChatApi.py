@@ -13,12 +13,14 @@ parent_dir = os.path.abspath(os.path.join(script_dir, ".."))
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
-from flask import Flask, request, jsonify, redirect, Blueprint
+from flask import Flask, request, jsonify, redirect, Blueprint, Response
 from flask_cors import cross_origin
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import requests as http_requests
 import json
+from functools import lru_cache
+import base64
 import hashlib
 from api.config import RESTRICT_CORS, RADIO_ADMIN_USER_IDS, RADIO_OWNER_USER_IDS
 from api.FunctionsModule import get_db_connection, create_chat_tables
@@ -698,7 +700,10 @@ def _load_chat_data_from_db():
                     "reaction_users": reaction_users,
                 })
 
+            for m in msgs:
+                _externalize_image(m)
             chat_messages[station_key] = msgs
+            _bump_chat_version()
             print(f"[DB] Loaded {len(msgs)} messages for {station_key}")
 
         conn.close()
@@ -878,6 +883,20 @@ def normalize_station(name):
 
 
 def safe_parse_datetime(dt_str):
+    """Cached front of _safe_parse_datetime_impl: the same ~300 message
+    timestamps are compared on every poll / tick / unread count, so parsing
+    them once is a measurable saving under load."""
+    if not dt_str:
+        return datetime.min
+    return _parse_datetime_cached(str(dt_str).strip())
+
+
+@lru_cache(maxsize=8192)
+def _parse_datetime_cached(s):
+    return _safe_parse_datetime_impl(s)
+
+
+def _safe_parse_datetime_impl(dt_str):
     """Parse an ISO datetime string ('Z' suffix ok) or an epoch value
     (seconds or milliseconds) into a timezone-aware UTC datetime.
     Returns datetime.min when the value cannot be parsed.
@@ -982,7 +1001,9 @@ def get_online_data(station_key):
             global_ts = all_user_activity.get(uid)
             if global_ts is not None and global_ts > last_ts:
                 last_ts = global_ts
-            p["last_seen"] = last_ts.isoformat() + "Z"
+            # Minute precision: the widgets print "Xm ago", and a stable value keeps
+            # the /radio/tick "online" etag unchanged between real changes.
+            p["last_seen"] = last_ts.replace(second=0, microsecond=0).isoformat() + "Z"
             p["is_online"] = is_online
             p["is_anonymous"] = False
             results.append(p)
@@ -1605,6 +1626,101 @@ def _count_unread(user, read_at):
     return {"messages": total_messages, "mentions": total_mentions, "stations": stations}
 
 
+# ─── Chat version + caches used by /radio/tick ───────────────────────────────
+_chat_version = 0  # bumped on every change to chat_messages (send/delete/reaction/emoji cleanup/load)
+_unread_cache = {}  # user_id -> (chat_version, read_at_key, result)
+
+
+def _bump_chat_version():
+    global _chat_version
+    _chat_version += 1
+
+
+# ─── Uploaded chat images live outside the message JSON ──────────────────────
+# A message carries only the URL of its image; the base64 payload stays here
+# (and in the DB column) and is served by /chat/image/<id> with a one-year
+# immutable cache. History/tick payloads shrink from ~200 KB to a few KB.
+_image_store = {}  # message id -> data URL
+_IMAGE_STORE_MAX = 400
+CHAT_API_PUBLIC_BASE = os.environ.get(
+    "CHAT_API_PUBLIC_BASE",
+    "https://bot-launcher-discord-017f7d5f49d9.herokuapp.com/DiscordAuthChatApi",
+).rstrip("/")
+
+
+def _externalize_image(msg):
+    """Move an inline data: URL out of `msg` and replace it with a fetchable URL."""
+    img = msg.get("image_data")
+    if isinstance(img, str) and img.startswith("data:image/") and msg.get("id"):
+        _image_store[msg["id"]] = img
+        msg["image_data"] = f"{CHAT_API_PUBLIC_BASE}/chat/image/{msg['id']}"
+    return msg
+
+
+@chat_api.route("/chat/image/<msg_id>")
+@cross_origin(**CORS_OPTIONS)
+def get_chat_image(msg_id):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", msg_id or ""):
+        return jsonify({"error": "Not found"}), 404
+    data_url = _image_store.get(msg_id)
+    if data_url is None:
+        # Older message (already pruned from memory): read the column once
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT image_data FROM chat_messages WHERE id = %s", (msg_id,))
+            row = cursor.fetchone()
+            conn.close()
+            data_url = row.get("image_data") if row else None
+        except Exception as e:
+            print(f"[DB] Error loading chat image {msg_id}: {e}")
+            data_url = None
+        if isinstance(data_url, str) and data_url.startswith("data:image/") and len(_image_store) < _IMAGE_STORE_MAX:
+            _image_store[msg_id] = data_url
+    if not isinstance(data_url, str) or not data_url.startswith("data:image/"):
+        return jsonify({"error": "Not found"}), 404
+    header, _, b64 = data_url.partition(",")
+    mime = header[5:].split(";")[0] or "image/png"
+    try:
+        raw = base64.b64decode(b64)
+    except Exception:
+        return jsonify({"error": "Not found"}), 404
+    resp = Response(raw, mimetype=mime)
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
+
+
+# ─── Streamer engine running as a separate process (STREAMER_UPSTREAM) ──────
+STREAMER_UPSTREAM = os.environ.get("STREAMER_UPSTREAM", "").rstrip("/")
+_upstream_status_cache = {"data": None, "etag": None, "ts": 0.0}
+_upstream_status_lock = threading.Lock()
+UPSTREAM_STATUS_TTL = 5.0
+
+
+def _upstream_public_status():
+    """(data, etag) of the engine's /public/status, cached UPSTREAM_STATUS_TTL s."""
+    now = time.time()
+    c = _upstream_status_cache
+    if c["data"] is not None and now - c["ts"] < UPSTREAM_STATUS_TTL:
+        return c["data"], c["etag"]
+    with _upstream_status_lock:
+        if c["data"] is not None and now - c["ts"] < UPSTREAM_STATUS_TTL:
+            return c["data"], c["etag"]
+        try:
+            import urllib.request
+            with urllib.request.urlopen(f"{STREAMER_UPSTREAM}/public/status", timeout=2) as r:
+                data = json.loads(r.read().decode("utf-8"))
+        except Exception as e:
+            print(f"[TICK] streamer upstream unreachable: {e}")
+            # keep serving the last known status for a while rather than nothing
+            if c["data"] is not None and now - c["ts"] < 60:
+                return c["data"], c["etag"]
+            return None, None
+        c["data"], c["etag"], c["ts"] = data, _section_etag(data), now
+        return data, c["etag"]
+
+
 def _section_etag(obj):
     """Short content hash so /radio/tick can skip sections the client already has."""
     raw = json.dumps(obj, sort_keys=True, default=str, separators=(",", ":"))
@@ -1649,13 +1765,15 @@ def radio_tick():
 
     out = {"server_time": datetime.utcnow().isoformat() + "Z", "unchanged": [], "etags": {}}
 
-    def put(name, data):
-        tag = _section_etag(data)
+    def put_tagged(name, data, tag):
         out["etags"][name] = tag
         if etags.get(name) == tag:
             out["unchanged"].append(name)
         else:
             out[name] = data
+
+    def put(name, data):
+        put_tagged(name, data, _section_etag(data))
 
     if "chat" in want and chat_station in chat_messages:
         out["chat"] = _build_poll_payload(
@@ -1676,9 +1794,19 @@ def radio_tick():
         streamer_mod = sys.modules.get("StreamerApi")
         if streamer_mod is not None and hasattr(streamer_mod, "build_public_status"):
             try:
-                put("streamer", streamer_mod.build_public_status())
+                if hasattr(streamer_mod, "public_status_with_etag"):
+                    sdata, stag = streamer_mod.public_status_with_etag()  # etag hashed once per rebuild
+                    put_tagged("streamer", sdata, stag)
+                else:
+                    put("streamer", streamer_mod.build_public_status())
             except Exception as e:
                 out["streamer_error"] = str(e)
+        elif STREAMER_UPSTREAM:
+            sdata, stag = _upstream_public_status()
+            if sdata is not None:
+                put_tagged("streamer", sdata, stag)
+            else:
+                out["streamer_error"] = "streamer engine unreachable"
 
     if "roles" in want:
         put("roles", {
@@ -1687,7 +1815,17 @@ def radio_tick():
         })
 
     if "unread" in want and token in user_sessions:
-        put("unread", _count_unread(user_sessions[token], body.get("read_at") or {}))
+        # Recounted only when the chat changed or the user's read times moved
+        read_at = body.get("read_at") or {}
+        uid = user_sessions[token].get("id")
+        ra_key = json.dumps(read_at, sort_keys=True, default=str)
+        cached = _unread_cache.get(uid)
+        if cached and cached[0] == _chat_version and cached[1] == ra_key:
+            unread = cached[2]
+        else:
+            unread = _count_unread(user_sessions[token], read_at)
+            _unread_cache[uid] = (_chat_version, ra_key, unread)
+        put("unread", unread)
 
     if "uptime" in want:
         k5 = sys.modules.get("K5ApiManager")
@@ -2819,10 +2957,13 @@ def send_message():
         "reaction_users": {},  # user_id -> {username, avatar_url}
     }
 
+    _db_save_message(dict(msg_obj))  # the DB row keeps the inline image
+    _externalize_image(msg_obj)  # clients only ever see the image URL
     chat_messages[station].append(msg_obj)
-    _db_save_message(msg_obj)
     if len(chat_messages[station]) > MAX_MESSAGES_PER_CHANNEL:
-        chat_messages[station].pop(0)
+        dropped = chat_messages[station].pop(0)
+        _image_store.pop(dropped.get("id"), None)
+    _bump_chat_version()
 
     return jsonify({"success": True, "message": msg_obj})
 
@@ -2857,6 +2998,8 @@ def delete_message():
                 if msg["user"]["id"] != user_id and not user_is_admin:
                     return jsonify({"error": "You can only delete your own messages"}), 403
                 msgs.pop(i)
+                _image_store.pop(message_id, None)
+                _bump_chat_version()
                 _db_delete_message(message_id)
                 record_deletion("message", message_id)
                 return jsonify({"success": True, "deleted_id": message_id, "admin_action": user_is_admin and msg["user"]["id"] != user_id})
@@ -2912,6 +3055,7 @@ def delete_custom_emoji():
             if "reactions" in msg and emoji_id in msg["reactions"]:
                 del msg["reactions"][emoji_id]
                 cleaned_count += 1
+                _bump_chat_version()
                 # Persist updated message to DB
                 _db_save_message(msg)
 
@@ -2993,6 +3137,7 @@ def react_to_message():
 
     # Mark message as updated so polling picks it up
     target_msg["last_update"] = datetime.utcnow().isoformat() + "Z"
+    _bump_chat_version()
 
     # Persist reaction changes to DB
     _db_save_message(target_msg)
