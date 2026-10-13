@@ -2442,20 +2442,17 @@ def home():
 
 
 _public_status_lock = threading.Lock()
-_public_status_cache = {"body": None, "ts": 0.0}
+_public_status_cache = {"data": None, "ts": 0.0}
 
 
-@app.route("/public/status", methods=["GET"])
-@limiter.limit("30 per minute")
-@cross_origin(**CORS_OPTIONS)
-def public_status():
-    """Public endpoint: returns which stations are actively streaming and their queues.
-    No admin auth required — safe for the radio frontend to poll.
-    Cached for PUBLIC_STATUS_CACHE_TTL seconds so N listeners cost one build."""
+def build_public_status():
+    """Dict behind /public/status. Cached PUBLIC_STATUS_CACHE_TTL seconds so N
+    listeners cost one build. Also consumed by DiscordAuthChatApi's /radio/tick
+    (same process) so the radio page needs no separate status request."""
     now = time.time()
     with _public_status_lock:
-        if _public_status_cache["body"] is not None and now - _public_status_cache["ts"] < PUBLIC_STATUS_CACHE_TTL:
-            return app.response_class(_public_status_cache["body"], mimetype="application/json")
+        if _public_status_cache["data"] is not None and now - _public_status_cache["ts"] < PUBLIC_STATUS_CACHE_TTL:
+            return _public_status_cache["data"]
 
     result = {}
     for sid, station in stations.items():
@@ -2483,11 +2480,19 @@ def public_status():
             "loop_mode": station.loop_mode,
         }
 
-    body = json.dumps(result)
     with _public_status_lock:
-        _public_status_cache["body"] = body
+        _public_status_cache["data"] = result
         _public_status_cache["ts"] = now
-    return app.response_class(body, mimetype="application/json")
+    return result
+
+
+@app.route("/public/status", methods=["GET"])
+@limiter.limit("30 per minute")
+@cross_origin(**CORS_OPTIONS)
+def public_status():
+    """Public endpoint: which stations are streaming and their queue preview.
+    No admin auth required — safe for the radio frontend to poll."""
+    return jsonify(build_public_status())
 
 @app.route("/status", methods=["GET"])
 @limiter.limit("30 per minute")

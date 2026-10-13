@@ -19,6 +19,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import requests as http_requests
 import json
+import hashlib
 from api.config import RESTRICT_CORS, RADIO_ADMIN_USER_IDS, RADIO_OWNER_USER_IDS
 from api.FunctionsModule import get_db_connection, create_chat_tables
 
@@ -1549,6 +1550,95 @@ def poll_all_stations():
             playing_header,
         )
     return jsonify(result)
+
+
+_process_start_time = time.time()
+
+
+def _section_etag(obj):
+    """Short content hash so /radio/tick can skip sections the client already has."""
+    raw = json.dumps(obj, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()[:12]
+
+
+@chat_api.route("/radio/tick", methods=["POST"])
+@cross_origin(**CORS_OPTIONS)
+def radio_tick():
+    """One request that replaces the radio page's separate pollers.
+
+    Sent as a CORS "simple request" (POST, text/plain, no custom headers) so
+    the browser never issues an OPTIONS preflight; auth token and playing
+    station travel in the JSON body instead of headers.
+
+    Body: {token?, playing, chat_station, since, full_users, want: [...], etags: {...}}
+    Sections (only those in `want` are built):
+      chat     - same payload as /chat/poll/<chat_station>
+      online   - {station: {online_count, online_users}} for every station
+      streamer - same as /StreamerApi/public/status
+      roles    - same as /user/roles
+      uptime   - {started_at}
+    online/streamer/roles carry an etag; if the client sends the same etag the
+    section is left out and its name listed in `unchanged`.
+    """
+    try:
+        body = json.loads(request.get_data(as_text=True) or "{}")
+        if not isinstance(body, dict):
+            raise ValueError
+    except ValueError:
+        return jsonify({"error": "Invalid JSON body"}), 400
+
+    token = (body.get("token") or "").strip()
+    auth_header = f"Bearer {token}" if token else None
+    playing = (body.get("playing") or "Radio GAMING").strip()
+    chat_station = (body.get("chat_station") or "").upper().replace("-", "").replace(" ", "")
+    since = body.get("since") or ""
+    want = set(body.get("want") or [])
+    etags = body.get("etags") if isinstance(body.get("etags"), dict) else {}
+
+    out = {"server_time": datetime.utcnow().isoformat() + "Z", "unchanged": [], "etags": {}}
+
+    def put(name, data):
+        tag = _section_etag(data)
+        out["etags"][name] = tag
+        if etags.get(name) == tag:
+            out["unchanged"].append(name)
+        else:
+            out[name] = data
+
+    if "chat" in want and chat_station in chat_messages:
+        out["chat"] = _build_poll_payload(
+            chat_station, since, bool(body.get("full_users")), auth_header, playing
+        )
+
+    if "online" in want:
+        # Mark the user active only where they listen / chat (old client rule)
+        track = {normalize_station(playing), chat_station}
+        now_ms = str(int(time.time() * 1000))
+        online = {}
+        for st in list(chat_messages.keys()):
+            p = _build_poll_payload(st, now_ms, True, auth_header if st in track else None, playing)
+            online[st] = {"online_count": p["online_count"], "online_users": p["online_users"]}
+        put("online", online)
+
+    if "streamer" in want:
+        streamer_mod = sys.modules.get("StreamerApi")
+        if streamer_mod is not None and hasattr(streamer_mod, "build_public_status"):
+            try:
+                put("streamer", streamer_mod.build_public_status())
+            except Exception as e:
+                out["streamer_error"] = str(e)
+
+    if "roles" in want:
+        put("roles", {
+            "owners": sorted(str(x) for x in OWNER_USER_IDS),
+            "admins": sorted(str(x) for x in (ADMIN_USER_IDS | dynamic_admin_ids)),
+        })
+
+    if "uptime" in want:
+        k5 = sys.modules.get("K5ApiManager")
+        out["uptime"] = {"started_at": getattr(k5, "_server_start_time", None) or _process_start_time}
+
+    return jsonify(out)
 
 
 def _build_poll_payload(station_key, since, include_full_users, auth_header, playing_header):
