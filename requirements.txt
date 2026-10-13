@@ -42,3 +42,4 @@ gunicorn
 gevent
 google-genai
 flask-limiter
+flask-compress

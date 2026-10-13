@@ -3,6 +3,7 @@ import json
 import requests
 from functools import wraps
 import requests
+import atexit
 import threading
 import mysql.connector
 from mysql.connector import pooling
@@ -165,6 +166,37 @@ def _get_db_pool():
                     **_DB_CONFIG,
                 )
     return _db_pool
+
+
+def close_db_pool():
+    """Close every idle pooled connection (sends COM_QUIT to MySQL).
+
+    Called from atexit and from the gunicorn worker_exit/on_exit hooks so a
+    dyno restart or `heroku ps:restart` frees the MySQL sessions immediately
+    instead of leaving them hanging until the server's wait_timeout.
+    Safe to call more than once.
+    """
+    global _db_pool
+    with _db_pool_lock:
+        pool, _db_pool = _db_pool, None
+    if pool is None:
+        return
+    closed = 0
+    try:
+        # mysql-connector 8.x: drains the queue and disconnects each socket
+        closed = pool._remove_connections()
+    except Exception:
+        q = getattr(pool, "_cnx_queue", None)
+        while q is not None and not q.empty():
+            try:
+                q.get_nowait().disconnect()
+                closed += 1
+            except Exception:
+                break
+    print(f"[INFO] Closed {closed} pooled MySQL connection(s).")
+
+
+atexit.register(close_db_pool)
 
 
 def get_db_connection():

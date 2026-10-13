@@ -67,6 +67,25 @@ def load_flask_app(filepath):
 
 
 
+# gzip/br for JSON and text responses (status/queue/chat payloads shrink 4-6x).
+# Optional: if flask-compress is missing we just serve uncompressed.
+try:
+    from flask_compress import Compress as _Compress
+except ImportError:  # pragma: no cover
+    _Compress = None
+    print("[WARN] flask-compress not installed; responses will not be compressed")
+
+
+def enable_compression(flask_app):
+    if _Compress is None:
+        return
+    flask_app.config.setdefault("COMPRESS_MIN_SIZE", 1024)
+    flask_app.config.setdefault("COMPRESS_LEVEL", 6)
+    _Compress(flask_app)
+
+
+enable_compression(main_app)
+
 apps = {}
 for filename in os.listdir(WEBAPPS_DIR):
     if filename.endswith(".py"):
@@ -74,6 +93,7 @@ for filename in os.listdir(WEBAPPS_DIR):
         path = os.path.join(WEBAPPS_DIR, filename)
         app = load_flask_app(path)
         if app:
+            enable_compression(app)
             apps[f"/{name}"] = app
         else:
             print(f"[ERROR] No Flask app found in {filename}")

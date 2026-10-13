@@ -3,6 +3,7 @@ import sys
 import secrets
 import re
 import threading
+import time
 import queue
 from datetime import datetime, timedelta, timezone
 
@@ -317,19 +318,27 @@ def _do_increment_unique_anon_count(delta):
 def _load_unique_anon_count():
     """Load the unique_anonymous_users count from DB into the in-memory counter (startup only)."""
     global _unique_anon_count
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute(
-            "SELECT value FROM service_stats WHERE service_name = 'radio' AND stat_name = 'unique_anonymous_users'"
-        )
-        row = cursor.fetchone()
-        conn.close()
-        _unique_anon_count = int(row["value"]) if row else 0
-        print(f"[DB] Loaded unique anon count from DB: {_unique_anon_count}")
-    except Exception as e:
-        print(f"[DB] Error loading unique anon count: {e}")
-        _unique_anon_count = 0
+    last_err = None
+    for attempt in range(3):
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT value FROM service_stats WHERE service_name = 'radio' AND stat_name = 'unique_anonymous_users'"
+            )
+            row = cursor.fetchone()
+            conn.close()
+            db_value = int(row["value"]) if row and row["value"] is not None else 0
+            # Heartbeats may already have bumped the in-memory counter while we
+            # were loading; never move it backwards.
+            _unique_anon_count = max(_unique_anon_count, db_value)
+            print(f"[DB] Loaded unique anon count from DB: {db_value} (in-memory now {_unique_anon_count})")
+            return
+        except Exception as e:
+            last_err = e
+            time.sleep(1 + attempt)
+    # Keep whatever we have (default 0) rather than clobbering a live counter.
+    print(f"[DB] Error loading unique anon count after retries: {last_err}")
 
 
 def _do_save_session(session_token, session_data):
@@ -749,15 +758,21 @@ def _load_chat_data_from_db():
 
 # Create tables and load data on startup (in background to avoid blocking gunicorn)
 def _init_chat_db():
-    try:
-        create_chat_tables()
-        _create_radio_admins_table()
-        _load_chat_data_from_db()
-        _load_unique_anon_count()
-        _load_anon_stats_from_db()
-        _load_dynamic_admins()
-    except Exception as e:
-        print(f"[DB] Error during startup init: {e}")
+    # Each step is isolated: one failing loader must not skip the others
+    # (previously a failure in create_chat_tables left the unique-anon counter
+    # at 0, so the footer showed "1 anonymous" after a restart).
+    for step in (
+        create_chat_tables,
+        _create_radio_admins_table,
+        _load_chat_data_from_db,
+        _load_unique_anon_count,
+        _load_anon_stats_from_db,
+        _load_dynamic_admins,
+    ):
+        try:
+            step()
+        except Exception as e:
+            print(f"[DB] Error during startup init ({step.__name__}): {e}")
 
 threading.Thread(target=_init_chat_db, daemon=True, name="chat-db-init").start()
 
@@ -1486,13 +1501,48 @@ def claim_anonymous():
 @cross_origin(**CORS_OPTIONS)
 def poll_messages(station):
     station_key = station.upper().replace("-", "").replace(" ", "")
-    since = request.args.get("since", "")
     if station_key not in chat_messages:
         return jsonify({"error": "Invalid station"}), 400
 
-    # Track activity
+    payload = _build_poll_payload(
+        station_key,
+        request.args.get("since", ""),
+        request.args.get("full_users") == "1",
+        request.headers.get("Authorization"),
+        request.headers.get("X-Playing-Station"),
+    )
+    return jsonify(payload)
+
+
+@chat_api.route("/chat/poll-all")
+@cross_origin(**CORS_OPTIONS)
+def poll_all_stations():
+    """One request for every station (the radio page used to fire three).
+    Query: since, full_users=1, track=KEY1,KEY2 — only the stations listed in
+    `track` get the caller's Authorization applied, so the user is marked
+    active only where they actually listen/chat (same rule the client used).
+    """
+    since = request.args.get("since", "")
+    include_full_users = request.args.get("full_users") == "1"
     auth_header = request.headers.get("Authorization")
     playing_header = request.headers.get("X-Playing-Station")
+    track = {s.strip().upper() for s in request.args.get("track", "").split(",") if s.strip()}
+
+    result = {}
+    for station_key in list(chat_messages.keys()):
+        result[station_key] = _build_poll_payload(
+            station_key,
+            since,
+            include_full_users,
+            auth_header if station_key in track else None,
+            playing_header,
+        )
+    return jsonify(result)
+
+
+def _build_poll_payload(station_key, since, include_full_users, auth_header, playing_header):
+    """Shared body of /chat/poll/<station> and /chat/poll-all."""
+    # Track activity
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
         if token in user_sessions:
@@ -1579,19 +1629,15 @@ def poll_messages(station):
                         deleted_emojis.append(d["id"])
 
     # Only return user list if specifically requested via ?full_users=1
-    include_full_users = request.args.get("full_users") == "1"
-
-    return jsonify(
-        {
-            "messages": messages[-50:],
-            "other_mentions": other_mentions,
-            "online_count": online_count,
-            "online_users": online_users_list if include_full_users else None,
-            "deleted_messages": deleted_messages if deleted_messages else None,
-            "deleted_emojis": deleted_emojis if deleted_emojis else None,
-            "server_time": datetime.utcnow().isoformat() + "Z",
-        }
-    )
+    return {
+        "messages": messages[-50:],
+        "other_mentions": other_mentions,
+        "online_count": online_count,
+        "online_users": online_users_list if include_full_users else None,
+        "deleted_messages": deleted_messages if deleted_messages else None,
+        "deleted_emojis": deleted_emojis if deleted_emojis else None,
+        "server_time": datetime.utcnow().isoformat() + "Z",
+    }
 
 
 # --- User Data Sync (listening history, favorites, stats) ---

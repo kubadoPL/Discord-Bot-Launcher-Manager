@@ -2476,6 +2476,23 @@ def get_all_status():
     # Bundle admin presence data with status response
     result["_admin_presence"] = _get_admin_presence_data()
 
+    # Optional: bundle new log lines so the panel does not need /logs/<id> polls.
+    # ?logs_since=65,0,0 -> one index per station id (in station order).
+    logs_since = request.args.get("logs_since")
+    if logs_since is not None:
+        parts = logs_since.split(",")
+        bundled = {}
+        for i, (sid, station) in enumerate(stations.items()):
+            try:
+                since = int(parts[i]) if i < len(parts) and parts[i] != "" else 0
+            except ValueError:
+                since = 0
+            bundled[str(sid)] = {
+                "logs": station.get_logs(since),
+                "total": len(station._log_buffer),
+            }
+        result["_logs"] = bundled
+
     return jsonify(result)
 
 
