@@ -435,23 +435,70 @@ def api_running_services():
 
 # ─── Roblox Game Stats Proxy ──────────────────────────────────────────────────
 
+def _is_success(response):
+    """Caches only successful answers; errors come back as (body, status, headers) tuples."""
+    return not isinstance(response, tuple)
+
+
 @app.route("/api/game-stats")
 @cross_origin(origins=_CORS_ORIGINS)
-@cache.cached(timeout=60, query_string=True)
+@cache.cached(timeout=60, query_string=True, response_filter=_is_success)
 def api_game_stats():
     """Proxy Roblox games API to avoid CORS. Accepts ?universeIds=id1,id2,..."""
+    return _proxy_roblox("https://games.roblox.com/v1/games?universeIds={ids}")
+
+
+@app.route("/api/game-votes")
+@cross_origin(origins=_CORS_ORIGINS)
+@cache.cached(timeout=60, query_string=True, response_filter=_is_success)
+def api_game_votes():
+    """Proxy Roblox likes/dislikes. Accepts ?universeIds=id1,id2,..."""
+    return _proxy_roblox("https://games.roblox.com/v1/games/votes?universeIds={ids}")
+
+
+@app.route("/api/game-icons")
+@cross_origin(origins=_CORS_ORIGINS)
+@cache.cached(timeout=600, query_string=True, response_filter=_is_success)
+def api_game_icons():
+    """Proxy Roblox game icons (512x512 WebP). Accepts ?universeIds=id1,id2,..."""
+    return _proxy_roblox(
+        "https://thumbnails.roblox.com/v1/games/icons"
+        "?universeIds={ids}&size=512x512&format=Webp&isCircular=false"
+    )
+
+
+@app.route("/api/game-thumbnails")
+@cross_origin(origins=_CORS_ORIGINS)
+@cache.cached(timeout=600, query_string=True, response_filter=_is_success)
+def api_game_thumbnails():
+    """Proxy each game's first Roblox thumbnail (768x432 WebP). Accepts ?universeIds=id1,id2,..."""
+    return _proxy_roblox(
+        "https://thumbnails.roblox.com/v1/games/multiget/thumbnails"
+        "?universeIds={ids}&countPerUniverse=1&size=768x432&format=Webp"
+    )
+
+
+def _proxy_roblox(url_template):
+    """Fetches a Roblox API URL for the universeIds in the request.
+
+    Only comma-separated numeric IDs are accepted, so a request can't add its own
+    parameters to the Roblox URL. Error answers are never cached, so a rate limit
+    from Roblox isn't served to every visitor for the cache period.
+    """
     universe_ids = request.args.get("universeIds", "").strip()
-    if not universe_ids:
-        return jsonify({"error": "Missing universeIds"}), 400
+    ids = [part for part in universe_ids.split(",") if part]
+    if not ids or len(ids) > 50 or not all(part.isdigit() for part in ids):
+        return jsonify({"error": "universeIds must be 1-50 comma-separated numbers"}), 400
 
     try:
-        resp = requests.get(
-            f"https://games.roblox.com/v1/games?universeIds={universe_ids}",
-            timeout=10,
-        )
-        return jsonify(resp.json()), resp.status_code
+        resp = requests.get(url_template.format(ids=",".join(ids)), timeout=10)
+        data = resp.json()
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": str(e)}), 502
+
+    if not resp.ok:
+        return jsonify(data), resp.status_code, {"Cache-Control": "no-store"}
+    return jsonify(data)
 
 # ─── Discord Webhook Config (from env vars) ───────────────────────────────────
 # Env vars format: WEBHOOK_<GUILD_ID>=<webhook_url>
