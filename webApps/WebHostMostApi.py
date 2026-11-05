@@ -103,7 +103,13 @@ def check_suspension_timer(force=False):
 
 
 def _parse_cookie_header(header):
-    """Turns 'name=value; name2=value2' into a list of (name, value) pairs."""
+    """Turns 'name=value; name2=value2' into a list of (name, value) pairs.
+
+    Also accepts the header copied with its 'cookie:' label or wrapped in quotes.
+    """
+    header = header.strip().strip("'\"").strip()
+    if header.lower().startswith("cookie:"):
+        header = header[len("cookie:"):].strip().strip("'\"")
     cookies = []
     for part in header.split(";"):
         name, sep, value = part.strip().partition("=")
@@ -147,11 +153,23 @@ def _read_timer():
 
         # Cookies can only be set for the site that is open, so open it first
         driver.get(BASE_URL + "/robots.txt")
+        loaded = []
         for name, value in _parse_cookie_header(cookie_header):
             try:
-                driver.add_cookie({"name": name, "value": value, "path": "/"})
+                driver.add_cookie({
+                    "name": name,
+                    "value": value,
+                    "path": "/",
+                    "domain": "client.webhostmost.com",
+                    "secure": True,
+                })
+                loaded.append(name)
             except Exception as e:  # one bad cookie shouldn't stop the others
-                print(f"[WebHostMost] Skipped cookie {name}: {type(e).__name__}")
+                print(f"[WebHostMost] Skipped cookie {name}: {type(e).__name__}: {e}")
+
+        # Names only, never values: they give access to the account
+        whmcs = [name for name in loaded if name.startswith("WHMCS")]
+        print(f"[WebHostMost] Loaded {len(loaded)} cookies, WHMCS ones: {whmcs or 'none'}")
 
         driver.get(CLIENT_AREA_URL)
 
@@ -160,6 +178,8 @@ def _read_timer():
                 "ok": False,
                 "error": "session_expired",
                 "details": "WebHostMost asked to log in again. Refresh WEBHOSTMOST_COOKIES.",
+                "whmcs_cookies_loaded": whmcs,
+                "page_url": driver.current_url,
                 "checked_at": checked_at,
             }
 
