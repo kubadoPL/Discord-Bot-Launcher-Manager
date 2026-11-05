@@ -360,12 +360,13 @@ def get_video_info():
 
     url = data["url"].strip()
 
-    # Basic URL validation
-    is_youtube = "youtube.com" in url or "youtu.be" in url or "music.youtube.com" in url
+    # YouTube and Spotify get special handling; any other site goes straight to yt-dlp
+    is_youtube = _is_youtube_url(url)
     is_spotify = "open.spotify.com" in url
 
-    if not is_youtube and not is_spotify:
-        return jsonify({"error": "Only YouTube and Spotify URLs are supported"}), 400
+    url_error = _check_public_url(url)
+    if url_error:
+        return jsonify({"error": url_error}), 400
 
     # Spotify handling
     if is_spotify:
@@ -386,8 +387,8 @@ def get_video_info():
         params.pop("si", None)
         url = urlunparse(parsed._replace(query=urlencode(params, doseq=True)))
 
-    # Detect playlist URLs
-    is_playlist = "?list=" in url or "&list=" in url or "/playlist" in url
+    # Detect playlist URLs (YouTube only; other sites return their first video)
+    is_playlist = is_youtube and ("?list=" in url or "&list=" in url or "/playlist" in url)
 
     try:
         import yt_dlp
@@ -398,10 +399,54 @@ def get_video_info():
             return _handle_single_video_info(url)
 
     except Exception as e:
-        error_msg = str(e)
-        if "Sign in" in error_msg or "bot" in error_msg.lower():
-            error_msg = "YouTube is blocking this request. Try again later."
-        return jsonify({"error": f"Failed to fetch video info: {error_msg}"}), 500
+        return jsonify({"error": f"Failed to fetch video info: {_friendly_error(str(e), url)}"}), 500
+
+
+# ─── Supported URLs ───────────────────────────────────────────────────────────
+# yt-dlp handles YouTube, TikTok, Instagram, X/Twitter, Facebook, Reddit, Twitch,
+# Vimeo, SoundCloud and 1000+ other sites, plus direct media links.
+
+
+def _is_youtube_url(url):
+    return "youtube.com" in url or "youtu.be" in url
+
+
+def _check_public_url(url):
+    """Returns an error message when the URL isn't a public http(s) address, else None.
+
+    Any site is allowed, so this keeps requests away from the server's own network
+    (localhost, private ranges, cloud metadata) instead of limiting which sites work.
+    """
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return "Paste a link starting with http:// or https://"
+    try:
+        addresses = {info[4][0] for info in socket.getaddrinfo(parsed.hostname, None)}
+    except socket.gaierror:
+        return "This website could not be found. Check the link."
+    for address in addresses:
+        ip = ipaddress.ip_address(address.split("%")[0])
+        if not ip.is_global:
+            return "This link points to a private address and can't be downloaded."
+    return None
+
+
+def _friendly_error(error_msg, url):
+    """Turns common yt-dlp errors into a short message for the user."""
+    lower = error_msg.lower()
+    if "unsupported url" in lower:
+        return "This website isn't supported."
+    if _is_youtube_url(url) and ("sign in" in lower or "bot" in lower):
+        return "YouTube is blocking this request. Try again later."
+    if "login" in lower or "log in" in lower or "sign in" in lower or "cookies" in lower:
+        return "This post needs a logged-in account (private or age-restricted), so it can't be downloaded."
+    if "no video" in lower or "no media" in lower:
+        return "No video or audio was found at this link."
+    return error_msg
 
 
 def _scrape_spotify_tracks(url):
@@ -805,7 +850,8 @@ def _handle_single_video_info(url):
 
     return jsonify({
         "type": "video",
-        "title": info.get("title", "Unknown"),
+        "site": info.get("extractor_key") or info.get("extractor") or "",
+        "title": info.get("title") or info.get("description", "")[:80] or "Unknown",
         "thumbnail": info.get("thumbnail", ""),
         "duration": duration,
         "duration_formatted": duration_str,
@@ -838,8 +884,11 @@ def start_download():
     if fmt not in ("mp3", "mp4"):
         return jsonify({"error": "Format must be 'mp3' or 'mp4'"}), 400
 
-    if not ("youtube.com" in url or "youtu.be" in url or "music.youtube.com" in url or url.startswith("ytsearch")):
-        return jsonify({"error": "Only YouTube URLs are supported"}), 400
+    # "ytsearch:" queries come from Spotify tracks; everything else must be a public link
+    if not url.startswith("ytsearch"):
+        url_error = _check_public_url(url)
+        if url_error:
+            return jsonify({"error": url_error}), 400
 
     # Track stats
     _increment_stat("downloads_started")
@@ -1022,9 +1071,7 @@ def _download_worker(job_id, url, fmt, quality, override_title=""):
             _increment_stat("downloads_failed")
 
     except Exception as e:
-        error_msg = str(e)
-        if "Sign in" in error_msg:
-            error_msg = "YouTube is blocking this request. Try again later."
+        error_msg = _friendly_error(str(e), url)
         with _jobs_lock:
             _jobs[job_id]["status"] = "error"
             _jobs[job_id]["error"] = error_msg

@@ -830,7 +830,7 @@
 
                 const statusMap = {
                     starting: 'Initializing...',
-                    downloading: 'Downloading from YouTube...',
+                    downloading: 'Downloading...',
                     converting: 'Converting file...',
                     done: 'Complete!',
                     error: 'Error occurred',
@@ -915,7 +915,8 @@
     urlInput.addEventListener('paste', () => {
         setTimeout(() => {
             const val = urlInput.value.trim();
-            if (val && (val.includes('youtube.com') || val.includes('youtu.be') || val.includes('music.youtube.com'))) {
+            // Any web link: the server handles YouTube, TikTok, Instagram, X and many more
+            if (/^https?:\/\/\S+\.\S+/i.test(val)) {
                 fetchVideoInfo();
             }
         }, 100);
