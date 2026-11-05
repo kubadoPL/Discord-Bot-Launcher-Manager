@@ -11,6 +11,8 @@ password. It reuses the session of a browser where you are logged in instead:
     2. Open DevTools > Network, reload clientarea.php, click the request and
        copy the whole "cookie" request header.
     3. Put that text in the WEBHOSTMOST_COOKIES environment variable.
+    4. From the same request, copy the "user-agent" header into
+       WEBHOSTMOST_USER_AGENT: the session may only work in that browser.
 
 When the session expires, /status answers "session_expired" and the logs say so:
 repeat the steps above.
@@ -137,10 +139,15 @@ def _read_timer():
         "--disable-dev-shm-usage",
         "--disable-extensions",
         "--blink-settings=imagesEnabled=false",
-        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     ):
         options.add_argument(arg)
+    # The session may be tied to the browser it was created in, so use that browser's
+    # User-Agent when WEBHOSTMOST_USER_AGENT is set
+    user_agent = os.environ.get("WEBHOSTMOST_USER_AGENT", "").strip() or (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+    options.add_argument("user-agent=" + user_agent)
     if sys.platform.startswith("linux"):
         # Low memory on the dyno; Chrome on Windows won't start with these
         options.add_argument("--no-zygote")
@@ -179,6 +186,8 @@ def _read_timer():
                 "error": "session_expired",
                 "details": "WebHostMost asked to log in again. Refresh WEBHOSTMOST_COOKIES.",
                 "whmcs_cookies_loaded": whmcs,
+                "cookies_loaded": len(loaded),
+                "custom_user_agent": bool(os.environ.get("WEBHOSTMOST_USER_AGENT", "").strip()),
                 "page_url": driver.current_url,
                 "checked_at": checked_at,
             }
