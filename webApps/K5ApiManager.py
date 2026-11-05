@@ -478,6 +478,62 @@ def api_game_thumbnails():
     )
 
 
+@app.route("/api/channel-avatars")
+@cross_origin(origins=_CORS_ORIGINS)
+@cache.cached(timeout=21600, query_string=True, response_filter=_is_success)
+def api_channel_avatars():
+    """Current YouTube avatars for up to 50 channel IDs: ?ids=UC...,UC...
+
+    Returns {"avatars": {channel_id: image_url}}. Uses the YouTube Data API when
+    YOUTUBE_DATA_TOKEN is set, and YouTube's public page data for any channel the
+    API didn't answer. Channels that can't be read are left out.
+    """
+    ids = [part for part in request.args.get("ids", "").split(",") if part]
+    if not ids or len(ids) > 50 or not all(_re.fullmatch(r"UC[\w-]{22}", part) for part in ids):
+        return jsonify({"error": "ids must be 1-50 YouTube channel IDs"}), 400
+
+    avatars = {}
+    api_key = os.environ.get("YOUTUBE_DATA_TOKEN")
+    if api_key:
+        try:
+            resp = requests.get(
+                "https://www.googleapis.com/youtube/v3/channels",
+                params={"part": "snippet", "id": ",".join(ids), "key": api_key},
+                timeout=10,
+            )
+            for item in resp.json().get("items", []):
+                thumbs = item.get("snippet", {}).get("thumbnails", {})
+                best = thumbs.get("medium") or thumbs.get("high") or thumbs.get("default")
+                if best:
+                    avatars[item["id"]] = best["url"]
+        except Exception as e:
+            print(f"[channel-avatars] YouTube Data API failed: {e}")
+
+    for channel_id in ids:
+        if channel_id in avatars:
+            continue
+        try:
+            resp = requests.post(
+                "https://www.youtube.com/youtubei/v1/browse?prettyPrint=false",
+                json={
+                    "context": {"client": {"clientName": "WEB", "clientVersion": "2.20241106.01.00"}},
+                    "browseId": channel_id,
+                },
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=10,
+            )
+            meta = resp.json().get("metadata", {}).get("channelMetadataRenderer", {})
+            thumbs = meta.get("avatar", {}).get("thumbnails", [])
+            if thumbs:
+                avatars[channel_id] = _re.sub(r"=s\d+-", "=s240-", thumbs[-1]["url"])
+        except Exception as e:
+            print(f"[channel-avatars] page data failed for {channel_id}: {e}")
+
+    if not avatars:
+        return jsonify({"error": "No avatars could be read"}), 502, {"Cache-Control": "no-store"}
+    return jsonify({"avatars": avatars})
+
+
 def _proxy_roblox(url_template):
     """Fetches a Roblox API URL for the universeIds in the request.
 
