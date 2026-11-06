@@ -1,6 +1,7 @@
 import os
 import sys
 import time as _time
+import threading
 
 # Set the script and parent directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1110,6 +1111,47 @@ def search_deezer_proxy():
         return jsonify(resp.json())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ─── Generic Online Users Tracking (shared by all K5 services) ────────────────
+# Each service gets its own session dict keyed by service name.
+_service_sessions = {}   # service -> { sid -> last_heartbeat }
+_sessions_lock = threading.Lock()
+_SESSION_TIMEOUT = 30    # seconds
+
+
+def _online_count(service: str) -> int:
+    now = _time.time()
+    with _sessions_lock:
+        sessions = _service_sessions.setdefault(service, {})
+        stale = [s for s, t in sessions.items() if now - t > _SESSION_TIMEOUT]
+        for s in stale:
+            del sessions[s]
+        return len(sessions)
+
+
+@app.route("/api/heartbeat", methods=["POST"])
+@limiter.limit("60 per minute")
+@cross_origin(origins="*")
+def api_heartbeat():
+    """Universal heartbeat endpoint. Body: { sid, service }."""
+    data = request.get_json(silent=True) or {}
+    sid = data.get("sid", "")
+    service = data.get("service", "unknown")
+    if not sid:
+        return jsonify({"error": "no sid"}), 400
+    with _sessions_lock:
+        _service_sessions.setdefault(service, {})[sid] = _time.time()
+    return jsonify({"online": _online_count(service)})
+
+
+@app.route("/api/online", methods=["GET"])
+@cross_origin(origins="*")
+def api_online():
+    """Return online count for a service. Query param: ?service=portfolio"""
+    service = request.args.get("service", "unknown")
+    return jsonify({"online": _online_count(service)})
+
 
 
 def run_api():
