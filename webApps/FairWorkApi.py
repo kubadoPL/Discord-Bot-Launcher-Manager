@@ -16,8 +16,9 @@ account – whoever has it can read and write that data set, nobody else can.
 
 Routes (mounted under /FairWorkApi)
 -----------------------------------
-    POST   /sessions   {"sessions": [{uid, started_at, last_seen_at, ended_at,
+    POST   /sessions   {"sessions": [{uid, kind, started_at, last_seen_at, ended_at,
                         guild_id, channel_id}], "profile": {...}}   upsert by uid
+                       kind is "work" (default) or "break" (deafened while working)
     GET    /sessions   -> {"sessions": [...]}
     DELETE /sessions   wipe everything stored for this key
 
@@ -99,6 +100,7 @@ def _ensure_tables():
                 CREATE TABLE IF NOT EXISTS `fairwork_sessions` (
                     owner_id BIGINT NOT NULL,
                     uid CHAR(32) NOT NULL,
+                    kind VARCHAR(8) NOT NULL DEFAULT 'work',
                     guild_id VARCHAR(32) NULL,
                     channel_id VARCHAR(32) NULL,
                     started_at BIGINT NOT NULL,
@@ -110,6 +112,11 @@ def _ensure_tables():
                 )
             """)
             conn.commit()
+            # Tables created before breaks existed have no `kind` column yet.
+            cursor.execute("SHOW COLUMNS FROM `fairwork_sessions` LIKE 'kind'")
+            if not cursor.fetchone():
+                cursor.execute("ALTER TABLE `fairwork_sessions` ADD COLUMN kind VARCHAR(8) NOT NULL DEFAULT 'work' AFTER uid")
+                conn.commit()
         finally:
             conn.close()
         _tables_ready = True
@@ -160,7 +167,8 @@ def _clean_session(raw):
         return None
     if seen < started or (ended is not None and ended < started):
         return None
-    return uid, _clean_id(raw.get("guild_id")), _clean_id(raw.get("channel_id")), started, seen, ended
+    kind = "break" if raw.get("kind") == "break" else "work"
+    return uid, kind, _clean_id(raw.get("guild_id")), _clean_id(raw.get("channel_id")), started, seen, ended
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -204,10 +212,10 @@ def push_sessions():
                 return jsonify({"error": "storage_full"}), 403
             cursor.executemany("""
                 INSERT INTO `fairwork_sessions`
-                    (owner_id, uid, guild_id, channel_id, started_at, last_seen_at, ended_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    (owner_id, uid, kind, guild_id, channel_id, started_at, last_seen_at, ended_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
-                    guild_id = VALUES(guild_id), channel_id = VALUES(channel_id),
+                    kind = VALUES(kind), guild_id = VALUES(guild_id), channel_id = VALUES(channel_id),
                     started_at = VALUES(started_at), last_seen_at = VALUES(last_seen_at),
                     ended_at = VALUES(ended_at)
             """, [(owner_id,) + s for s in sessions])
@@ -220,7 +228,8 @@ def push_sessions():
         conn.commit()
     finally:
         conn.close()
-    return jsonify({"ok": True, "stored": len(sessions), "rejected": rejected})
+    # "kinds": this server stores work and break rows separately (the app waits for it).
+    return jsonify({"ok": True, "stored": len(sessions), "rejected": rejected, "kinds": True})
 
 
 @app.route("/sessions", methods=["GET"])
@@ -237,7 +246,7 @@ def pull_sessions():
         rows = []
         if owner_id:
             cursor.execute(
-                "SELECT uid, guild_id, channel_id, started_at, last_seen_at, ended_at "
+                "SELECT uid, kind, guild_id, channel_id, started_at, last_seen_at, ended_at "
                 "FROM `fairwork_sessions` WHERE owner_id = %s ORDER BY started_at LIMIT %s",
                 (owner_id, MAX_SESSIONS + MAX_BATCH),
             )
@@ -246,7 +255,7 @@ def pull_sessions():
         conn.close()
     return jsonify({"sessions": [
         {
-            "uid": r["uid"], "guild_id": r["guild_id"], "channel_id": r["channel_id"],
+            "uid": r["uid"], "kind": r["kind"], "guild_id": r["guild_id"], "channel_id": r["channel_id"],
             "started_at": int(r["started_at"]), "last_seen_at": int(r["last_seen_at"]),
             "ended_at": int(r["ended_at"]) if r["ended_at"] is not None else None,
         }
